@@ -45,12 +45,17 @@ pub fn run() {
 
 struct RootView {
     host_list: Entity<crate::views::HostListView>,
+    host_pane: Entity<crate::views::HostPaneView>,
 }
 
 impl RootView {
     fn new(state: Entity<AppState>, cx: &mut Context<Self>) -> Self {
         let host_list = cx.new(|cx| crate::views::HostListView::new(state.clone(), cx));
-        Self { host_list }
+        let host_pane = cx.new(|cx| crate::views::HostPaneView::new(state, cx));
+        Self {
+            host_list,
+            host_pane,
+        }
     }
 }
 
@@ -62,12 +67,6 @@ impl Render for RootView {
             .size_full()
             .bg(rgb(0x121212))
             .child(self.host_list.clone())
-            .child(
-                div()
-                    .flex_1()
-                    .text_color(rgb(0x888888))
-                    .p_4()
-                    .child("请从左侧选择主机"),
-            )
+            .child(self.host_pane.clone())
     }
 }
