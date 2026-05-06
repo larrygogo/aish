@@ -1,17 +1,29 @@
-//! 主区：渲染当前 selected host 的 pane log。
+//! 主区：渲染 selected host 的 pane log。
 
-use gpui::{div, prelude::*, rgb, AnyElement, Context, Entity, Render, Window};
+use std::sync::Arc;
 
-use crate::state::AppState;
+use gpui::{div, prelude::*, rgb, AnyElement, Context, Entity, Window};
+
+use crate::bridge::Bridge;
+use crate::state::{AppState, SshEvent};
 
 pub struct HostPaneView {
     state: Entity<AppState>,
+    #[allow(dead_code)] // Task 7 加键盘输入时用
+    bridge: Arc<Bridge>,
+    #[allow(dead_code)] // Task 7 加键盘输入时用
+    tx: tokio::sync::mpsc::Sender<SshEvent>,
 }
 
 impl HostPaneView {
-    pub fn new(state: Entity<AppState>, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        state: Entity<AppState>,
+        bridge: Arc<Bridge>,
+        tx: tokio::sync::mpsc::Sender<SshEvent>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         cx.observe(&state, |_this, _state, cx| cx.notify()).detach();
-        Self { state }
+        Self { state, bridge, tx }
     }
 }
 

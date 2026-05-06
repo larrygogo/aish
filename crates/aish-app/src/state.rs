@@ -1,124 +1,189 @@
-//! aish-app 内部 App State：M1 阶段的 Model。
-//!
-//! 注意：此处的 `HostId` 是 M1 的 mock 类型（u32 newtype），
-//! 与 `aish_types::HostId`（UUID）不冲突——M2 接入真实 SSH 时再切换。
+//! aish-app App State — M2a 起用真实类型 + Actor model session 管理。
 
-// M1 阶段类型仅在测试中使用，暂时允许 dead_code。
 #![allow(dead_code)]
 
 use std::collections::HashMap;
 
-/// M1 阶段的 mock host 标识（u32 newtype）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct HostId(pub u32);
+use aish_types::{HostConfig, HostId};
+use tokio::sync::mpsc;
 
-/// M1 阶段的 mock host（M2 时换成 aish_types::HostConfig）。
-#[derive(Debug, Clone)]
-pub struct MockHost {
-    pub id: HostId,
-    pub label: String,
+/// 从 SSH actor task 推回 GPUI 的事件。
+#[derive(Debug)]
+pub enum SshEvent {
+    Connected {
+        host: HostId,
+    },
+    PaneOutput {
+        host: HostId,
+        bytes: Vec<u8>,
+    },
+    Disconnected {
+        host: HostId,
+        reason: DisconnectReason,
+    },
+    Error {
+        host: HostId,
+        kind: SshErrorKind,
+        msg: String,
+    },
 }
 
-/// 从 bridge 推回 GPUI 的事件（M2 时会扩展更多 variant）。
 #[derive(Debug, Clone)]
-pub enum MockEvent {
-    PaneOutput { host: HostId, line: String },
+pub enum DisconnectReason {
+    UserRequested,
+    RemoteExited,
+    NetworkError(String),
 }
 
-/// 单一 root Model：所有 UI 共享状态的 source of truth。
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SshErrorKind {
+    ConnectFailed,
+    AuthFailed,
+    Io,
+    Protocol,
+}
+
+/// 从 GPUI 发到 actor task 的命令。
+#[derive(Debug)]
+pub enum SessionCommand {
+    SendBytes(Vec<u8>),
+    Disconnect,
+}
+
+/// 单一 root Model：所有 UI 共享状态。
+#[derive(Default)]
 pub struct AppState {
-    pub hosts: Vec<MockHost>,
+    pub hosts: Vec<HostConfig>,
     pub selected: Option<HostId>,
     pub pane_logs: HashMap<HostId, Vec<String>>,
+    /// 已连接 host 的 SessionCommand sender。
+    /// 缺失 = 未连接，存在 = 有活跃 session。
+    pub sessions: HashMap<HostId, mpsc::Sender<SessionCommand>>,
 }
 
 impl AppState {
-    /// 用三个固定 mock host 初始化。
-    pub fn with_mock_hosts() -> Self {
+    pub fn with_hosts(hosts: Vec<HostConfig>) -> Self {
         Self {
-            hosts: vec![
-                MockHost {
-                    id: HostId(1),
-                    label: "server-A (mock)".into(),
-                },
-                MockHost {
-                    id: HostId(2),
-                    label: "server-B (mock)".into(),
-                },
-                MockHost {
-                    id: HostId(3),
-                    label: "server-C (mock)".into(),
-                },
-            ],
+            hosts,
             selected: None,
             pane_logs: HashMap::new(),
+            sessions: HashMap::new(),
         }
     }
 
-    /// 切换选中 host。
     pub fn select_host(&mut self, id: HostId) {
         self.selected = Some(id);
     }
 
-    /// 追加一行到指定 host 的 pane log。
     pub fn append_log(&mut self, host: HostId, line: String) {
         self.pane_logs.entry(host).or_default().push(line);
     }
 
-    /// 读指定 host 的 pane log（若无则返回空切片）。
     pub fn logs_of(&self, host: HostId) -> &[String] {
         self.pane_logs
             .get(&host)
             .map(|v| v.as_slice())
             .unwrap_or(&[])
     }
+
+    pub fn host_label(&self, id: HostId) -> Option<String> {
+        self.hosts
+            .iter()
+            .find(|h| h.id == id)
+            .map(|h| h.label.clone())
+    }
+
+    pub fn is_session_active(&self, id: HostId) -> bool {
+        self.sessions.contains_key(&id)
+    }
+
+    pub fn register_session(&mut self, id: HostId, sender: mpsc::Sender<SessionCommand>) {
+        self.sessions.insert(id, sender);
+    }
+
+    pub fn drop_session(&mut self, id: HostId) {
+        self.sessions.remove(&id);
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aish_types::SshAuth;
+    use std::path::PathBuf;
+    use uuid::Uuid;
+
+    fn mk_host(label: &str) -> HostConfig {
+        HostConfig {
+            id: HostId(Uuid::new_v4()),
+            label: label.into(),
+            host: "example.com".into(),
+            port: 22,
+            user: "larry".into(),
+            auth: SshAuth::KeyFile {
+                path: PathBuf::from("/tmp/k"),
+            },
+            env_profile: None,
+        }
+    }
 
     #[test]
-    fn with_mock_hosts_returns_three() {
-        let state = AppState::with_mock_hosts();
-        assert_eq!(state.hosts.len(), 3);
-        assert_eq!(state.hosts[0].id, HostId(1));
-        assert_eq!(state.hosts[2].label, "server-C (mock)");
+    fn with_hosts_initializes_correctly() {
+        let h1 = mk_host("a");
+        let h2 = mk_host("b");
+        let state = AppState::with_hosts(vec![h1.clone(), h2.clone()]);
+        assert_eq!(state.hosts.len(), 2);
+        assert_eq!(state.hosts[0].label, "a");
         assert!(state.selected.is_none());
         assert!(state.pane_logs.is_empty());
+        assert!(state.sessions.is_empty());
     }
 
     #[test]
     fn select_host_sets_selected() {
-        let mut state = AppState::with_mock_hosts();
-        state.select_host(HostId(2));
-        assert_eq!(state.selected, Some(HostId(2)));
+        let h = mk_host("a");
+        let id = h.id;
+        let mut state = AppState::with_hosts(vec![h]);
+        state.select_host(id);
+        assert_eq!(state.selected, Some(id));
     }
 
     #[test]
-    fn append_log_creates_entry_for_new_host() {
-        let mut state = AppState::default();
-        state.append_log(HostId(7), "hello".into());
-        assert_eq!(state.logs_of(HostId(7)), &["hello".to_string()]);
-    }
-
-    #[test]
-    fn append_log_accumulates_per_host() {
-        let mut state = AppState::default();
-        state.append_log(HostId(1), "line A1".into());
-        state.append_log(HostId(2), "line B1".into());
-        state.append_log(HostId(1), "line A2".into());
+    fn append_log_per_host_isolation() {
+        let h1 = mk_host("a");
+        let h2 = mk_host("b");
+        let id1 = h1.id;
+        let id2 = h2.id;
+        let mut state = AppState::with_hosts(vec![h1, h2]);
+        state.append_log(id1, "line A1".into());
+        state.append_log(id2, "line B1".into());
+        state.append_log(id1, "line A2".into());
         assert_eq!(
-            state.logs_of(HostId(1)),
+            state.logs_of(id1),
             &["line A1".to_string(), "line A2".into()]
         );
-        assert_eq!(state.logs_of(HostId(2)), &["line B1".to_string()]);
+        assert_eq!(state.logs_of(id2), &["line B1".to_string()]);
     }
 
     #[test]
-    fn logs_of_missing_host_returns_empty_slice() {
-        let state = AppState::default();
-        assert!(state.logs_of(HostId(99)).is_empty());
+    fn host_label_returns_correct_label() {
+        let h = mk_host("my-vps");
+        let id = h.id;
+        let state = AppState::with_hosts(vec![h]);
+        assert_eq!(state.host_label(id), Some("my-vps".into()));
+        assert_eq!(state.host_label(HostId(Uuid::new_v4())), None);
+    }
+
+    #[tokio::test]
+    async fn session_register_and_drop() {
+        let h = mk_host("a");
+        let id = h.id;
+        let mut state = AppState::with_hosts(vec![h]);
+        let (tx, _rx) = mpsc::channel::<SessionCommand>(8);
+        assert!(!state.is_session_active(id));
+        state.register_session(id, tx);
+        assert!(state.is_session_active(id));
+        state.drop_session(id);
+        assert!(!state.is_session_active(id));
     }
 }

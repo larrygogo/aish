@@ -1,55 +1,76 @@
-//! 左栏：mock host 列表，点击切换 selected 并触发 mock SSH。
+//! 左栏：host 列表，点击切换 selected + 触发 SSH 连接。
 
 use std::sync::Arc;
 
-use gpui::{
-    div, prelude::*, px, rgb, Context, Entity, MouseButton, MouseDownEvent, Render, Window,
-};
+use aish_types::HostId;
+use gpui::{div, prelude::*, px, rgb, Context, Entity, MouseButton, MouseDownEvent, Window};
 
 use crate::bridge::Bridge;
-use crate::mock::mock_ssh_task;
-use crate::state::{AppState, HostId, MockEvent};
+use crate::state::{AppState, SshEvent};
 
 pub struct HostListView {
     state: Entity<AppState>,
     bridge: Arc<Bridge>,
-    tx: tokio::sync::mpsc::Sender<MockEvent>,
+    tx: tokio::sync::mpsc::Sender<SshEvent>,
 }
 
 impl HostListView {
     pub fn new(
         state: Entity<AppState>,
         bridge: Arc<Bridge>,
-        tx: tokio::sync::mpsc::Sender<MockEvent>,
+        tx: tokio::sync::mpsc::Sender<SshEvent>,
         cx: &mut Context<Self>,
     ) -> Self {
         cx.observe(&state, |_this, _state, cx| cx.notify()).detach();
         Self { state, bridge, tx }
     }
 
-    fn handle_click(&mut self, host_id: HostId, cx: &mut Context<Self>) {
-        // 1. 立即更新 Model（让 UI 立刻反馈 "Connecting..."）
-        let label = self.state.update(cx, |state, cx| {
-            state.select_host(host_id);
+    fn handle_click(&mut self, host: HostId, cx: &mut Context<Self>) {
+        // 1. 检查 session 状态决定是否要触发连接
+        let needs_connect = self.state.update(cx, |state, cx| {
+            state.select_host(host);
             let label = state
-                .hosts
-                .iter()
-                .find(|h| h.id == host_id)
-                .map(|h| h.label.clone())
-                .unwrap_or_else(|| format!("host {:?}", host_id));
-            let line = format!("[{}] Connecting to {}...", simple_time(), label);
-            state.append_log(host_id, line);
+                .host_label(host)
+                .unwrap_or_else(|| format!("{:?}", host));
+            let needs = !state.is_session_active(host);
+            if needs {
+                state.append_log(
+                    host,
+                    format!("[{}] Connecting to {}...", simple_time(), label),
+                );
+            }
             cx.notify();
-            label
+            needs
         });
 
-        // 2. 在 tokio runtime 上 spawn mock_ssh_task；3 秒后 channel 收事件 → app.rs 的 spawn loop 处理
-        let tx = self.tx.clone();
-        self.bridge.spawn(mock_ssh_task(host_id, label, tx));
+        // 2. 如需连接：从 fixtures 找 config，spawn session task
+        if needs_connect {
+            let config = match self
+                .state
+                .read(cx)
+                .hosts
+                .iter()
+                .find(|h| h.id == host)
+                .cloned()
+            {
+                Some(c) => c,
+                None => {
+                    self.state.update(cx, |state, cx| {
+                        state.append_log(host, "[error] host config not found".into());
+                        cx.notify();
+                    });
+                    return;
+                }
+            };
+
+            let sender = self.bridge.spawn_session(host, config, self.tx.clone());
+            self.state.update(cx, |state, _cx| {
+                state.register_session(host, sender);
+            });
+        }
     }
 }
 
-/// 简易时间字符串，避免引入 chrono 依赖。
 fn simple_time() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let secs = SystemTime::now()
@@ -75,21 +96,35 @@ impl Render for HostListView {
                 let id = h.id;
                 let label = h.label.clone();
                 let is_selected = selected == Some(id);
+                let is_active = state.is_session_active(id);
+                let prefix = if is_active { "● " } else { "○ " };
                 div()
                     .px_3()
                     .py_2()
                     .text_color(rgb(if is_selected { 0xffffff } else { 0xcccccc }))
                     .bg(rgb(if is_selected { 0x2a2a2a } else { 0x1e1e1e }))
-                    .hover(|style| style.bg(rgb(0x252525)).cursor_pointer())
+                    .hover(|s| s.bg(rgb(0x252525)).cursor_pointer())
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _ev: &MouseDownEvent, _window, cx| {
                             this.handle_click(id, cx);
                         }),
                     )
-                    .child(label)
+                    .child(format!("{}{}", prefix, label))
             })
             .collect();
+
+        let empty_hint = if state.hosts.is_empty() {
+            Some(
+                div()
+                    .px_3()
+                    .py_2()
+                    .text_color(rgb(0x888888))
+                    .child("（无 host：设置 AISH_DEV_HOST/USER/KEY_PATH 环境变量）"),
+            )
+        } else {
+            None
+        };
 
         div()
             .w(px(220.0))
@@ -100,5 +135,6 @@ impl Render for HostListView {
             .flex()
             .flex_col()
             .children(host_rows)
+            .children(empty_hint)
     }
 }
