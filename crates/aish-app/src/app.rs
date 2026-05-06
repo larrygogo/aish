@@ -18,7 +18,13 @@ pub fn run() {
 
     application().run(move |cx: &mut App| {
         crate::terminal::font::register_bundled_font(cx);
-        let hosts = crate::fixtures::dev_hosts();
+        let hosts = match crate::persistence::load_hosts() {
+            Ok(h) => h,
+            Err(e) => {
+                tracing::error!("load hosts.json failed: {} — starting with empty list", e);
+                Vec::new()
+            }
+        };
         let state = cx.new(|_cx| AppState::with_hosts(hosts));
         let channel = EventChannel::new();
 
@@ -84,8 +90,10 @@ pub fn run() {
 }
 
 struct RootView {
+    state: Entity<AppState>,
     host_list: Entity<crate::views::HostListView>,
     terminal: Entity<crate::views::TerminalView>,
+    host_form: Entity<crate::views::HostFormModal>,
 }
 
 impl RootView {
@@ -95,25 +103,43 @@ impl RootView {
         tx: tokio::sync::mpsc::Sender<SshEvent>,
         cx: &mut Context<Self>,
     ) -> Self {
+        cx.observe(&state, |_this, _state, cx| cx.notify()).detach();
         let host_list = cx.new(|cx| {
             crate::views::HostListView::new(state.clone(), bridge.clone(), tx.clone(), cx)
         });
-        let terminal = cx.new(|cx| crate::views::TerminalView::new(state, bridge, tx, cx));
+        let terminal = cx.new(|cx| {
+            crate::views::TerminalView::new(state.clone(), bridge.clone(), tx.clone(), cx)
+        });
+        let host_form = cx.new(|cx| {
+            crate::views::HostFormModal::new(state.clone(), bridge.clone(), tx.clone(), cx)
+        });
         Self {
+            state,
             host_list,
             terminal,
+            host_form,
         }
     }
 }
 
 impl Render for RootView {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        div()
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let modal_open = self.state.read(cx).modal.is_some();
+
+        let main = div()
             .flex()
             .flex_row()
             .size_full()
             .bg(rgb(0x1d1f21))
             .child(self.host_list.clone())
-            .child(self.terminal.clone())
+            .child(self.terminal.clone());
+
+        let mut root = div().relative().size_full().child(main);
+
+        if modal_open {
+            root = root.child(self.host_form.clone());
+        }
+
+        root
     }
 }

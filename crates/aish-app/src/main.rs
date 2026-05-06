@@ -2,7 +2,6 @@
 
 mod app;
 mod bridge;
-mod fixtures;
 mod persistence;
 mod ssh_actor;
 mod state;
