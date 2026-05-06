@@ -1,23 +1,35 @@
-//! 左栏：mock host 列表，点击切换 selected。
+//! 左栏：mock host 列表，点击切换 selected 并触发 mock SSH。
+
+use std::sync::Arc;
 
 use gpui::{
     div, prelude::*, px, rgb, Context, Entity, MouseButton, MouseDownEvent, Render, Window,
 };
 
-use crate::state::{AppState, HostId};
+use crate::bridge::Bridge;
+use crate::mock::mock_ssh_task;
+use crate::state::{AppState, HostId, MockEvent};
 
 pub struct HostListView {
     state: Entity<AppState>,
+    bridge: Arc<Bridge>,
+    tx: tokio::sync::mpsc::Sender<MockEvent>,
 }
 
 impl HostListView {
-    pub fn new(state: Entity<AppState>, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        state: Entity<AppState>,
+        bridge: Arc<Bridge>,
+        tx: tokio::sync::mpsc::Sender<MockEvent>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         cx.observe(&state, |_this, _state, cx| cx.notify()).detach();
-        Self { state }
+        Self { state, bridge, tx }
     }
 
     fn handle_click(&mut self, host_id: HostId, cx: &mut Context<Self>) {
-        self.state.update(cx, |state, cx| {
+        // 1. 立即更新 Model（让 UI 立刻反馈 "Connecting..."）
+        let label = self.state.update(cx, |state, cx| {
             state.select_host(host_id);
             let label = state
                 .hosts
@@ -28,7 +40,12 @@ impl HostListView {
             let line = format!("[{}] Connecting to {}...", simple_time(), label);
             state.append_log(host_id, line);
             cx.notify();
+            label
         });
+
+        // 2. 在 tokio runtime 上 spawn mock_ssh_task；3 秒后 channel 收事件 → app.rs 的 spawn loop 处理
+        let tx = self.tx.clone();
+        self.bridge.spawn(mock_ssh_task(host_id, label, tx));
     }
 }
 
