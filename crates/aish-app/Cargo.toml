@@ -25,3 +25,4 @@ tracing-subscriber = { workspace = true }
 gpui = { workspace = true }
 gpui_platform = { workspace = true }
 uuid = { workspace = true }
+alacritty_terminal = { workspace = true }

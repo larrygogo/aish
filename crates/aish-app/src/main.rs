@@ -5,6 +5,7 @@ mod bridge;
 mod fixtures;
 mod ssh_actor;
 mod state;
+mod terminal;
 mod views;
 
 use tracing_subscriber::{fmt, EnvFilter};
