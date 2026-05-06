@@ -1,5 +1,6 @@
 //! aish 主入口。M1 起接入 GPUI。
 
+mod bridge;
 mod state;
 
 use tracing_subscriber::{fmt, EnvFilter};
