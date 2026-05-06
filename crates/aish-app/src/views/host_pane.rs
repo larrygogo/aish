@@ -1,18 +1,22 @@
-//! 主区：渲染 selected host 的 pane log。
+//! 主区：渲染 selected host 的 pane log + 接键盘输入发到 PTY。
 
 use std::sync::Arc;
 
-use gpui::{div, prelude::*, rgb, AnyElement, Context, Entity, Window};
+use gpui::{
+    div, prelude::*, rgb, AnyElement, App, Context, Entity, FocusHandle, Focusable, KeyDownEvent,
+    Window,
+};
 
 use crate::bridge::Bridge;
-use crate::state::{AppState, SshEvent};
+use crate::ssh_actor::encode_key;
+use crate::state::{AppState, SessionCommand, SshEvent};
 
 pub struct HostPaneView {
     state: Entity<AppState>,
-    #[allow(dead_code)] // Task 7 加键盘输入时用
     bridge: Arc<Bridge>,
-    #[allow(dead_code)] // Task 7 加键盘输入时用
+    #[allow(dead_code)] // 保留 tx 备未来扩展用
     tx: tokio::sync::mpsc::Sender<SshEvent>,
+    focus_handle: FocusHandle,
 }
 
 impl HostPaneView {
@@ -23,23 +27,57 @@ impl HostPaneView {
         cx: &mut Context<Self>,
     ) -> Self {
         cx.observe(&state, |_this, _state, cx| cx.notify()).detach();
-        Self { state, bridge, tx }
+        let focus_handle = cx.focus_handle();
+        Self {
+            state,
+            bridge,
+            tx,
+            focus_handle,
+        }
+    }
+
+    fn handle_key(&mut self, event: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        let host = match self.state.read(cx).selected {
+            Some(h) => h,
+            None => return,
+        };
+        let sender = match self.state.read(cx).sessions.get(&host).cloned() {
+            Some(s) => s,
+            None => return,
+        };
+
+        let ctrl = event.keystroke.modifiers.control;
+        let alt = event.keystroke.modifiers.alt;
+        let key = event.keystroke.key.as_str();
+
+        let bytes = encode_key(key, ctrl, alt);
+        if bytes.is_empty() {
+            return;
+        }
+
+        self.bridge.spawn(async move {
+            let _ = sender.send(SessionCommand::SendBytes(bytes)).await;
+        });
+    }
+}
+
+impl Focusable for HostPaneView {
+    fn focus_handle(&self, _cx: &App) -> FocusHandle {
+        self.focus_handle.clone()
     }
 }
 
 impl Render for HostPaneView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let state = self.state.read(cx);
-        match state.selected {
+        let selected = self.state.read(cx).selected;
+        let body: AnyElement = match selected {
             None => div()
-                .flex_1()
-                .h_full()
                 .text_color(rgb(0x888888))
                 .p_4()
                 .child("请从左侧选择主机")
                 .into_any_element(),
             Some(host) => {
-                let lines = state.logs_of(host);
+                let lines = self.state.read(cx).logs_of(host).to_vec();
                 let text_lines: Vec<AnyElement> = lines
                     .iter()
                     .map(|line| {
@@ -51,9 +89,6 @@ impl Render for HostPaneView {
                     .collect();
 
                 div()
-                    .flex_1()
-                    .h_full()
-                    .bg(rgb(0x121212))
                     .text_color(rgb(0xeeeeee))
                     .p_3()
                     .flex()
@@ -62,6 +97,16 @@ impl Render for HostPaneView {
                     .children(text_lines)
                     .into_any_element()
             }
-        }
+        };
+
+        div()
+            .track_focus(&self.focus_handle(cx))
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                this.handle_key(event, window, cx);
+            }))
+            .flex_1()
+            .h_full()
+            .bg(rgb(0x121212))
+            .child(body)
     }
 }
