@@ -93,6 +93,18 @@ impl SshClient {
             .disconnect(russh::Disconnect::ByApplication, "", "")
             .await;
     }
+
+    /// 打开一个新的 SSH session channel。
+    ///
+    /// 返回 Channel 包装，调用方随后可 request_pty + shell。
+    pub async fn open_channel(&self) -> Result<crate::channel::Channel, SshError> {
+        let chan = self
+            .handle
+            .channel_open_session()
+            .await
+            .map_err(SshError::Protocol)?;
+        Ok(crate::channel::Channel::new(chan))
+    }
 }
 
 /// russh Handler trait 的最小实现：M2a 不验证 server key（信任所有）。

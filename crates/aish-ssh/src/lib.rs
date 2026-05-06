@@ -2,11 +2,16 @@
 
 #![allow(dead_code)]
 
+mod channel;
 mod client;
 mod error;
 
+pub use channel::Channel;
 pub use client::SshClient;
 pub use error::{SshError, SshErrorKind};
+
+// 重新 re-export russh 的 ChannelMsg，让上层不直接依赖 russh
+pub use russh::ChannelMsg;
 
 #[cfg(test)]
 mod tests {
