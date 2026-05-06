@@ -1,0 +1,17 @@
+[package]
+name = "aish-tmux"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "aish tmux control mode 协议层（M3 实现）"
+
+[dependencies]
+aish-types = { workspace = true }
+aish-ssh = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+bytes = { workspace = true }

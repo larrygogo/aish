@@ -1,0 +1,47 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/aish-types",
+    "crates/aish-ssh",
+    "crates/aish-tmux",
+    "crates/aish-sftp",
+    "crates/aish-secrets",
+    "crates/aish-app",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["larry"]
+repository = "https://github.com/larrygogo/aish"
+rust-version = "1.80"
+
+[workspace.dependencies]
+# 共享版本
+tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "io-util", "sync", "time", "fs"] }
+anyhow = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+async-trait = "0.1"
+bytes = "1.7"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1.10", features = ["v4", "serde"] }
+
+# 本地 crate
+aish-types = { path = "crates/aish-types" }
+aish-ssh = { path = "crates/aish-ssh" }
+aish-tmux = { path = "crates/aish-tmux" }
+aish-sftp = { path = "crates/aish-sftp" }
+aish-secrets = { path = "crates/aish-secrets" }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+
+[profile.dev]
+opt-level = 0
+debug = true

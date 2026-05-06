@@ -1,0 +1,15 @@
+[package]
+name = "aish-ssh"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "aish SSH 客户端层（M2 起接入 russh）"
+
+[dependencies]
+aish-types = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
