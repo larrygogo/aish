@@ -174,12 +174,30 @@ pub fn encode_key(key: &str, ctrl: bool, _alt: bool) -> Vec<u8> {
         return Vec::new();
     }
 
-    match key {
+    // 用 lowercased key 匹配特殊键名（GPUI 可能给 "Up" / "ArrowUp" / "up"）
+    match key.to_lowercase().as_str() {
         "enter" => vec![b'\r'],
         "backspace" => vec![0x7f],
         "tab" => vec![b'\t'],
-        "escape" => vec![0x1b],
-        s if s.len() == 1 => s.as_bytes().to_vec(),
+        "escape" | "esc" => vec![0x1b],
+
+        // 方向键 (normal mode CSI)
+        "up" | "arrowup" => b"\x1b[A".to_vec(),
+        "down" | "arrowdown" => b"\x1b[B".to_vec(),
+        "right" | "arrowright" => b"\x1b[C".to_vec(),
+        "left" | "arrowleft" => b"\x1b[D".to_vec(),
+
+        // 导航键
+        "home" => b"\x1b[H".to_vec(),
+        "end" => b"\x1b[F".to_vec(),
+        "pageup" => b"\x1b[5~".to_vec(),
+        "pagedown" => b"\x1b[6~".to_vec(),
+        "delete" => b"\x1b[3~".to_vec(),
+        "insert" => b"\x1b[2~".to_vec(),
+
+        // 单字符 — 保留原 key（不 lowercased，避免 "Z" → "z"）
+        s if s.len() == 1 => key.as_bytes().to_vec(),
+
         _ => Vec::new(),
     }
 }
@@ -215,7 +233,30 @@ mod tests {
     #[test]
     fn unrecognized_keys_return_empty() {
         assert_eq!(encode_key("F1", false, false), Vec::<u8>::new());
-        assert_eq!(encode_key("up", false, false), Vec::<u8>::new());
-        assert_eq!(encode_key("home", false, false), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn encode_arrow_keys_normal_mode() {
+        assert_eq!(encode_key("up", false, false), b"\x1b[A".to_vec());
+        assert_eq!(encode_key("ArrowUp", false, false), b"\x1b[A".to_vec());
+        assert_eq!(encode_key("down", false, false), b"\x1b[B".to_vec());
+        assert_eq!(encode_key("right", false, false), b"\x1b[C".to_vec());
+        assert_eq!(encode_key("left", false, false), b"\x1b[D".to_vec());
+    }
+
+    #[test]
+    fn encode_navigation_keys() {
+        assert_eq!(encode_key("home", false, false), b"\x1b[H".to_vec());
+        assert_eq!(encode_key("end", false, false), b"\x1b[F".to_vec());
+        assert_eq!(encode_key("pageup", false, false), b"\x1b[5~".to_vec());
+        assert_eq!(encode_key("pagedown", false, false), b"\x1b[6~".to_vec());
+        assert_eq!(encode_key("delete", false, false), b"\x1b[3~".to_vec());
+        assert_eq!(encode_key("insert", false, false), b"\x1b[2~".to_vec());
+    }
+
+    #[test]
+    fn encode_uppercase_chars_preserve_case() {
+        assert_eq!(encode_key("Z", false, false), b"Z");
+        assert_eq!(encode_key("A", false, false), b"A");
     }
 }
