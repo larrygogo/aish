@@ -17,6 +17,7 @@ pub fn run() {
     let bridge_keep = bridge_owner.clone();
 
     application().run(move |cx: &mut App| {
+        crate::terminal::font::register_bundled_font(cx);
         let hosts = crate::fixtures::dev_hosts();
         let state = cx.new(|_cx| AppState::with_hosts(hosts));
         let channel = EventChannel::new();

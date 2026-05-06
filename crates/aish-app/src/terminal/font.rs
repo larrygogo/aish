@@ -2,7 +2,7 @@
 
 use std::borrow::Cow;
 
-use gpui::{px, App, Pixels};
+use gpui::{font, px, App, Pixels};
 
 /// 字体名称，用于 GPUI text_system font 查找。
 pub const FONT_NAME: &str = "JetBrainsMono Nerd Font";
@@ -24,12 +24,22 @@ pub fn register_bundled_font(cx: &mut App) {
 
 /// 拿 (cell_width, cell_height) — 单字符 advance 与行高。
 ///
-/// FONT_SIZE 字号下 monospace 的 cell 度量。
+/// 使用 GPUI text_system.advance() 查询 'm' 字符宽度（monospace 标准）。
+/// 行高 = 字号 × 1.3 经验比例。
 ///
-/// **Task 2 阶段**: 占位实现（hardcoded 8.4 × 18.0）。
-/// **Task 4**: 接通真 GPUI text_system 度量。
-pub fn cell_size(_cx: &App) -> (Pixels, Pixels) {
-    (px(8.4), px(18.0))
+/// 如果 text_system 查询失败，fallback 到基于字号的经验比例。
+pub fn cell_size(cx: &App) -> (Pixels, Pixels) {
+    let font_size = px(FONT_SIZE);
+    // font() 默认就是 Normal weight + Normal style，无需额外设置
+    let terminal_font = font(FONT_NAME);
+    let font_id = cx.text_system().resolve_font(&terminal_font);
+    let cell_width = cx
+        .text_system()
+        .advance(font_id, font_size, 'm')
+        .map(|size| size.width)
+        .unwrap_or_else(|_| px(FONT_SIZE * 0.6));
+    let cell_height = px(FONT_SIZE * 1.3);
+    (cell_width, cell_height)
 }
 
 #[cfg(test)]
