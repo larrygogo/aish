@@ -1,8 +1,8 @@
-//! ssh_actor — host_session_task：每 host 一个 tokio task。
+//! ssh_actor — host_session_task：每 host 一个 tokio task，own SshSession + PTY。
 //!
-//! M2a Task 4 阶段是 **stub 形态**：spawn 后立即发 Connected 事件 + 等待
-//! SessionCommand，收到任何 SendBytes 都 echo 回去当 PaneOutput。
-//! 真 SSH 接通在 Task 6 替换 host_session_task 内部。
+//! 每个 task 内部 select! 在两个 future 之间：
+//!   - chan.wait() — PTY 远端输出，转 SshEvent::PaneOutput 推回 GPUI
+//!   - cmd_rx.recv() — GPUI 端的键盘输入命令，写入 chan.data()
 
 #![allow(dead_code)]
 
@@ -25,57 +25,128 @@ pub fn spawn_session(
     cmd_tx
 }
 
-/// Stub 实现：发 Connected → echo 任何 SendBytes 回 PaneOutput → 收 Disconnect 退出。
 async fn host_session_task(
     host: HostId,
-    _config: HostConfig,
+    config: HostConfig,
     mut cmd_rx: mpsc::Receiver<SessionCommand>,
     event_tx: mpsc::Sender<SshEvent>,
 ) {
-    let _ = event_tx.send(SshEvent::Connected { host }).await;
-    let _ = event_tx
-        .send(SshEvent::PaneOutput {
-            host,
-            bytes: b"[stub] type something and press Enter to echo\r\n".to_vec(),
-        })
-        .await;
+    use aish_ssh::{ChannelMsg, SshClient};
 
-    while let Some(cmd) = cmd_rx.recv().await {
-        match cmd {
-            SessionCommand::SendBytes(bytes) => {
-                let _ = event_tx
-                    .send(SshEvent::PaneOutput {
-                        host,
-                        bytes: bytes.clone(),
-                    })
-                    .await;
-                if bytes.contains(&b'\r') {
+    use crate::state::SshErrorKind;
+
+    // 1. 连接 + 认证
+    let session = match SshClient::connect(&config).await {
+        Ok(s) => s,
+        Err(err) => {
+            // 把 aish_ssh::SshErrorKind 映射到 aish-app::state::SshErrorKind
+            let kind = match err.kind() {
+                aish_ssh::SshErrorKind::ConnectFailed => SshErrorKind::ConnectFailed,
+                aish_ssh::SshErrorKind::AuthFailed => SshErrorKind::AuthFailed,
+                aish_ssh::SshErrorKind::Io => SshErrorKind::Io,
+                aish_ssh::SshErrorKind::Protocol => SshErrorKind::Protocol,
+            };
+            let _ = event_tx
+                .send(SshEvent::Error {
+                    host,
+                    kind,
+                    msg: err.to_string(),
+                })
+                .await;
+            return;
+        }
+    };
+
+    // 2. 开 PTY channel
+    let mut chan = match session.open_channel().await {
+        Ok(c) => c,
+        Err(err) => {
+            let _ = event_tx
+                .send(SshEvent::Error {
+                    host,
+                    kind: SshErrorKind::Protocol,
+                    msg: format!("open_channel: {}", err),
+                })
+                .await;
+            return;
+        }
+    };
+
+    if let Err(err) = chan.request_pty(120, 40, "xterm-256color").await {
+        let _ = event_tx
+            .send(SshEvent::Error {
+                host,
+                kind: SshErrorKind::Protocol,
+                msg: format!("request_pty: {}", err),
+            })
+            .await;
+        return;
+    }
+
+    if let Err(err) = chan.shell().await {
+        let _ = event_tx
+            .send(SshEvent::Error {
+                host,
+                kind: SshErrorKind::Protocol,
+                msg: format!("shell: {}", err),
+            })
+            .await;
+        return;
+    }
+
+    let _ = event_tx.send(SshEvent::Connected { host }).await;
+
+    // 3. select! loop: read + cmd
+    loop {
+        tokio::select! {
+            msg = chan.wait() => match msg {
+                Some(ChannelMsg::Data { data }) => {
+                    // CryptoVec 实现了 Deref<Target=[u8]>，to_vec() 经由 Deref 调用
                     let _ = event_tx
                         .send(SshEvent::PaneOutput {
                             host,
-                            bytes: b"\n[stub] echo done\r\n".to_vec(),
+                            bytes: data.to_vec(),
                         })
                         .await;
                 }
-            }
-            SessionCommand::Disconnect => {
-                let _ = event_tx
-                    .send(SshEvent::Disconnected {
-                        host,
-                        reason: DisconnectReason::UserRequested,
-                    })
-                    .await;
-                return;
-            }
+                Some(ChannelMsg::Eof) | None => {
+                    let _ = event_tx
+                        .send(SshEvent::Disconnected {
+                            host,
+                            reason: DisconnectReason::RemoteExited,
+                        })
+                        .await;
+                    break;
+                }
+                Some(_) => {
+                    // 其他 ChannelMsg 类型（ExitStatus / WindowAdjusted / 等）暂时忽略
+                }
+            },
+            cmd = cmd_rx.recv() => match cmd {
+                Some(SessionCommand::SendBytes(bytes)) => {
+                    if let Err(e) = chan.data(&bytes[..]).await {
+                        let _ = event_tx
+                            .send(SshEvent::Disconnected {
+                                host,
+                                reason: DisconnectReason::NetworkError(e.to_string()),
+                            })
+                            .await;
+                        break;
+                    }
+                }
+                Some(SessionCommand::Disconnect) | None => {
+                    let _ = event_tx
+                        .send(SshEvent::Disconnected {
+                            host,
+                            reason: DisconnectReason::UserRequested,
+                        })
+                        .await;
+                    break;
+                }
+            },
         }
     }
-    // cmd_rx 收到 None = AppState drop sender，自然退出
-    let _ = event_tx
-        .send(SshEvent::Disconnected {
-            host,
-            reason: DisconnectReason::UserRequested,
-        })
-        .await;
+    // session drop → russh close
 }
 
 /// 简易键盘事件 → 字节流编码（M2a 范围）。
