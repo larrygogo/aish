@@ -1,3 +1,7 @@
-//! GPUI Views。Task 6/7 实际填充。
+//! GPUI Views。
 
 #![allow(dead_code)]
+
+mod host_list;
+
+pub use host_list::HostListView;

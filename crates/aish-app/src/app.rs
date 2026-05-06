@@ -1,8 +1,8 @@
 //! aish GPUI 主应用入口。
 
 use gpui::{
-    div, prelude::*, px, rgb, size, App, Bounds, Context, SharedString, TitlebarOptions, Window,
-    WindowBounds, WindowOptions,
+    div, prelude::*, px, rgb, size, App, Bounds, Context, Entity, SharedString, TitlebarOptions,
+    Window, WindowBounds, WindowOptions,
 };
 use gpui_platform::application;
 
@@ -19,7 +19,8 @@ pub fn run() {
 
     // 2. 启动 GPUI App
     application().run(move |cx: &mut App| {
-        let _state = cx.new(|_cx| AppState::with_mock_hosts());
+        let state = cx.new(|_cx| AppState::with_mock_hosts());
+        let state_for_window = state.clone();
 
         let bounds = Bounds::centered(None, size(px(1200.0), px(800.0)), cx);
         let window_options = WindowOptions {
@@ -31,8 +32,10 @@ pub fn run() {
             ..Default::default()
         };
 
-        cx.open_window(window_options, |_window, cx| cx.new(|_cx| RootView))
-            .expect("主窗口应能打开");
+        cx.open_window(window_options, move |_window, cx| {
+            cx.new(|cx| RootView::new(state_for_window.clone(), cx))
+        })
+        .expect("主窗口应能打开");
 
         cx.activate(true);
     });
@@ -40,16 +43,31 @@ pub fn run() {
     drop(bridge);
 }
 
-/// 临时 root view —— Task 6/7 会扩展为左栏 + 主区。
-struct RootView;
+struct RootView {
+    host_list: Entity<crate::views::HostListView>,
+}
+
+impl RootView {
+    fn new(state: Entity<AppState>, cx: &mut Context<Self>) -> Self {
+        let host_list = cx.new(|cx| crate::views::HostListView::new(state.clone(), cx));
+        Self { host_list }
+    }
+}
 
 impl Render for RootView {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .flex()
+            .flex_row()
             .size_full()
-            .bg(rgb(0x1e1e1e))
-            .text_color(rgb(0xeeeeee))
-            .child("aish M1 — empty window")
+            .bg(rgb(0x121212))
+            .child(self.host_list.clone())
+            .child(
+                div()
+                    .flex_1()
+                    .text_color(rgb(0x888888))
+                    .p_4()
+                    .child("请从左侧选择主机"),
+            )
     }
 }
