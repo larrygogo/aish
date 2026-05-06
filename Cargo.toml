@@ -38,6 +38,8 @@ aish-sftp = { path = "crates/aish-sftp" }
 aish-secrets = { path = "crates/aish-secrets" }
 gpui = { git = "https://github.com/zed-industries/zed", rev = "11f0ca5881ee8c32728244ee5ce3abedc851010f" }
 gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "11f0ca5881ee8c32728244ee5ce3abedc851010f" }
+russh = "0.46"
+russh-keys = "0.46"
 
 [profile.release]
 opt-level = 3

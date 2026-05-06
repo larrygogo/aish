@@ -1,4 +1,10 @@
-//! aish-ssh — SSH 连接层。M0 仅骨架，M2 起接入 russh。
+//! aish-ssh — SSH 客户端层（russh 包装）。
+
+#![allow(dead_code)]
+
+mod error;
+
+pub use error::{SshError, SshErrorKind};
 
 #[cfg(test)]
 mod tests {
