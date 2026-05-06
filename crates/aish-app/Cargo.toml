@@ -7,6 +7,7 @@ authors.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 description = "aish 主应用（GPUI 在 M1 接入）"
+include = ["src/**/*", "assets/**/*", "Cargo.toml"]
 
 [[bin]]
 name = "aish"
