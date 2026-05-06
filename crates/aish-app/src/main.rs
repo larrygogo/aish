@@ -1,10 +1,12 @@
-//! aish 主入口。M0 只做：tracing 初始化 + hello。M1 起接入 GPUI。
+//! aish 主入口。M1 起接入 GPUI。
+
+mod state;
 
 use tracing_subscriber::{fmt, EnvFilter};
 
 fn main() {
     init_logging();
-    tracing::info!("aish starting (M0 skeleton)");
+    tracing::info!("aish starting (M1 skeleton)");
     println!("aish skeleton — see docs/superpowers/specs/ for design");
 }
 
