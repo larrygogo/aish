@@ -2,8 +2,10 @@
 
 #![allow(dead_code)]
 
+mod client;
 mod error;
 
+pub use client::SshClient;
 pub use error::{SshError, SshErrorKind};
 
 #[cfg(test)]
