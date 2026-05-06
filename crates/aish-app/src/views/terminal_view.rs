@@ -1,25 +1,24 @@
-//! 主区：渲染 selected host 的 pane log + 接键盘输入发到 PTY。
+//! 主区终端视图。M2b1 Task 3 阶段渲染 placeholder；Task 4 实装真 grid 绘制。
 
 use std::sync::Arc;
 
 use gpui::{
-    div, prelude::*, rgb, AnyElement, App, Context, Entity, FocusHandle, Focusable, KeyDownEvent,
-    Window,
+    div, prelude::*, rgb, App, Context, Entity, FocusHandle, Focusable, KeyDownEvent, Window,
 };
 
 use crate::bridge::Bridge;
 use crate::ssh_actor::encode_key;
 use crate::state::{AppState, SessionCommand, SshEvent};
 
-pub struct HostPaneView {
+pub struct TerminalView {
     state: Entity<AppState>,
     bridge: Arc<Bridge>,
-    #[allow(dead_code)] // 保留 tx 备未来扩展用
+    #[allow(dead_code)]
     tx: tokio::sync::mpsc::Sender<SshEvent>,
     focus_handle: FocusHandle,
 }
 
-impl HostPaneView {
+impl TerminalView {
     pub fn new(
         state: Entity<AppState>,
         bridge: Arc<Bridge>,
@@ -36,7 +35,7 @@ impl HostPaneView {
         }
     }
 
-    fn handle_key(&mut self, event: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
+    fn handle_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
         let host = match self.state.read(cx).selected {
             Some(h) => h,
             None => return,
@@ -61,52 +60,30 @@ impl HostPaneView {
     }
 }
 
-impl Focusable for HostPaneView {
+impl Focusable for TerminalView {
     fn focus_handle(&self, _cx: &App) -> FocusHandle {
         self.focus_handle.clone()
     }
 }
 
-impl Render for HostPaneView {
+impl Render for TerminalView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let selected = self.state.read(cx).selected;
-        let body: AnyElement = match selected {
-            None => div()
-                .text_color(rgb(0x888888))
-                .p_4()
-                .child("请从左侧选择主机")
-                .into_any_element(),
-            Some(host) => {
-                let lines = self.state.read(cx).logs_of(host).to_vec();
-                let text_lines: Vec<AnyElement> = lines
-                    .iter()
-                    .map(|line| {
-                        div()
-                            .text_color(rgb(0xeeeeee))
-                            .child(line.clone())
-                            .into_any_element()
-                    })
-                    .collect();
-
-                div()
-                    .text_color(rgb(0xeeeeee))
-                    .p_3()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .children(text_lines)
-                    .into_any_element()
-            }
+        let placeholder = match selected {
+            None => "请从左侧选择主机",
+            Some(_) => "(终端渲染将在 Task 4 实装)",
         };
 
         div()
-            .track_focus(&self.focus_handle(cx))
-            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
-                this.handle_key(event, window, cx);
+            .track_focus(&self.focus_handle)
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, _window, cx| {
+                this.handle_key(event, cx);
             }))
             .flex_1()
             .h_full()
-            .bg(rgb(0x121212))
-            .child(body)
+            .bg(rgb(0x1d1f21))
+            .text_color(rgb(0xc5c8c6))
+            .p_4()
+            .child(placeholder)
     }
 }

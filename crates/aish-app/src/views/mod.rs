@@ -3,7 +3,7 @@
 #![allow(dead_code)]
 
 mod host_list;
-mod host_pane;
+mod terminal_view;
 
 pub use host_list::HostListView;
-pub use host_pane::HostPaneView;
+pub use terminal_view::TerminalView;

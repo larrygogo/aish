@@ -9,7 +9,7 @@ use gpui::{
 use gpui_platform::application;
 
 use crate::bridge::{Bridge, EventChannel};
-use crate::state::{AppState, DisconnectReason, SshEvent};
+use crate::state::{AppState, SshEvent};
 
 pub fn run() {
     let bridge_owner = Arc::new(Bridge::start().expect("tokio runtime 启动失败"));
@@ -27,32 +27,20 @@ pub fn run() {
         cx.spawn(async move |cx| {
             while let Some(event) = rx.recv().await {
                 state_for_loop.update(cx, |state, cx| match event {
-                    SshEvent::Connected { host } => {
-                        state.append_log(host, "[info] Connected".into());
+                    SshEvent::Connected { host: _ } => {
+                        // M2b1: 状态变更通过 host_list 的 ●/○ 显示，不写 pane
                         cx.notify();
                     }
                     SshEvent::PaneOutput { host, bytes } => {
-                        let s = String::from_utf8_lossy(&bytes);
-                        for line in s.split('\n') {
-                            let line = line.trim_end_matches('\r').to_string();
-                            state.append_log(host, line);
-                        }
+                        state.feed_bytes(host, &bytes);
                         cx.notify();
                     }
-                    SshEvent::Disconnected { host, reason } => {
-                        let msg = match reason {
-                            DisconnectReason::RemoteExited => {
-                                "[info] 远端 shell 已退出".to_string()
-                            }
-                            DisconnectReason::NetworkError(e) => format!("[error] 连接中断: {}", e),
-                            DisconnectReason::UserRequested => "[info] 已断开".to_string(),
-                        };
-                        state.append_log(host, msg);
+                    SshEvent::Disconnected { host, reason: _ } => {
                         state.drop_session(host);
                         cx.notify();
                     }
-                    SshEvent::Error { host, kind, msg } => {
-                        state.append_log(host, format!("[error] {:?}: {}", kind, msg));
+                    SshEvent::Error { host, kind: _, msg } => {
+                        tracing::error!(?host, msg, "SSH error");
                         state.drop_session(host);
                         cx.notify();
                     }
@@ -66,7 +54,7 @@ pub fn run() {
         let window_options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             titlebar: Some(TitlebarOptions {
-                title: Some(SharedString::from("aish — M2a")),
+                title: Some(SharedString::from("aish — M2b1")),
                 ..Default::default()
             }),
             ..Default::default()
@@ -96,7 +84,7 @@ pub fn run() {
 
 struct RootView {
     host_list: Entity<crate::views::HostListView>,
-    host_pane: Entity<crate::views::HostPaneView>,
+    terminal: Entity<crate::views::TerminalView>,
 }
 
 impl RootView {
@@ -109,10 +97,10 @@ impl RootView {
         let host_list = cx.new(|cx| {
             crate::views::HostListView::new(state.clone(), bridge.clone(), tx.clone(), cx)
         });
-        let host_pane = cx.new(|cx| crate::views::HostPaneView::new(state, bridge, tx, cx));
+        let terminal = cx.new(|cx| crate::views::TerminalView::new(state, bridge, tx, cx));
         Self {
             host_list,
-            host_pane,
+            terminal,
         }
     }
 }
@@ -123,8 +111,8 @@ impl Render for RootView {
             .flex()
             .flex_row()
             .size_full()
-            .bg(rgb(0x121212))
+            .bg(rgb(0x1d1f21))
             .child(self.host_list.clone())
-            .child(self.host_pane.clone())
+            .child(self.terminal.clone())
     }
 }

@@ -26,24 +26,13 @@ impl HostListView {
     }
 
     fn handle_click(&mut self, host: HostId, cx: &mut Context<Self>) {
-        // 1. 检查 session 状态决定是否要触发连接
         let needs_connect = self.state.update(cx, |state, cx| {
             state.select_host(host);
-            let label = state
-                .host_label(host)
-                .unwrap_or_else(|| format!("{:?}", host));
             let needs = !state.is_session_active(host);
-            if needs {
-                state.append_log(
-                    host,
-                    format!("[{}] Connecting to {}...", simple_time(), label),
-                );
-            }
             cx.notify();
             needs
         });
 
-        // 2. 如需连接：从 fixtures 找 config，spawn session task
         if needs_connect {
             let config = match self
                 .state
@@ -55,10 +44,7 @@ impl HostListView {
             {
                 Some(c) => c,
                 None => {
-                    self.state.update(cx, |state, cx| {
-                        state.append_log(host, "[error] host config not found".into());
-                        cx.notify();
-                    });
+                    tracing::error!(?host, "host config not found");
                     return;
                 }
             };
@@ -69,20 +55,6 @@ impl HostListView {
             });
         }
     }
-}
-
-fn simple_time() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() % 86400)
-        .unwrap_or(0);
-    format!(
-        "{:02}:{:02}:{:02}",
-        secs / 3600,
-        (secs / 60) % 60,
-        secs % 60
-    )
 }
 
 impl Render for HostListView {

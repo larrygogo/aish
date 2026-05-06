@@ -134,6 +134,15 @@ async fn host_session_task(
                         break;
                     }
                 }
+                Some(SessionCommand::Resize { cols, rows }) => {
+                    if let Err(e) = chan
+                        .window_change(cols as u32, rows as u32, 0, 0)
+                        .await
+                    {
+                        tracing::warn!("PTY resize failed: {}", e);
+                        // resize 失败不致命，继续运行
+                    }
+                }
                 Some(SessionCommand::Disconnect) | None => {
                     let _ = event_tx
                         .send(SshEvent::Disconnected {

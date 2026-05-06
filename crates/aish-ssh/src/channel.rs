@@ -72,6 +72,22 @@ impl Channel {
     pub async fn close(&self) -> Result<(), SshError> {
         self.inner.close().await.map_err(SshError::Protocol)
     }
+
+    /// 通知远端 PTY 大小变化（SIGWINCH）。
+    ///
+    /// russh 0.46 签名：window_change(col_width, row_height, pix_width, pix_height)
+    pub async fn window_change(
+        &self,
+        cols: u32,
+        rows: u32,
+        pix_width: u32,
+        pix_height: u32,
+    ) -> Result<(), SshError> {
+        self.inner
+            .window_change(cols, rows, pix_width, pix_height)
+            .await
+            .map_err(SshError::Protocol)
+    }
 }
 
 #[cfg(test)]
