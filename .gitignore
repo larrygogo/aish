@@ -1,0 +1,21 @@
+# Rust
+/target
+**/*.rs.bk
+Cargo.lock.bak
+
+# IDE
+.vscode/
+.idea/
+*.iml
+*.sublime-*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# aish 运行时数据（开发期可能在项目目录生成）
+.aish-local/
+
+# Logs / Crash reports
+*.log
+crashes/
