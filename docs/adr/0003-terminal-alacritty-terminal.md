@@ -8,7 +8,7 @@
 
 需要在 GPUI 里渲染 vt100 / xterm-256color 终端。候选：
 
-- **alacritty_terminal**：Alacritty 编辑器抽出的终端解析器，纯 Rust，标准实现
+- **alacritty_terminal**：Alacritty 终端模拟器抽出的终端状态机库，纯 Rust，标准实现
 - **xterm.js**：行业事实标准，但需要 webview，与 0002 冲突
 - **wezterm-term**：WezTerm 的实现，纯 Rust，但 API 与 WezTerm 强绑定
 - **自研解析器**：vt100 / DEC private modes / OSC / sixel 等遗留协议太多，不现实

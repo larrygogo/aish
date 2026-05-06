@@ -1,7 +1,8 @@
-# 0009. 附件路径强制隔离到 `/tmp/aish-attach/<uuid>/`
+# 0009. 附件路径强制隔离到 `/tmp/aish-attach/<connection_uuid>/`
 
 - **Status:** Accepted
 - **Date:** 2026-05-06
+- **依赖于:** 0004
 
 ## Context
 

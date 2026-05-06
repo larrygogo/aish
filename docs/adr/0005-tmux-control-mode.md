@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-05-06
+- **依赖于:** 0004
 
 ## Context
 

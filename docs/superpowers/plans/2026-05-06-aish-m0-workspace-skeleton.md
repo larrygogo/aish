@@ -1044,7 +1044,7 @@ aish 是跨平台桌面应用，需要选定 GUI 框架。候选：
 
 需要在 GPUI 里渲染 vt100 / xterm-256color 终端。候选：
 
-- **alacritty_terminal**：Alacritty 编辑器抽出的终端解析器，纯 Rust，标准实现
+- **alacritty_terminal**：Alacritty 终端模拟器抽出的终端状态机库，纯 Rust，标准实现
 - **xterm.js**：行业事实标准，但需要 webview，与 0002 冲突
 - **wezterm-term**：WezTerm 的实现，纯 Rust，但 API 与 WezTerm 强绑定
 - **自研解析器**：vt100 / DEC private modes / OSC / sixel 等遗留协议太多，不现实
@@ -1105,6 +1105,7 @@ aish 是跨平台桌面应用，需要选定 GUI 框架。候选：
 
 - **Status:** Accepted
 - **Date:** 2026-05-06
+- **依赖于:** 0004
 
 ## Context
 
@@ -1242,10 +1243,11 @@ aish 的核心差异化之一：从本地 keyring 集中管理 API key（如 `AN
 - [ ] **Step 9: 创建 `0009-attachment-path-isolation.md`**
 
 ```markdown
-# 0009. 附件路径强制隔离到 `/tmp/aish-attach/<uuid>/`
+# 0009. 附件路径强制隔离到 `/tmp/aish-attach/<connection_uuid>/`
 
 - **Status:** Accepted
 - **Date:** 2026-05-06
+- **依赖于:** 0004
 
 ## Context
 
