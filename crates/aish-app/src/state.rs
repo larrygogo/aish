@@ -72,6 +72,81 @@ pub fn make_term(cols: u16, rows: u16) -> Term<VoidListener> {
     Term::new(config, &size, VoidListener)
 }
 
+/// modal 状态：当前是否在添加 / 编辑 / 删除确认 host。
+#[derive(Debug)]
+pub enum HostFormState {
+    Adding(HostFormDraft),
+    Editing { id: HostId, draft: HostFormDraft },
+    DeleteConfirm { id: HostId, label: String },
+}
+
+/// 表单中间状态。port 用 String 让用户能临时输入非数字，提交时校验。
+#[derive(Debug, Default, Clone)]
+pub struct HostFormDraft {
+    pub label: String,
+    pub host: String,
+    pub port: String,
+    pub user: String,
+    pub key_path: String,
+    /// 校验失败时显示在 modal 底部的红字。
+    pub error: Option<String>,
+}
+
+impl HostFormDraft {
+    /// 从已有 HostConfig 填充（用于编辑）。
+    pub fn from_config(cfg: &HostConfig) -> Self {
+        let key_path = match &cfg.auth {
+            aish_types::SshAuth::KeyFile { path } => path.display().to_string(),
+            _ => String::new(),
+        };
+        Self {
+            label: cfg.label.clone(),
+            host: cfg.host.clone(),
+            port: cfg.port.to_string(),
+            user: cfg.user.clone(),
+            key_path,
+            error: None,
+        }
+    }
+
+    /// 校验并转回 HostConfig。`id` Some 表示编辑（保留原 id）/ None 表示新建。
+    #[allow(clippy::wrong_self_convention)]
+    pub fn into_config(&self, id: Option<HostId>) -> Result<HostConfig, String> {
+        if self.label.trim().is_empty() {
+            return Err("label 不能为空".into());
+        }
+        if self.host.trim().is_empty() {
+            return Err("host 不能为空".into());
+        }
+        let port: u16 = self
+            .port
+            .trim()
+            .parse()
+            .map_err(|_| "port 必须是 1-65535 的数字".to_string())?;
+        if self.user.trim().is_empty() {
+            return Err("user 不能为空".into());
+        }
+        let key_path = self.key_path.trim();
+        if key_path.is_empty() {
+            return Err("key path 不能为空".into());
+        }
+        let key_pathbuf = std::path::PathBuf::from(key_path);
+        if !key_pathbuf.exists() {
+            return Err(format!("key 文件不存在: {}", key_path));
+        }
+
+        Ok(HostConfig {
+            id: id.unwrap_or_else(|| HostId(uuid::Uuid::new_v4())),
+            label: self.label.trim().into(),
+            host: self.host.trim().into(),
+            port,
+            user: self.user.trim().into(),
+            auth: aish_types::SshAuth::KeyFile { path: key_pathbuf },
+            env_profile: None,
+        })
+    }
+}
+
 /// 单一 root Model：所有 UI 共享状态。
 #[derive(Default)]
 pub struct AppState {
@@ -83,6 +158,8 @@ pub struct AppState {
     pub pane_dimensions: HashMap<HostId, (u16, u16)>,
     /// 已连接 host 的 SessionCommand sender
     pub sessions: HashMap<HostId, mpsc::Sender<SessionCommand>>,
+    /// 当前打开的 modal（添加/编辑/删除确认）；None = 无 modal
+    pub modal: Option<HostFormState>,
 }
 
 impl AppState {
@@ -93,6 +170,7 @@ impl AppState {
             pane_terminals: HashMap::new(),
             pane_dimensions: HashMap::new(),
             sessions: HashMap::new(),
+            modal: None,
         }
     }
 
@@ -154,6 +232,39 @@ impl AppState {
             term.resize(size);
         }
         self.pane_dimensions.insert(host, (cols, rows));
+    }
+
+    /// 添加一个新 host。
+    pub fn add_host(&mut self, cfg: HostConfig) {
+        self.hosts.push(cfg);
+    }
+
+    /// 替换已有 host（保持 id 不变；新 cfg.id 应等于 id）。
+    /// 返回 true = 成功替换，false = id 未找到。
+    pub fn update_host(&mut self, id: HostId, cfg: HostConfig) -> bool {
+        if let Some(slot) = self.hosts.iter_mut().find(|h| h.id == id) {
+            *slot = cfg;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// 删除 host。同步清理 sessions / pane_terminals / pane_dimensions / 重置 selected。
+    /// 返回 true = 成功删除，false = 未找到。
+    pub fn remove_host(&mut self, id: HostId) -> bool {
+        let idx = match self.hosts.iter().position(|h| h.id == id) {
+            Some(i) => i,
+            None => return false,
+        };
+        self.hosts.remove(idx);
+        self.sessions.remove(&id);
+        self.pane_terminals.remove(&id);
+        self.pane_dimensions.remove(&id);
+        if self.selected == Some(id) {
+            self.selected = None;
+        }
+        true
     }
 }
 
@@ -244,5 +355,151 @@ mod tests {
         state.feed_bytes(id, b"");
         state.resize_term(id, 100, 30);
         assert_eq!(state.pane_dimensions.get(&id), Some(&(100, 30)));
+    }
+
+    fn write_temp_key_file() -> tempfile::NamedTempFile {
+        tempfile::NamedTempFile::new().expect("temp file")
+    }
+
+    #[test]
+    fn draft_into_config_validates_empty_label() {
+        let draft = HostFormDraft {
+            label: "".into(),
+            host: "1.2.3.4".into(),
+            port: "22".into(),
+            user: "root".into(),
+            key_path: "/tmp/x".into(),
+            error: None,
+        };
+        let r = draft.into_config(None);
+        assert!(r.is_err());
+        assert!(r.unwrap_err().contains("label"));
+    }
+
+    #[test]
+    fn draft_into_config_validates_port_non_numeric() {
+        let draft = HostFormDraft {
+            label: "v".into(),
+            host: "1.2.3.4".into(),
+            port: "abc".into(),
+            user: "root".into(),
+            key_path: "/tmp/x".into(),
+            error: None,
+        };
+        let r = draft.into_config(None);
+        assert!(r.unwrap_err().contains("port"));
+    }
+
+    #[test]
+    fn draft_into_config_validates_key_file_exists() {
+        let draft = HostFormDraft {
+            label: "v".into(),
+            host: "1.2.3.4".into(),
+            port: "22".into(),
+            user: "root".into(),
+            key_path: "/nonexistent/path/aish_test_only".into(),
+            error: None,
+        };
+        let r = draft.into_config(None);
+        assert!(r.unwrap_err().contains("key 文件不存在"));
+    }
+
+    #[test]
+    fn draft_into_config_succeeds_with_existing_key() {
+        let key = write_temp_key_file();
+        let draft = HostFormDraft {
+            label: "v".into(),
+            host: "1.2.3.4".into(),
+            port: "22".into(),
+            user: "root".into(),
+            key_path: key.path().display().to_string(),
+            error: None,
+        };
+        let cfg = draft.into_config(None).unwrap();
+        assert_eq!(cfg.label, "v");
+        assert_eq!(cfg.port, 22);
+    }
+
+    #[test]
+    fn draft_into_config_preserves_id_when_provided() {
+        let key = write_temp_key_file();
+        let draft = HostFormDraft {
+            label: "v".into(),
+            host: "1.2.3.4".into(),
+            port: "22".into(),
+            user: "root".into(),
+            key_path: key.path().display().to_string(),
+            error: None,
+        };
+        let id = HostId(Uuid::new_v4());
+        let cfg = draft.into_config(Some(id)).unwrap();
+        assert_eq!(cfg.id, id);
+    }
+
+    #[test]
+    fn draft_from_config_extracts_key_path() {
+        let h = mk_host("v");
+        let draft = HostFormDraft::from_config(&h);
+        assert_eq!(draft.label, "v");
+        assert_eq!(draft.port, "22");
+        assert!(draft.key_path.contains("id_ed25519") || draft.key_path.contains("/tmp/k"));
+    }
+
+    #[test]
+    fn add_host_appends() {
+        let mut state = AppState::with_hosts(vec![]);
+        let h = mk_host("v");
+        let id = h.id;
+        state.add_host(h);
+        assert_eq!(state.hosts.len(), 1);
+        assert_eq!(state.hosts[0].id, id);
+    }
+
+    #[test]
+    fn update_host_replaces_in_place() {
+        let h1 = mk_host("orig");
+        let id = h1.id;
+        let mut state = AppState::with_hosts(vec![h1]);
+
+        let mut new_cfg = mk_host("renamed");
+        new_cfg.id = id; // 保持 id
+        let ok = state.update_host(id, new_cfg);
+        assert!(ok);
+        assert_eq!(state.hosts[0].label, "renamed");
+    }
+
+    #[test]
+    fn update_host_returns_false_for_unknown_id() {
+        let mut state = AppState::with_hosts(vec![]);
+        let unknown = HostId(Uuid::new_v4());
+        let cfg = mk_host("x");
+        let ok = state.update_host(unknown, cfg);
+        assert!(!ok);
+    }
+
+    #[tokio::test]
+    async fn remove_host_clears_related_state() {
+        let h = mk_host("v");
+        let id = h.id;
+        let mut state = AppState::with_hosts(vec![h]);
+        state.feed_bytes(id, b"hello"); // 创建 Term
+        let (tx, _rx) = mpsc::channel::<SessionCommand>(8);
+        state.register_session(id, tx);
+        state.select_host(id);
+
+        let ok = state.remove_host(id);
+        assert!(ok);
+        assert!(state.hosts.is_empty());
+        assert!(!state.pane_terminals.contains_key(&id));
+        assert!(!state.pane_dimensions.contains_key(&id));
+        assert!(!state.is_session_active(id));
+        assert_eq!(state.selected, None);
+    }
+
+    #[test]
+    fn remove_host_returns_false_for_unknown_id() {
+        let mut state = AppState::with_hosts(vec![]);
+        let unknown = HostId(Uuid::new_v4());
+        assert!(!state.remove_host(unknown));
     }
 }
