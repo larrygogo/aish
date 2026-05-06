@@ -5,8 +5,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::{
-    canvas, div, prelude::*, px, rgb, App, Bounds, Context, Entity, FocusHandle, Focusable,
-    KeyDownEvent, Pixels, Window,
+    canvas, div, prelude::*, px, rgb, App, Bounds, ClipboardItem, Context, Entity, FocusHandle,
+    Focusable, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, Pixels, Window,
 };
 
 use crate::bridge::Bridge;
@@ -15,7 +15,7 @@ use crate::state::{AppState, SessionCommand, SshEvent};
 use crate::terminal::{
     cursor::{paint_cursor, CursorState},
     font,
-    grid_renderer::{paint_grid, GridLayout, GridSnapshot},
+    grid_renderer::{self, paint_grid, GridLayout, GridSnapshot},
 };
 
 pub struct TerminalView {
@@ -69,14 +69,29 @@ impl TerminalView {
             Some(h) => h,
             None => return,
         };
+
+        let ctrl = event.keystroke.modifiers.control;
+        let shift = event.keystroke.modifiers.shift;
+        let alt = event.keystroke.modifiers.alt;
+        let key = event.keystroke.key.as_str();
+
+        // Ctrl+Shift+C：复制选中文本到剪贴板，不发到远端
+        if ctrl && shift && key.eq_ignore_ascii_case("c") {
+            let text = self
+                .state
+                .read(cx)
+                .term_of(host)
+                .and_then(crate::terminal::selection::selected_text);
+            if let Some(text) = text {
+                cx.write_to_clipboard(ClipboardItem::new_string(text));
+            }
+            return;
+        }
+
         let sender = match self.state.read(cx).sessions.get(&host).cloned() {
             Some(s) => s,
             None => return,
         };
-
-        let ctrl = event.keystroke.modifiers.control;
-        let alt = event.keystroke.modifiers.alt;
-        let key = event.keystroke.key.as_str();
 
         let bytes = encode_key(key, ctrl, alt);
         if bytes.is_empty() {
@@ -85,6 +100,75 @@ impl TerminalView {
 
         self.bridge.spawn(async move {
             let _ = sender.send(SessionCommand::SendBytes(bytes)).await;
+        });
+    }
+
+    /// 根据当前字体计算 GridLayout（固定 8px padding）。
+    fn current_layout(&self, cx: &App) -> grid_renderer::GridLayout {
+        let (cw, ch) = font::cell_size(cx);
+        grid_renderer::GridLayout {
+            cell_width: cw,
+            cell_height: ch,
+            origin_x: px(8.0),
+            origin_y: px(8.0),
+        }
+    }
+
+    /// 处理鼠标左键按下：开始 selection。
+    fn handle_mouse_down(&mut self, ev: &MouseDownEvent, cx: &mut Context<Self>) {
+        let host = match self.state.read(cx).selected {
+            Some(h) => h,
+            None => return,
+        };
+        let (cols, rows) = self
+            .state
+            .read(cx)
+            .pane_dimensions
+            .get(&host)
+            .copied()
+            .unwrap_or((crate::state::DEFAULT_COLS, crate::state::DEFAULT_ROWS));
+        let layout = self.current_layout(cx);
+        let (line, col, side) = crate::terminal::selection::pixel_to_grid(
+            ev.position.x,
+            ev.position.y,
+            &layout,
+            rows as usize,
+            cols as usize,
+        );
+        self.state.update(cx, |state, cx| {
+            if let Some(term) = state.pane_terminals.get_mut(&host) {
+                crate::terminal::selection::start_selection(term, line, col, side);
+            }
+            cx.notify();
+        });
+    }
+
+    /// 处理鼠标拖拽：更新 selection 末端。
+    fn handle_mouse_move(&mut self, ev: &MouseMoveEvent, cx: &mut Context<Self>) {
+        let host = match self.state.read(cx).selected {
+            Some(h) => h,
+            None => return,
+        };
+        let (cols, rows) = self
+            .state
+            .read(cx)
+            .pane_dimensions
+            .get(&host)
+            .copied()
+            .unwrap_or((crate::state::DEFAULT_COLS, crate::state::DEFAULT_ROWS));
+        let layout = self.current_layout(cx);
+        let (line, col, side) = crate::terminal::selection::pixel_to_grid(
+            ev.position.x,
+            ev.position.y,
+            &layout,
+            rows as usize,
+            cols as usize,
+        );
+        self.state.update(cx, |state, cx| {
+            if let Some(term) = state.pane_terminals.get_mut(&host) {
+                crate::terminal::selection::update_selection(term, line, col, side);
+            }
+            cx.notify();
         });
     }
 
@@ -169,6 +253,17 @@ impl Render for TerminalView {
             .track_focus(&self.focus_handle)
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, _window, cx| {
                 this.handle_key(event, cx);
+            }))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, ev: &MouseDownEvent, _window, cx| {
+                    this.handle_mouse_down(ev, cx);
+                }),
+            )
+            .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _window, cx| {
+                if ev.dragging() {
+                    this.handle_mouse_move(ev, cx);
+                }
             }))
             .flex_1()
             .h_full()

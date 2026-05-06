@@ -11,11 +11,12 @@ use alacritty_terminal::grid::Indexed;
 use alacritty_terminal::index::Point;
 #[cfg(test)]
 use alacritty_terminal::index::{Column, Line};
+use alacritty_terminal::selection::SelectionRange;
 use alacritty_terminal::term::cell::Cell;
 use alacritty_terminal::vte::ansi::NamedColor;
 use alacritty_terminal::Term;
 use gpui::{
-    fill, font, point, size, App, Bounds, Font, Hsla, Pixels, SharedString, TextRun, Window,
+    fill, font, hsla, point, size, App, Bounds, Font, Hsla, Pixels, SharedString, TextRun, Window,
 };
 
 use super::colors;
@@ -51,6 +52,8 @@ pub struct GridSnapshot {
     pub cells: Vec<Indexed<Cell>>,
     /// 光标位置
     pub cursor_point: Point,
+    /// 当前选中范围（grid 坐标）。None = 无选中
+    pub selection_range: Option<SelectionRange>,
 }
 
 impl GridSnapshot {
@@ -64,9 +67,11 @@ impl GridSnapshot {
                 cell: indexed.cell.clone(),
             })
             .collect();
+        let selection_range = term.selection.as_ref().and_then(|sel| sel.to_range(term));
         Self {
             cells,
             cursor_point,
+            selection_range,
         }
     }
 }
@@ -99,23 +104,41 @@ pub fn paint_grid(snapshot: &GridSnapshot, layout: &GridLayout, window: &mut Win
     let line_height = layout.cell_height;
     let cell_width = layout.cell_width;
 
-    // --- Pass 1: 背景色矩形 ---
+    // --- Pass 1: 背景色矩形 + 选中高亮 ---
+    // 选中色：#3a3a8a 80% 不透明度
+    let selection_bg: Hsla = hsla(243.0 / 360.0, 0.4, 0.38, 0.8);
+
     for indexed in &snapshot.cells {
-        let bg = indexed.cell.bg;
-        // 跳过默认背景色
-        if matches!(
-            bg,
-            alacritty_terminal::vte::ansi::Color::Named(NamedColor::Background)
-        ) {
-            continue;
-        }
-        let bg_color: Hsla = colors::to_gpui(bg, false);
         let display_line = indexed.point.line.0;
         let col = indexed.point.column.0 as i32;
         let x = layout.origin_x + cell_width * col as f32;
         let y = layout.display_line_to_y(display_line);
         let bounds = Bounds::new(point(x, y), size(cell_width, line_height));
-        window.paint_quad(fill(bounds, bg_color));
+
+        let bg = indexed.cell.bg;
+        // 跳过默认背景色（但选中时仍需画高亮）
+        let has_custom_bg = !matches!(
+            bg,
+            alacritty_terminal::vte::ansi::Color::Named(NamedColor::Background)
+        );
+        if has_custom_bg {
+            let bg_color: Hsla = colors::to_gpui(bg, false);
+            window.paint_quad(fill(bounds, bg_color));
+        }
+
+        // 选中高亮（叠加在背景色上）
+        let is_selected = snapshot
+            .selection_range
+            .as_ref()
+            .map(|r| {
+                let line = indexed.point.line;
+                let col_idx = indexed.point.column;
+                r.contains(alacritty_terminal::index::Point::new(line, col_idx))
+            })
+            .unwrap_or(false);
+        if is_selected {
+            window.paint_quad(fill(bounds, selection_bg));
+        }
     }
 
     // --- Pass 2: 前景字符（按行批量 shape） ---
@@ -215,9 +238,12 @@ fn flush_line(
         let y = layout.display_line_to_y(line);
         let origin = point(x, y);
         let text: SharedString = batch.text.clone().into();
-        let shaped = window
-            .text_system()
-            .shape_line(text, font_size, std::slice::from_ref(&batch.style), None);
+        let shaped = window.text_system().shape_line(
+            text,
+            font_size,
+            std::slice::from_ref(&batch.style),
+            None,
+        );
         let _ = shaped.paint(origin, line_height, gpui::TextAlign::Left, None, window, cx);
     }
 }

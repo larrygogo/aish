@@ -65,7 +65,10 @@ const SCROLLBACK_LINES: usize = 10_000;
 /// 创建一个空 Term（M2b1 用 VoidListener — 不接收 alacritty 事件）。
 pub fn make_term(cols: u16, rows: u16) -> Term<VoidListener> {
     let size = TermSize::new(cols as usize, rows as usize);
-    let config = TermConfig { scrolling_history: SCROLLBACK_LINES, ..TermConfig::default() };
+    let config = TermConfig {
+        scrolling_history: SCROLLBACK_LINES,
+        ..TermConfig::default()
+    };
     Term::new(config, &size, VoidListener)
 }
 
