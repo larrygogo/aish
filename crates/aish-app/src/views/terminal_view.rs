@@ -1,4 +1,5 @@
 //! 主区终端视图。M2b1 Task 4 — 自绘 alacritty grid + 颜色 + 光标闪烁。
+//! M2b1 Task 5 — PTY 跟随窗口 resize（100ms debounce）。
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -24,6 +25,10 @@ pub struct TerminalView {
     tx: tokio::sync::mpsc::Sender<SshEvent>,
     focus_handle: FocusHandle,
     cursor_state: CursorState,
+    /// 上次已生效的 PTY 尺寸 (cols, rows)，用于检测变化。
+    last_pty_size: Option<(u16, u16)>,
+    /// 进行中的 resize debounce task — drop 即取消。
+    pending_resize: Option<gpui::Task<()>>,
 }
 
 impl TerminalView {
@@ -54,6 +59,8 @@ impl TerminalView {
             tx,
             focus_handle,
             cursor_state,
+            last_pty_size: None,
+            pending_resize: None,
         }
     }
 
@@ -80,6 +87,67 @@ impl TerminalView {
             let _ = sender.send(SessionCommand::SendBytes(bytes)).await;
         });
     }
+
+    /// 检测 bounds 变化，算新 cols/rows，若有变化则 debounce 100ms 后触发 resize。
+    ///
+    /// 在 canvas prepaint 的下一帧回调中调用（通过 window.on_next_frame）。
+    fn check_resize(&mut self, bounds: Bounds<Pixels>, cx: &mut Context<Self>) {
+        let host = match self.state.read(cx).selected {
+            Some(h) => h,
+            None => return,
+        };
+        if !self.state.read(cx).is_session_active(host) {
+            return;
+        }
+
+        // 算新 cols/rows（与 paint_terminal 中 origin 偏移一致：8px padding）
+        let (cw, ch) = font::cell_size(cx);
+        let cw = f32::from(cw);
+        let ch = f32::from(ch);
+        if cw <= 0.0 || ch <= 0.0 {
+            return;
+        }
+        let w = f32::from(bounds.size.width);
+        let h = f32::from(bounds.size.height);
+        let cols = (((w - 16.0) / cw).floor()).max(1.0) as u16;
+        let rows = (((h - 16.0) / ch).floor()).max(1.0) as u16;
+
+        if Some((cols, rows)) == self.last_pty_size {
+            return;
+        }
+        self.last_pty_size = Some((cols, rows));
+
+        // drop 旧 pending task（取消上次 debounce）
+        self.pending_resize = None;
+
+        let state = self.state.clone();
+        let bridge = self.bridge.clone();
+
+        // 启动 100ms debounce task，存储在 self.pending_resize — drop 即取消
+        let task = cx.spawn(async move |_this, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(100))
+                .await;
+
+            // resize alacritty Term 并通知 UI 重绘；
+            // cx 是 &mut AsyncApp，通过 cx.update 拿 &mut App 来更新 state entity
+            let sender_opt = cx.update(|app| {
+                state.update(app, |app_state, cx| {
+                    app_state.resize_term(host, cols, rows);
+                    cx.notify();
+                    app_state.sessions.get(&host).cloned()
+                })
+            });
+
+            // 通知远端 PTY 执行 window_change（SIGWINCH）
+            if let Some(sender) = sender_opt {
+                bridge.spawn(async move {
+                    let _ = sender.send(SessionCommand::Resize { cols, rows }).await;
+                });
+            }
+        });
+        self.pending_resize = Some(task);
+    }
 }
 
 impl Focusable for TerminalView {
@@ -94,6 +162,9 @@ impl Render for TerminalView {
         let cursor_state = self.cursor_state;
         let state_entity = self.state.clone();
 
+        // 拿当前 view 的弱引用，用于在 on_next_frame 回调中调用 check_resize
+        let weak_view = cx.weak_entity();
+
         div()
             .track_focus(&self.focus_handle)
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, _window, cx| {
@@ -104,7 +175,17 @@ impl Render for TerminalView {
             .bg(rgb(0x1d1f21))
             .child(
                 canvas(
-                    move |_bounds, _window, cx| {
+                    move |bounds: Bounds<Pixels>, window, cx| {
+                        // 在下一帧通过 WeakEntity 安全地更新 TerminalView 触发 resize 检测。
+                        // 不能在 prepaint 里直接调用 view.update，因为 render 调用链持有 &mut TerminalView；
+                        // on_next_frame 在 render/prepaint 阶段结束后执行，此时借用已释放。
+                        let weak = weak_view.clone();
+                        window.on_next_frame(move |_window, cx| {
+                            let _ = weak.update(cx, |view, cx| {
+                                view.check_resize(bounds, cx);
+                            });
+                        });
+
                         // prepaint：从 Term 提取快照（读借用在这里完成，不影响 paint 阶段）
                         take_snapshot(host, &state_entity, cx)
                     },
