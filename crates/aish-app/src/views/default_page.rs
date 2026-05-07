@@ -9,7 +9,7 @@
 use std::sync::Arc;
 
 use aish_types::HostId;
-use gpui::{div, prelude::*, rgb, Context, Entity, MouseButton, MouseDownEvent, Window};
+use gpui::{div, prelude::*, px, rgb, Context, Entity, MouseButton, MouseDownEvent, Window};
 
 use crate::bridge::Bridge;
 use crate::state::{AppState, HostFormDraft, HostFormState, SshEvent, TabContent};
@@ -129,10 +129,71 @@ impl Render for DefaultPageView {
                 let label = h.label.clone();
                 let host_text = format!("{}@{}:{}", h.user, h.host, h.port);
 
+                // 该 host 的活跃连接数
+                let active_count = app
+                    .connections
+                    .values()
+                    .filter(|c| c.host_id == id)
+                    .count();
+
+                // ───── 左侧 avatar：host 名首字母 + 调色板配色 ─────
+                let initial = label.chars().next().unwrap_or('?').to_uppercase().to_string();
+                let avatar_bg = theme::avatar_color_for(&label);
+                let avatar = div()
+                    .w(px(40.0))
+                    .h(px(40.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .bg(rgb(avatar_bg))
+                    .rounded_xl()
+                    .text_color(rgb(0xffffff))
+                    .text_size(theme::text_lg())
+                    .child(initial);
+
+                // ───── SSH chip ─────
+                let chip = div()
+                    .px_2p5()
+                    .py_0p5()
+                    .text_size(theme::text_xs())
+                    .text_color(rgb(theme::ACCENT_BLUE))
+                    .bg(rgb(theme::CHIP_BLUE_BG))
+                    .rounded_full()
+                    .child("SSH");
+
+                // ───── 活跃数 chip（仅当 active_count > 0） ─────
+                let active_chip: Option<gpui::AnyElement> = if active_count > 0 {
+                    Some(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_1()
+                            .px_2p5()
+                            .py_0p5()
+                            .text_size(theme::text_xs())
+                            .text_color(rgb(theme::ACCENT_GREEN))
+                            .bg(rgb(theme::CHIP_GREEN_BG))
+                            .rounded_full()
+                            .child(div().text_color(rgb(theme::ACCENT_GREEN)).child("●"))
+                            .child(format!("{} 活跃", active_count))
+                            .into_any_element(),
+                    )
+                } else {
+                    None
+                };
+
+                // ───── 编辑 / 删除 hover 按钮 ─────
                 let edit_btn = div()
                     .px_2()
+                    .py_1()
+                    .rounded_md()
                     .text_color(rgb(theme::TEXT_SECONDARY))
-                    .hover(|s| s.text_color(rgb(theme::TEXT_PRIMARY)).cursor_pointer())
+                    .hover(|s| {
+                        s.text_color(rgb(theme::TEXT_PRIMARY))
+                            .bg(rgb(theme::BG_SELECTED))
+                            .cursor_pointer()
+                    })
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
@@ -143,8 +204,14 @@ impl Render for DefaultPageView {
 
                 let delete_btn = div()
                     .px_2()
+                    .py_1()
+                    .rounded_md()
                     .text_color(rgb(theme::TEXT_SECONDARY))
-                    .hover(|s| s.text_color(rgb(theme::ACCENT_RED)).cursor_pointer())
+                    .hover(|s| {
+                        s.text_color(rgb(theme::ACCENT_RED))
+                            .bg(rgb(theme::BG_SELECTED))
+                            .cursor_pointer()
+                    })
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
@@ -156,26 +223,23 @@ impl Render for DefaultPageView {
                 let actions = div()
                     .flex()
                     .flex_row()
-                    .gap_2()
+                    .gap_1()
                     .opacity(0.0)
                     .group_hover("host_card", |s| s.opacity(1.0))
                     .child(edit_btn)
                     .child(delete_btn);
 
-                // SSH chip — 圆角胶囊，比 host label 矮一档
-                let chip = div()
-                    .px_2p5()
-                    .py_0p5()
-                    .text_size(theme::text_xs())
-                    .text_color(rgb(theme::ACCENT_BLUE))
-                    .bg(rgb(theme::CHIP_BLUE_BG))
-                    .rounded_full()
-                    .child("SSH");
+                // ───── 右侧 chevron `›` 暗示可点击 ─────
+                let chevron = div()
+                    .text_color(rgb(theme::TEXT_MUTED))
+                    .text_size(theme::text_lg())
+                    .child("›");
 
+                // ───── 整个卡片：avatar | 中间内容 flex_1 | actions + chevron ─────
                 div()
                     .group("host_card")
-                    .px_5()
-                    .py_4()
+                    .px_4()
+                    .py_3p5()
                     .bg(rgb(theme::BG_ELEVATED))
                     .rounded_2xl()
                     .hover(|s| s.bg(rgb(theme::BG_HOVER)).cursor_pointer())
@@ -189,13 +253,15 @@ impl Render for DefaultPageView {
                     .flex_row()
                     .items_center()
                     .gap_3()
+                    .child(avatar)
                     .child(
                         div()
                             .flex_1()
                             .flex()
                             .flex_col()
-                            .gap_1()
+                            .gap_0p5()
                             .child(
+                                // 第一行：label + chips
                                 div()
                                     .flex()
                                     .flex_row()
@@ -207,9 +273,11 @@ impl Render for DefaultPageView {
                                             .text_size(theme::text_lg())
                                             .child(label),
                                     )
-                                    .child(chip),
+                                    .child(chip)
+                                    .children(active_chip),
                             )
                             .child(
+                                // 第二行：user@host:port
                                 div()
                                     .text_color(rgb(theme::TEXT_SECONDARY))
                                     .text_size(theme::text_sm())
@@ -217,6 +285,7 @@ impl Render for DefaultPageView {
                             ),
                     )
                     .child(actions)
+                    .child(chevron)
             })
             .collect();
 
