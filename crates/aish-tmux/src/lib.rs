@@ -8,6 +8,7 @@
 pub mod commands;
 pub mod error;
 pub mod events;
+pub mod protocol;
 pub mod types;
 
 pub use commands::{build_command, Key, TmuxCommand};
