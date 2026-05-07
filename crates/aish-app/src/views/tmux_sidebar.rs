@@ -63,7 +63,7 @@ impl Render for TmuxSidebarView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let snapshot: Option<(ConnectionId, TmuxState)> = {
             let app = self.state.read(cx);
-            app.selected_connection.map(|c| {
+            app.current_connection().map(|c| {
                 (
                     c,
                     app.tmux_state

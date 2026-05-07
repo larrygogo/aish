@@ -54,6 +54,31 @@ impl std::fmt::Display for ConnectionId {
     }
 }
 
+/// UI tab 唯一标识（UUID v4）。
+///
+/// 每个 tab 独立显示一个视图：默认页（host 卡片）或某个 Connection 的终端。
+/// 不持久化。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct TabId(pub Uuid);
+
+impl TabId {
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
+
+impl Default for TabId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Display for TabId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 /// tmux session 名（字符串 newtype，避免与普通 String 混淆）。
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct SessionId(String);
@@ -188,6 +213,13 @@ mod tests {
         // 这是防止 future 开发者把 host_id 当 conn_id 用的最低限度保险。
         let _h: HostId = HostId::new();
         let _c: ConnectionId = ConnectionId::new();
+    }
+
+    #[test]
+    fn tab_id_new_unique() {
+        let a = TabId::new();
+        let b = TabId::new();
+        assert_ne!(a, b);
     }
 
     #[test]

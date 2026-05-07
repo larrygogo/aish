@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::time::SystemTime;
 
-use aish_types::{ConnectionId, HostConfig, HostId, RemoteSession, SessionId};
+use aish_types::{ConnectionId, HostConfig, HostId, RemoteSession, SessionId, TabId};
 use alacritty_terminal::event::VoidListener;
 use alacritty_terminal::term::test::TermSize;
 use alacritty_terminal::term::Config as TermConfig;
@@ -266,6 +266,21 @@ pub struct Connection {
     pub opened_at: SystemTime,
 }
 
+/// Tab 内容类型。默认页显示 host 卡片，连接页显示该 connection 的终端。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TabContent {
+    Default,
+    Connection(ConnectionId),
+}
+
+/// 顶部 tab 栏的一个 tab。
+#[derive(Debug, Clone)]
+pub struct Tab {
+    pub id: TabId,
+    pub content: TabContent,
+    pub title: String,
+}
+
 /// 单一 root Model：所有 UI 共享状态。
 #[derive(Default)]
 pub struct AppState {
@@ -273,8 +288,16 @@ pub struct AppState {
     pub hosts: Vec<HostConfig>,
     /// 活跃连接元数据。键 ConnectionId 对应运行时 actor。
     pub connections: HashMap<ConnectionId, Connection>,
-    /// 当前 terminal 区域显示哪个连接。
-    pub selected_connection: Option<ConnectionId>,
+
+    /// 顶部 tab 栏（顺序敏感）。
+    pub tabs: Vec<Tab>,
+    /// 当前选中的 tab。`None` 仅在 tabs 为空时出现（启动一瞬间）。
+    pub selected_tab: Option<TabId>,
+    /// 等待用户在 session picker 弹窗里选择的连接。
+    /// `Some(conn)` = 该 conn 已收到 TmuxSessionsListed 但用户还没选；显示弹窗。
+    /// `None` = 无弹窗。
+    pub pending_session_picker: Option<ConnectionId>,
+
     pub modal: Option<HostFormState>,
 
     /// 每连接一个 actor 命令通道。
@@ -289,10 +312,19 @@ pub struct AppState {
 
 impl AppState {
     pub fn with_hosts(hosts: Vec<HostConfig>) -> Self {
+        // 启动时自动开一个默认页 tab，避免界面空白。
+        let initial_tab = Tab {
+            id: TabId::new(),
+            content: TabContent::Default,
+            title: "新连接".into(),
+        };
+        let initial_tab_id = initial_tab.id;
         Self {
             hosts,
             connections: HashMap::new(),
-            selected_connection: None,
+            tabs: vec![initial_tab],
+            selected_tab: Some(initial_tab_id),
+            pending_session_picker: None,
             sessions: HashMap::new(),
             modal: None,
             host_pty_term: HashMap::new(),
@@ -301,9 +333,74 @@ impl AppState {
         }
     }
 
-    /// 切换 terminal 显示哪个连接。
-    pub fn select_connection(&mut self, id: ConnectionId) {
-        self.selected_connection = Some(id);
+    // ───────── Tab 管理 ─────────
+
+    /// 当前选中的 tab。
+    pub fn current_tab(&self) -> Option<&Tab> {
+        let id = self.selected_tab?;
+        self.tabs.iter().find(|t| t.id == id)
+    }
+
+    /// 当前选中 tab 对应的 connection（若该 tab 是 Connection 类型）。
+    pub fn current_connection(&self) -> Option<ConnectionId> {
+        match self.current_tab()?.content {
+            TabContent::Connection(c) => Some(c),
+            TabContent::Default => None,
+        }
+    }
+
+    /// 新建一个默认页 tab，自动选中并返回 id。
+    pub fn new_default_tab(&mut self) -> TabId {
+        let tab = Tab {
+            id: TabId::new(),
+            content: TabContent::Default,
+            title: "新连接".into(),
+        };
+        let id = tab.id;
+        self.tabs.push(tab);
+        self.selected_tab = Some(id);
+        id
+    }
+
+    pub fn select_tab(&mut self, id: TabId) {
+        if self.tabs.iter().any(|t| t.id == id) {
+            self.selected_tab = Some(id);
+        }
+    }
+
+    /// 把当前 tab 替换为指定 content/title（用于"在默认页里点了 host 卡片
+    /// → 同一个 tab 变成 connection tab"的流程）。
+    pub fn replace_current_tab(&mut self, content: TabContent, title: String) {
+        let id = match self.selected_tab {
+            Some(i) => i,
+            None => return,
+        };
+        if let Some(t) = self.tabs.iter_mut().find(|t| t.id == id) {
+            t.content = content;
+            t.title = title;
+        }
+    }
+
+    /// 关闭一个 tab。如果是 Connection tab，**调用方**负责发 SessionCommand::Disconnect
+    /// 并 remove_connection（因为发命令需要 bridge）。本函数只做 state 端的 tab 维护：
+    ///   - 从 tabs 列表移除
+    ///   - 如果是当前选中，自动切到相邻
+    ///   - 如果删完了所有 tab，自动开一个新的默认页（避免空白）
+    pub fn close_tab(&mut self, id: TabId) -> Option<TabContent> {
+        let idx = self.tabs.iter().position(|t| t.id == id)?;
+        let removed = self.tabs.remove(idx);
+        if self.selected_tab == Some(id) {
+            // 选相邻 tab；若全空则新建一个默认页
+            self.selected_tab = self
+                .tabs
+                .get(idx)
+                .or_else(|| self.tabs.last())
+                .map(|t| t.id);
+            if self.selected_tab.is_none() {
+                self.new_default_tab();
+            }
+        }
+        Some(removed.content)
     }
 
     pub fn host_label(&self, id: HostId) -> Option<String> {
@@ -327,7 +424,8 @@ impl AppState {
     }
 
     /// 创建一个新 Connection 元数据；caller 之后再 `register_session` 绑定 actor sender。
-    /// 返回新生成的 ConnectionId。
+    /// 返回新生成的 ConnectionId。注意本函数**不**改 tab 状态 —— 调用方决定是
+    /// 替换当前 tab 还是新开一个 tab 显示该 connection。
     pub fn open_connection(&mut self, host_id: HostId) -> ConnectionId {
         let id = ConnectionId::new();
         let label = self.next_label_for(host_id);
@@ -340,8 +438,6 @@ impl AppState {
                 opened_at: SystemTime::now(),
             },
         );
-        // 自动选中新连接，让 terminal 区域立即切换显示
-        self.selected_connection = Some(id);
         id
     }
 
@@ -364,16 +460,22 @@ impl AppState {
     }
 
     /// 完全移除一个连接：从 connections 和所有 per-conn map 里删掉。
-    /// UI 上点 × 时调用。如果这是当前选中的，selected_connection 重置。
+    /// 如果有 tab 引用了它，把那些 tab 的 content 改为 Default（保留 tab 不删）。
     pub fn remove_connection(&mut self, id: ConnectionId) {
         self.connections.remove(&id);
         self.sessions.remove(&id);
         self.host_pty_term.remove(&id);
         self.host_pty_dimensions.remove(&id);
         self.tmux_state.remove(&id);
-        if self.selected_connection == Some(id) {
-            // 自动切到任意还存在的连接，否则置 None
-            self.selected_connection = self.connections.keys().next().copied();
+        for t in &mut self.tabs {
+            if t.content == TabContent::Connection(id) {
+                t.content = TabContent::Default;
+                t.title = "新连接".into();
+            }
+        }
+        // 关掉的连接如果正在弹 picker，也得清
+        if self.pending_session_picker == Some(id) {
+            self.pending_session_picker = None;
         }
     }
 
@@ -554,17 +656,6 @@ mod tests {
     }
 
     #[test]
-    fn open_connection_auto_selects_new_one() {
-        let h = mk_host("a");
-        let host_id = h.id;
-        let mut state = AppState::with_hosts(vec![h]);
-        let c1 = state.open_connection(host_id);
-        assert_eq!(state.selected_connection, Some(c1));
-        let c2 = state.open_connection(host_id);
-        assert_eq!(state.selected_connection, Some(c2));
-    }
-
-    #[test]
     fn remove_connection_clears_all_per_conn_state() {
         let h = mk_host("a");
         let host_id = h.id;
@@ -578,19 +669,70 @@ mod tests {
         assert!(!state.host_pty_term.contains_key(&conn));
         assert!(!state.host_pty_dimensions.contains_key(&conn));
         assert!(!state.tmux_state.contains_key(&conn));
-        assert_eq!(state.selected_connection, None);
     }
 
     #[test]
-    fn remove_connection_picks_another_when_current_was_selected() {
+    fn remove_connection_resets_referencing_tab_to_default() {
         let h = mk_host("a");
         let host_id = h.id;
         let mut state = AppState::with_hosts(vec![h]);
-        let c1 = state.open_connection(host_id);
-        let c2 = state.open_connection(host_id);
-        assert_eq!(state.selected_connection, Some(c2));
-        state.remove_connection(c2);
-        assert_eq!(state.selected_connection, Some(c1));
+        let conn = state.open_connection(host_id);
+        state.replace_current_tab(TabContent::Connection(conn), "x".into());
+        state.remove_connection(conn);
+        let cur = state.current_tab().unwrap();
+        assert_eq!(cur.content, TabContent::Default);
+        assert_eq!(cur.title, "新连接");
+    }
+
+    #[test]
+    fn with_hosts_creates_initial_default_tab() {
+        let state = AppState::with_hosts(vec![]);
+        assert_eq!(state.tabs.len(), 1);
+        assert!(state.selected_tab.is_some());
+        assert_eq!(state.current_tab().unwrap().content, TabContent::Default);
+    }
+
+    #[test]
+    fn new_default_tab_pushes_and_selects() {
+        let mut state = AppState::with_hosts(vec![]);
+        let n = state.tabs.len();
+        let id = state.new_default_tab();
+        assert_eq!(state.tabs.len(), n + 1);
+        assert_eq!(state.selected_tab, Some(id));
+    }
+
+    #[test]
+    fn replace_current_tab_swaps_in_place() {
+        let h = mk_host("a");
+        let host_id = h.id;
+        let mut state = AppState::with_hosts(vec![h]);
+        let conn = state.open_connection(host_id);
+        let initial_id = state.selected_tab.unwrap();
+        state.replace_current_tab(TabContent::Connection(conn), "腾讯云 #1".into());
+        assert_eq!(state.selected_tab, Some(initial_id));
+        assert_eq!(state.current_tab().unwrap().title, "腾讯云 #1");
+        assert_eq!(state.current_connection(), Some(conn));
+    }
+
+    #[test]
+    fn close_tab_picks_neighbor_when_current() {
+        let mut state = AppState::with_hosts(vec![]);
+        let t1 = state.selected_tab.unwrap();
+        let t2 = state.new_default_tab();
+        state.close_tab(t2);
+        assert_eq!(state.selected_tab, Some(t1));
+        assert_eq!(state.tabs.len(), 1);
+    }
+
+    #[test]
+    fn close_last_tab_auto_creates_default() {
+        let mut state = AppState::with_hosts(vec![]);
+        let only = state.selected_tab.unwrap();
+        state.close_tab(only);
+        // 不让窗口空白：自动新建一个
+        assert_eq!(state.tabs.len(), 1);
+        assert!(state.selected_tab.is_some());
+        assert_ne!(state.selected_tab, Some(only));
     }
 
     #[test]

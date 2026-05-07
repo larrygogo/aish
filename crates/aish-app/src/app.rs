@@ -59,6 +59,7 @@ pub fn run() {
                     SshEvent::TmuxSessionsListed { conn, sessions } => {
                         // 进入 Detected 状态时清空 attached 标记 —— 重新查询时
                         // 上次 attach 的 session 可能已经不存在或被改名。
+                        let has_sessions = !sessions.is_empty();
                         state.tmux_state.insert(
                             conn,
                             crate::state::TmuxState::Detected {
@@ -66,6 +67,11 @@ pub fn run() {
                                 attached: None,
                             },
                         );
+                        // 远端有 tmux session 且当前 tab 正是该 connection
+                        // → 弹 picker 让用户选 attach 哪个（或跳过进 raw shell）。
+                        if has_sessions && state.current_connection() == Some(conn) {
+                            state.pending_session_picker = Some(conn);
+                        }
                         cx.notify();
                     }
                     SshEvent::TmuxQueryFailed { conn, msg } => {
@@ -123,12 +129,15 @@ pub fn run() {
     drop(bridge_keep);
 }
 
+/// 根视图。布局：上方 TabBar，下方按当前 tab.content 切换显示 DefaultPage 或 Terminal。
+/// HostFormModal / SessionPickerView 作为顶层叠加 modal。
 struct RootView {
     state: Entity<AppState>,
-    host_list: Entity<crate::views::HostListView>,
-    tmux_sidebar: Entity<crate::views::TmuxSidebarView>,
+    tab_bar: Entity<crate::views::TabBarView>,
+    default_page: Entity<crate::views::DefaultPageView>,
     terminal: Entity<crate::views::TerminalView>,
     host_form: Entity<crate::views::HostFormModal>,
+    session_picker: Entity<crate::views::SessionPickerView>,
 }
 
 impl RootView {
@@ -139,11 +148,10 @@ impl RootView {
         cx: &mut Context<Self>,
     ) -> Self {
         cx.observe(&state, |_this, _state, cx| cx.notify()).detach();
-        let host_list = cx.new(|cx| {
-            crate::views::HostListView::new(state.clone(), bridge.clone(), tx.clone(), cx)
-        });
-        let tmux_sidebar = cx.new(|cx| {
-            crate::views::TmuxSidebarView::new(state.clone(), bridge.clone(), tx.clone(), cx)
+        let tab_bar = cx
+            .new(|cx| crate::views::TabBarView::new(state.clone(), bridge.clone(), tx.clone(), cx));
+        let default_page = cx.new(|cx| {
+            crate::views::DefaultPageView::new(state.clone(), bridge.clone(), tx.clone(), cx)
         });
         let terminal = cx.new(|cx| {
             crate::views::TerminalView::new(state.clone(), bridge.clone(), tx.clone(), cx)
@@ -151,31 +159,49 @@ impl RootView {
         let host_form = cx.new(|cx| {
             crate::views::HostFormModal::new(state.clone(), bridge.clone(), tx.clone(), cx)
         });
+        let session_picker = cx.new(|cx| {
+            crate::views::SessionPickerView::new(state.clone(), bridge.clone(), tx.clone(), cx)
+        });
         Self {
             state,
-            host_list,
-            tmux_sidebar,
+            tab_bar,
+            default_page,
             terminal,
             host_form,
+            session_picker,
         }
     }
 }
 
 impl Render for RootView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let modal_open = self.state.read(cx).modal.is_some();
+        let app = self.state.read(cx);
+        let modal_open = app.modal.is_some();
+        let picker_open = app.pending_session_picker.is_some();
+        let is_connection_tab = matches!(
+            app.current_tab().map(|t| &t.content),
+            Some(crate::state::TabContent::Connection(_))
+        );
+
+        let body: gpui::AnyElement = if is_connection_tab {
+            self.terminal.clone().into_any_element()
+        } else {
+            self.default_page.clone().into_any_element()
+        };
 
         let main = div()
             .flex()
-            .flex_row()
+            .flex_col()
             .size_full()
             .bg(rgb(0x1d1f21))
-            .child(self.host_list.clone())
-            .child(self.tmux_sidebar.clone())
-            .child(self.terminal.clone());
+            .child(self.tab_bar.clone())
+            .child(div().flex_1().child(body));
 
         let mut root = div().relative().size_full().child(main);
 
+        if picker_open {
+            root = root.child(self.session_picker.clone());
+        }
         if modal_open {
             root = root.child(self.host_form.clone());
         }

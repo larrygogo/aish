@@ -66,7 +66,7 @@ impl TerminalView {
     }
 
     fn handle_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
-        let conn = match self.state.read(cx).selected_connection {
+        let conn = match self.state.read(cx).current_connection() {
             Some(c) => c,
             None => return,
         };
@@ -117,7 +117,7 @@ impl TerminalView {
 
     /// 处理鼠标左键按下：开始 selection。
     fn handle_mouse_down(&mut self, ev: &MouseDownEvent, cx: &mut Context<Self>) {
-        let conn = match self.state.read(cx).selected_connection {
+        let conn = match self.state.read(cx).current_connection() {
             Some(c) => c,
             None => return,
         };
@@ -146,7 +146,7 @@ impl TerminalView {
 
     /// 处理鼠标拖拽：更新 selection 末端。
     fn handle_mouse_move(&mut self, ev: &MouseMoveEvent, cx: &mut Context<Self>) {
-        let conn = match self.state.read(cx).selected_connection {
+        let conn = match self.state.read(cx).current_connection() {
             Some(c) => c,
             None => return,
         };
@@ -177,7 +177,7 @@ impl TerminalView {
     ///
     /// 在 canvas prepaint 的下一帧回调中调用（通过 window.on_next_frame）。
     fn check_resize(&mut self, bounds: Bounds<Pixels>, cx: &mut Context<Self>) {
-        let conn = match self.state.read(cx).selected_connection {
+        let conn = match self.state.read(cx).current_connection() {
             Some(c) => c,
             None => return,
         };
@@ -245,7 +245,7 @@ impl Focusable for TerminalView {
 
 impl Render for TerminalView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let conn = self.state.read(cx).selected_connection;
+        let conn = self.state.read(cx).current_connection();
         let cursor_state = self.cursor_state;
         let state_entity = self.state.clone();
 
