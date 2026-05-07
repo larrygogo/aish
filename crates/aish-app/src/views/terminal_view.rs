@@ -25,8 +25,9 @@ pub struct TerminalView {
     tx: tokio::sync::mpsc::Sender<SshEvent>,
     focus_handle: FocusHandle,
     cursor_state: CursorState,
-    /// 上次已生效的 PTY 尺寸 (cols, rows)，用于检测变化。
-    last_pty_size: Option<(u16, u16)>,
+    /// 上次已生效的 (connection, cols, rows)，用于检测变化。把 connection 加进 cache
+    /// key 避免切换连接时把 size 当成"没变"跳过 SIGWINCH。
+    last_pty_size: Option<(aish_types::ConnectionId, u16, u16)>,
     /// 进行中的 resize debounce task — drop 即取消。
     pending_resize: Option<gpui::Task<()>>,
 }
@@ -65,8 +66,8 @@ impl TerminalView {
     }
 
     fn handle_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
-        let host = match self.state.read(cx).selected {
-            Some(h) => h,
+        let conn = match self.state.read(cx).selected_connection {
+            Some(c) => c,
             None => return,
         };
 
@@ -80,7 +81,7 @@ impl TerminalView {
             let text = self
                 .state
                 .read(cx)
-                .term_of(host)
+                .term_of(conn)
                 .and_then(crate::terminal::selection::selected_text);
             if let Some(text) = text {
                 cx.write_to_clipboard(ClipboardItem::new_string(text));
@@ -88,7 +89,7 @@ impl TerminalView {
             return;
         }
 
-        let sender = match self.state.read(cx).sessions.get(&host).cloned() {
+        let sender = match self.state.read(cx).sessions.get(&conn).cloned() {
             Some(s) => s,
             None => return,
         };
@@ -116,15 +117,15 @@ impl TerminalView {
 
     /// 处理鼠标左键按下：开始 selection。
     fn handle_mouse_down(&mut self, ev: &MouseDownEvent, cx: &mut Context<Self>) {
-        let host = match self.state.read(cx).selected {
-            Some(h) => h,
+        let conn = match self.state.read(cx).selected_connection {
+            Some(c) => c,
             None => return,
         };
         let (cols, rows) = self
             .state
             .read(cx)
             .host_pty_dimensions
-            .get(&host)
+            .get(&conn)
             .copied()
             .unwrap_or((crate::state::DEFAULT_COLS, crate::state::DEFAULT_ROWS));
         let layout = self.current_layout(cx);
@@ -136,7 +137,7 @@ impl TerminalView {
             cols as usize,
         );
         self.state.update(cx, |state, cx| {
-            if let Some(term) = state.host_pty_term.get_mut(&host) {
+            if let Some(term) = state.host_pty_term.get_mut(&conn) {
                 crate::terminal::selection::start_selection(term, line, col, side);
             }
             cx.notify();
@@ -145,15 +146,15 @@ impl TerminalView {
 
     /// 处理鼠标拖拽：更新 selection 末端。
     fn handle_mouse_move(&mut self, ev: &MouseMoveEvent, cx: &mut Context<Self>) {
-        let host = match self.state.read(cx).selected {
-            Some(h) => h,
+        let conn = match self.state.read(cx).selected_connection {
+            Some(c) => c,
             None => return,
         };
         let (cols, rows) = self
             .state
             .read(cx)
             .host_pty_dimensions
-            .get(&host)
+            .get(&conn)
             .copied()
             .unwrap_or((crate::state::DEFAULT_COLS, crate::state::DEFAULT_ROWS));
         let layout = self.current_layout(cx);
@@ -165,7 +166,7 @@ impl TerminalView {
             cols as usize,
         );
         self.state.update(cx, |state, cx| {
-            if let Some(term) = state.host_pty_term.get_mut(&host) {
+            if let Some(term) = state.host_pty_term.get_mut(&conn) {
                 crate::terminal::selection::update_selection(term, line, col, side);
             }
             cx.notify();
@@ -176,11 +177,11 @@ impl TerminalView {
     ///
     /// 在 canvas prepaint 的下一帧回调中调用（通过 window.on_next_frame）。
     fn check_resize(&mut self, bounds: Bounds<Pixels>, cx: &mut Context<Self>) {
-        let host = match self.state.read(cx).selected {
-            Some(h) => h,
+        let conn = match self.state.read(cx).selected_connection {
+            Some(c) => c,
             None => return,
         };
-        if !self.state.read(cx).is_session_active(host) {
+        if !self.state.read(cx).is_session_active(conn) {
             return;
         }
 
@@ -196,10 +197,12 @@ impl TerminalView {
         let cols = (((w - 16.0) / cw).floor()).max(1.0) as u16;
         let rows = (((h - 16.0) / ch).floor()).max(1.0) as u16;
 
-        if Some((cols, rows)) == self.last_pty_size {
+        // last_pty_size 是 per-view 字段，当前 view 切换 connection 时也得重新触发；
+        // 把 conn 也带进 cache key，避免切到另一连接还以为没变化跳过 resize。
+        if Some((conn, cols, rows)) == self.last_pty_size {
             return;
         }
-        self.last_pty_size = Some((cols, rows));
+        self.last_pty_size = Some((conn, cols, rows));
 
         // drop 旧 pending task（取消上次 debounce）
         self.pending_resize = None;
@@ -217,9 +220,9 @@ impl TerminalView {
             // cx 是 &mut AsyncApp，通过 cx.update 拿 &mut App 来更新 state entity
             let sender_opt = cx.update(|app| {
                 state.update(app, |app_state, cx| {
-                    app_state.resize_term(host, cols, rows);
+                    app_state.resize_term(conn, cols, rows);
                     cx.notify();
-                    app_state.sessions.get(&host).cloned()
+                    app_state.sessions.get(&conn).cloned()
                 })
             });
 
@@ -242,7 +245,7 @@ impl Focusable for TerminalView {
 
 impl Render for TerminalView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let host = self.state.read(cx).selected;
+        let conn = self.state.read(cx).selected_connection;
         let cursor_state = self.cursor_state;
         let state_entity = self.state.clone();
 
@@ -282,7 +285,7 @@ impl Render for TerminalView {
                         });
 
                         // prepaint：从 Term 提取快照（读借用在这里完成，不影响 paint 阶段）
-                        take_snapshot(host, &state_entity, cx)
+                        take_snapshot(conn, &state_entity, cx)
                     },
                     move |bounds: Bounds<Pixels>, snapshot, window, cx| {
                         if let Some(snapshot) = snapshot {
@@ -302,20 +305,20 @@ impl Render for TerminalView {
 /// 一块大画布即可。M3-archived：之前 -CC 模式的 per-pane Term 已废。
 pub(crate) fn term_for_render(
     app: &AppState,
-    host: aish_types::HostId,
+    conn: aish_types::ConnectionId,
 ) -> Option<&alacritty_terminal::Term<alacritty_terminal::event::VoidListener>> {
-    app.host_pty_term.get(&host)
+    app.host_pty_term.get(&conn)
 }
 
 /// 在 prepaint 阶段读取 Term grid 快照（读借用安全）。
 fn take_snapshot(
-    host: Option<aish_types::HostId>,
+    conn: Option<aish_types::ConnectionId>,
     state: &Entity<AppState>,
     cx: &mut App,
 ) -> Option<GridSnapshot> {
-    let host = host?;
+    let conn = conn?;
     let app_state = state.read(cx);
-    let term = term_for_render(app_state, host)?;
+    let term = term_for_render(app_state, conn)?;
     Some(GridSnapshot::from_term(term))
 }
 
@@ -343,7 +346,7 @@ fn paint_terminal(
 mod tests {
     use super::*;
     use crate::state::AppState;
-    use aish_types::HostId;
+    use aish_types::{ConnectionId, HostId};
 
     fn mk_state_with_host() -> (AppState, HostId) {
         let cfg = aish_types::HostConfig {
@@ -363,16 +366,17 @@ mod tests {
 
     #[test]
     fn term_for_render_returns_host_pty() {
-        let (mut state, id) = mk_state_with_host();
-        state.feed_bytes(id, b"x");
-        let term = term_for_render(&state, id);
+        let (mut state, host_id) = mk_state_with_host();
+        let conn = state.open_connection(host_id);
+        state.feed_bytes(conn, b"x");
+        let term = term_for_render(&state, conn);
         assert!(term.is_some());
     }
 
     #[test]
-    fn term_for_render_returns_none_for_unknown_host() {
-        let (state, _id) = mk_state_with_host();
-        let unknown = HostId::new();
+    fn term_for_render_returns_none_for_unknown_conn() {
+        let (state, _host_id) = mk_state_with_host();
+        let unknown = ConnectionId::new();
         let term = term_for_render(&state, unknown);
         assert!(term.is_none());
     }

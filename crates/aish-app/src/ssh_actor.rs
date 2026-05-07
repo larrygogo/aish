@@ -1,32 +1,37 @@
-//! ssh_actor — host_session_task：每 host 一个 tokio task，own SshSession + PTY。
+//! ssh_actor — connection_task：每个连接一个 tokio task，own SshSession + PTY。
 //!
 //! 每个 task 内部 select! 在两个 future 之间：
 //!   - chan.wait() — PTY 远端输出，转 SshEvent::PaneOutput 推回 GPUI
 //!   - cmd_rx.recv() — GPUI 端的键盘输入命令，写入 chan.data()
+//!
+//! 关键 id 区分：
+//!   - `conn: ConnectionId` — 该 task 自身的连接标识，所有 SshEvent 都用它寻址
+//!   - `config.id: HostId` — 配置标识，keyring 密码按 HostId 索引（同一 host 的
+//!     多个连接共享 keyring 条目）
 
 #![allow(dead_code)]
 
-use aish_types::{HostConfig, HostId, RemoteSession};
+use aish_types::{ConnectionId, HostConfig, RemoteSession};
 use tokio::sync::mpsc;
 
 use crate::state::{DisconnectReason, SessionCommand, SshEvent};
 
-/// 在 tokio runtime 上 spawn 一个 host 的 session task。
+/// 在 tokio runtime 上 spawn 一个连接的 actor task。
 ///
 /// 返回 SessionCommand sender — caller 把它存进 AppState.sessions。
 pub fn spawn_session(
     runtime: tokio::runtime::Handle,
-    host: HostId,
+    conn: ConnectionId,
     config: HostConfig,
     event_tx: mpsc::Sender<SshEvent>,
 ) -> mpsc::Sender<SessionCommand> {
     let (cmd_tx, cmd_rx) = mpsc::channel::<SessionCommand>(64);
-    runtime.spawn(host_session_task(host, config, cmd_rx, event_tx));
+    runtime.spawn(connection_task(conn, config, cmd_rx, event_tx));
     cmd_tx
 }
 
-pub(crate) async fn host_session_task(
-    host: HostId,
+pub(crate) async fn connection_task(
+    conn: ConnectionId,
     config: HostConfig,
     mut cmd_rx: mpsc::Receiver<SessionCommand>,
     event_tx: mpsc::Sender<SshEvent>,
@@ -37,6 +42,8 @@ pub(crate) async fn host_session_task(
 
     use crate::state::{SshErrorKind, DEFAULT_COLS, DEFAULT_ROWS};
 
+    let host_id = config.id; // keyring 索引用
+
     // 初始 PTY 尺寸用 DEFAULT 占位 —— GPUI 第一次 layout 后立即通过
     // SessionCommand::Resize 触发 chan.window_change，把 SIGWINCH 透传到远端
     // shell；tmux attach 后 tmux 自身根据 PTY size 变化重排 pane（SIGWINCH
@@ -46,14 +53,14 @@ pub(crate) async fn host_session_task(
     let mut effective_config = config.clone();
     if let SshAuth::Password { password } = &mut effective_config.auth {
         if password.is_empty() {
-            match SecretStore::get(host) {
+            match SecretStore::get(host_id) {
                 Ok(p) => {
                     *password = p;
                 }
                 Err(SecretError::NoEntry) => {
                     let _ = event_tx
                         .send(SshEvent::Error {
-                            host,
+                            conn,
                             kind: SshErrorKind::AuthFailed,
                             msg: "keyring 中没有该 host 的密码（请重新在 GUI 中输入并保存）".into(),
                         })
@@ -63,7 +70,7 @@ pub(crate) async fn host_session_task(
                 Err(e) => {
                     let _ = event_tx
                         .send(SshEvent::Error {
-                            host,
+                            conn,
                             kind: SshErrorKind::AuthFailed,
                             msg: format!("从 keyring 读取密码失败: {}", e),
                         })
@@ -86,7 +93,7 @@ pub(crate) async fn host_session_task(
             };
             let _ = event_tx
                 .send(SshEvent::Error {
-                    host,
+                    conn,
                     kind,
                     msg: err.to_string(),
                 })
@@ -101,7 +108,7 @@ pub(crate) async fn host_session_task(
         Err(err) => {
             let _ = event_tx
                 .send(SshEvent::Error {
-                    host,
+                    conn,
                     kind: SshErrorKind::Protocol,
                     msg: format!("open_channel: {}", err),
                 })
@@ -115,7 +122,7 @@ pub(crate) async fn host_session_task(
     {
         let _ = event_tx
             .send(SshEvent::Error {
-                host,
+                conn,
                 kind: SshErrorKind::Protocol,
                 msg: format!("request_pty: {}", err),
             })
@@ -125,19 +132,19 @@ pub(crate) async fn host_session_task(
     if let Err(err) = chan.shell().await {
         let _ = event_tx
             .send(SshEvent::Error {
-                host,
+                conn,
                 kind: SshErrorKind::Protocol,
                 msg: format!("shell: {}", err),
             })
             .await;
         return;
     }
-    let _ = event_tx.send(SshEvent::Connected { host }).await;
+    let _ = event_tx.send(SshEvent::Connected { conn }).await;
 
     // 3. spawn 后台 list-sessions（独立 SSH channel）
     let session_for_query = session.clone();
     let tx_for_query = event_tx.clone();
-    tokio::spawn(tmux_query_task(host, session_for_query, tx_for_query));
+    tokio::spawn(tmux_query_task(conn, session_for_query, tx_for_query));
 
     // 4. 主循环：raw shell 单一模式。tmux attach 不再切换协议，只是往 channel
     //    发送 `tmux attach -t '<sess>'\r` 字节，让远端 tmux 接管 PTY 渲染。
@@ -145,34 +152,34 @@ pub(crate) async fn host_session_task(
         tokio::select! {
             msg = chan.wait() => match msg {
                 Some(ChannelMsg::ExtendedData { ref data, ext }) => {
-                    tracing::warn!(?host, ext, len = data.len(), payload = %String::from_utf8_lossy(data), "actor: channel ExtendedData");
+                    tracing::warn!(?conn, ext, len = data.len(), payload = %String::from_utf8_lossy(data), "actor: channel ExtendedData");
                 }
                 Some(ChannelMsg::ExitStatus { exit_status }) => {
-                    tracing::warn!(?host, exit_status, "actor: channel ExitStatus");
+                    tracing::warn!(?conn, exit_status, "actor: channel ExitStatus");
                 }
                 Some(ChannelMsg::ExitSignal { ref signal_name, .. }) => {
-                    tracing::warn!(?host, signal = ?signal_name, "actor: channel ExitSignal");
+                    tracing::warn!(?conn, signal = ?signal_name, "actor: channel ExitSignal");
                 }
                 Some(ChannelMsg::Data { data }) => {
                     let _ = event_tx
                         .send(SshEvent::PaneOutput {
-                            host,
+                            conn,
                             bytes: data.to_vec(),
                         })
                         .await;
                 }
                 Some(ChannelMsg::Eof) | None => {
-                    tracing::warn!(?host, "actor: channel closed (Eof/None)");
+                    tracing::warn!(?conn, "actor: channel closed (Eof/None)");
                     let _ = event_tx
                         .send(SshEvent::Disconnected {
-                            host,
+                            conn,
                             reason: DisconnectReason::RemoteExited,
                         })
                         .await;
                     break;
                 }
                 Some(other) => {
-                    tracing::info!(?host, ?other, "actor: other ChannelMsg");
+                    tracing::info!(?conn, ?other, "actor: other ChannelMsg");
                 }
             },
             cmd = cmd_rx.recv() => match cmd {
@@ -180,7 +187,7 @@ pub(crate) async fn host_session_task(
                     if let Err(e) = chan.data(&bytes[..]).await {
                         let _ = event_tx
                             .send(SshEvent::Disconnected {
-                                host,
+                                conn,
                                 reason: DisconnectReason::NetworkError(e.to_string()),
                             })
                             .await;
@@ -197,7 +204,7 @@ pub(crate) async fn host_session_task(
                 Some(SessionCommand::QueryTmuxSessions) => {
                     let session_for_query = session.clone();
                     let tx_for_query = event_tx.clone();
-                    tokio::spawn(tmux_query_task(host, session_for_query, tx_for_query));
+                    tokio::spawn(tmux_query_task(conn, session_for_query, tx_for_query));
                 }
                 Some(SessionCommand::AttachTmux { session: sess_id }) => {
                     // 在当前 raw shell PTY 里发 `tmux attach -t '<sess>'\r`。
@@ -207,17 +214,17 @@ pub(crate) async fn host_session_task(
                     let escaped = sess_id.as_str().replace('\'', r"'\''");
                     let attach_bytes = format!("tmux attach -t '{}'\r", escaped).into_bytes();
                     tracing::info!(
-                        ?host,
+                        ?conn,
                         sess = sess_id.as_str(),
                         "actor: AttachTmux → send-keys to raw shell"
                     );
                     if let Err(e) = chan.data(&attach_bytes[..]).await {
-                        tracing::warn!(?host, "actor: send tmux attach failed: {}", e);
+                        tracing::warn!(?conn, "actor: send tmux attach failed: {}", e);
                         continue;
                     }
                     let _ = event_tx
                         .send(SshEvent::TmuxAttached {
-                            host,
+                            conn,
                             session: sess_id,
                         })
                         .await;
@@ -225,7 +232,7 @@ pub(crate) async fn host_session_task(
                 Some(SessionCommand::Disconnect) | None => {
                     let _ = event_tx
                         .send(SshEvent::Disconnected {
-                            host,
+                            conn,
                             reason: DisconnectReason::UserRequested,
                         })
                         .await;
@@ -302,11 +309,11 @@ fn parse_session_list(stdout: &[u8]) -> Vec<RemoteSession> {
 
 /// 在独立 SSH channel 跑 tmux list-sessions，结果通过 SshEvent 推回。
 async fn tmux_query_task(
-    host: HostId,
+    conn: ConnectionId,
     client: aish_ssh::SshClient,
     event_tx: mpsc::Sender<SshEvent>,
 ) {
-    let _ = event_tx.send(SshEvent::TmuxQueryStarted { host }).await;
+    let _ = event_tx.send(SshEvent::TmuxQueryStarted { conn }).await;
     let result = client
         .exec_command("tmux list-sessions -F '#{session_id}|#{session_name}'")
         .await;
@@ -314,17 +321,17 @@ async fn tmux_query_task(
         Ok(r) if r.exit_code == 0 => {
             let sessions = parse_session_list(&r.stdout);
             let _ = event_tx
-                .send(SshEvent::TmuxSessionsListed { host, sessions })
+                .send(SshEvent::TmuxSessionsListed { conn, sessions })
                 .await;
         }
         Ok(r) => {
             let s = String::from_utf8_lossy(&r.stderr).to_string();
             if s.contains("command not found") || s.contains("not found") {
-                let _ = event_tx.send(SshEvent::TmuxNoTmux { host }).await;
+                let _ = event_tx.send(SshEvent::TmuxNoTmux { conn }).await;
             } else if s.contains("no server running") || s.contains("no sessions") {
                 let _ = event_tx
                     .send(SshEvent::TmuxSessionsListed {
-                        host,
+                        conn,
                         sessions: vec![],
                     })
                     .await;
@@ -335,13 +342,13 @@ async fn tmux_query_task(
                 } else {
                     trimmed.to_string()
                 };
-                let _ = event_tx.send(SshEvent::TmuxQueryFailed { host, msg }).await;
+                let _ = event_tx.send(SshEvent::TmuxQueryFailed { conn, msg }).await;
             }
         }
         Err(e) => {
             let _ = event_tx
                 .send(SshEvent::TmuxQueryFailed {
-                    host,
+                    conn,
                     msg: e.to_string(),
                 })
                 .await;
@@ -391,7 +398,7 @@ mod tests {
     #[tokio::test]
     async fn password_empty_no_keyring_entry_emits_auth_error() {
         // password 为空 + keyring 无该 host 条目 → 期望立即 emit AuthFailed Error
-        use aish_types::{HostConfig, SshAuth};
+        use aish_types::{ConnectionId, HostConfig, SshAuth};
 
         let cfg = HostConfig {
             id: aish_types::HostId::new(),
@@ -404,13 +411,14 @@ mod tests {
             },
             env_profile: None,
         };
-        let host_id = cfg.id;
+        let conn = ConnectionId::new();
 
         let (event_tx, mut event_rx) = mpsc::channel::<SshEvent>(8);
         let (_cmd_tx, cmd_rx) = mpsc::channel::<SessionCommand>(8);
 
-        // 直接调 host_session_task — 因为没 keyring 条目应立即 emit Error 然后 return
-        let task_handle = tokio::spawn(host_session_task(host_id, cfg, cmd_rx, event_tx));
+        // 直接调 connection_task — 因为没 keyring 条目应立即 emit Error 然后 return
+        let task_handle: tokio::task::JoinHandle<()> =
+            tokio::spawn(connection_task(conn, cfg, cmd_rx, event_tx));
 
         let evt = tokio::time::timeout(std::time::Duration::from_secs(2), event_rx.recv())
             .await

@@ -5,7 +5,7 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use aish_types::{HostConfig, HostId};
+use aish_types::{ConnectionId, HostConfig};
 use tokio::sync::mpsc;
 
 use crate::state::{SessionCommand, SshEvent};
@@ -48,14 +48,15 @@ impl Bridge {
         self.runtime.handle().clone()
     }
 
-    /// 启动一个 host session task，返回 SessionCommand sender。
+    /// 启动一个连接的 actor task。每个 ConnectionId 对应独立的 SSH session +
+    /// PTY，同一 HostConfig 可以并发启多个连接。
     pub fn spawn_session(
         &self,
-        host: HostId,
+        conn: ConnectionId,
         config: HostConfig,
         event_tx: mpsc::Sender<SshEvent>,
     ) -> mpsc::Sender<SessionCommand> {
-        crate::ssh_actor::spawn_session(self.runtime.handle().clone(), host, config, event_tx)
+        crate::ssh_actor::spawn_session(self.runtime.handle().clone(), conn, config, event_tx)
     }
 }
 
@@ -69,14 +70,14 @@ mod tests {
         let tx = chan.tx;
         for i in 0..64u32 {
             tx.try_send(SshEvent::PaneOutput {
-                host: HostId(uuid::Uuid::new_v4()),
+                conn: ConnectionId::new(),
                 bytes: vec![i as u8],
             })
             .expect("buffer of 64 should accept 64 sends without blocking");
         }
         assert!(tx
             .try_send(SshEvent::PaneOutput {
-                host: HostId(uuid::Uuid::new_v4()),
+                conn: ConnectionId::new(),
                 bytes: vec![65],
             })
             .is_err());

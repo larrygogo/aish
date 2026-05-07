@@ -7,7 +7,7 @@
 
 use std::sync::Arc;
 
-use aish_types::{HostId, RemoteSession, SessionId};
+use aish_types::{ConnectionId, RemoteSession, SessionId};
 use gpui::{div, prelude::*, px, rgb, Context, Entity, MouseButton, MouseDownEvent, Window};
 
 use crate::bridge::Bridge;
@@ -31,11 +31,11 @@ impl TmuxSidebarView {
         Self { state, bridge, tx }
     }
 
-    fn dispatch_command(&self, host: HostId, cmd: SessionCommand, cx: &mut Context<Self>) {
+    fn dispatch_command(&self, conn: ConnectionId, cmd: SessionCommand, cx: &mut Context<Self>) {
         let app = self.state.read(cx);
-        match app.sessions.get(&host).cloned() {
+        match app.sessions.get(&conn).cloned() {
             Some(sender) => {
-                tracing::info!(?host, ?cmd, "tmux_sidebar: dispatch SessionCommand");
+                tracing::info!(?conn, ?cmd, "tmux_sidebar: dispatch SessionCommand");
                 self.bridge.spawn(async move {
                     if let Err(e) = sender.send(cmd).await {
                         tracing::error!("tmux_sidebar: send to actor failed: {}", e);
@@ -43,31 +43,31 @@ impl TmuxSidebarView {
                 });
             }
             None => {
-                tracing::warn!(?host, "tmux_sidebar: no session sender for host");
+                tracing::warn!(?conn, "tmux_sidebar: no session sender for connection");
             }
         }
     }
 
-    fn handle_refresh(&mut self, host: HostId, cx: &mut Context<Self>) {
-        tracing::info!(?host, "tmux_sidebar: refresh clicked");
-        self.dispatch_command(host, SessionCommand::QueryTmuxSessions, cx);
+    fn handle_refresh(&mut self, conn: ConnectionId, cx: &mut Context<Self>) {
+        tracing::info!(?conn, "tmux_sidebar: refresh clicked");
+        self.dispatch_command(conn, SessionCommand::QueryTmuxSessions, cx);
     }
 
-    fn handle_attach(&mut self, host: HostId, session: SessionId, cx: &mut Context<Self>) {
-        tracing::info!(?host, ?session, "tmux_sidebar: session row clicked");
-        self.dispatch_command(host, SessionCommand::AttachTmux { session }, cx);
+    fn handle_attach(&mut self, conn: ConnectionId, session: SessionId, cx: &mut Context<Self>) {
+        tracing::info!(?conn, ?session, "tmux_sidebar: session row clicked");
+        self.dispatch_command(conn, SessionCommand::AttachTmux { session }, cx);
     }
 }
 
 impl Render for TmuxSidebarView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let snapshot: Option<(HostId, TmuxState)> = {
+        let snapshot: Option<(ConnectionId, TmuxState)> = {
             let app = self.state.read(cx);
-            app.selected.map(|h| {
+            app.selected_connection.map(|c| {
                 (
-                    h,
+                    c,
                     app.tmux_state
-                        .get(&h)
+                        .get(&c)
                         .cloned()
                         .unwrap_or(TmuxState::NotChecked),
                 )
@@ -76,17 +76,17 @@ impl Render for TmuxSidebarView {
 
         let body = match &snapshot {
             None => empty_view(),
-            Some((host, state)) => match state {
+            Some((conn, state)) => match state {
                 TmuxState::NotChecked => spinner_view("查询 tmux 中…"),
                 TmuxState::NoTmux => notmux_view(),
                 TmuxState::QueryFailed { msg } => query_failed_view(msg),
                 TmuxState::Detected { sessions, attached } => {
-                    session_list_view(*host, sessions, attached.as_ref(), cx)
+                    session_list_view(*conn, sessions, attached.as_ref(), cx)
                 }
             },
         };
 
-        let host_for_buttons = snapshot.as_ref().map(|(h, _)| *h);
+        let conn_for_buttons = snapshot.as_ref().map(|(c, _)| *c);
         let mut container = div()
             .w(px(200.0))
             .h_full()
@@ -96,7 +96,7 @@ impl Render for TmuxSidebarView {
             .flex()
             .flex_col();
 
-        if let Some(host) = host_for_buttons {
+        if let Some(conn) = conn_for_buttons {
             let header = div()
                 .flex()
                 .flex_row()
@@ -120,7 +120,7 @@ impl Render for TmuxSidebarView {
                         .on_mouse_down(
                             MouseButton::Left,
                             cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
-                                this.handle_refresh(host, cx);
+                                this.handle_refresh(conn, cx);
                             }),
                         )
                         .child("↻"),
@@ -138,7 +138,7 @@ fn empty_view() -> gpui::AnyElement {
         .py_4()
         .text_color(rgb(0x888888))
         .text_size(px(12.0))
-        .child("未选择 host")
+        .child("未选择连接")
         .into_any_element()
 }
 
@@ -209,7 +209,7 @@ fn query_failed_view(msg: &str) -> gpui::AnyElement {
 }
 
 fn session_list_view(
-    host: HostId,
+    conn: ConnectionId,
     sessions: &[RemoteSession],
     attached: Option<&SessionId>,
     cx: &mut Context<TmuxSidebarView>,
@@ -247,7 +247,7 @@ fn session_list_view(
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
-                        this.handle_attach(host, session_id.clone(), cx);
+                        this.handle_attach(conn, session_id.clone(), cx);
                     }),
                 )
                 .child(div().text_color(marker_color).child(marker))

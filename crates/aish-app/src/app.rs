@@ -34,33 +34,33 @@ pub fn run() {
         cx.spawn(async move |cx| {
             while let Some(event) = rx.recv().await {
                 state_for_loop.update(cx, |state, cx| match event {
-                    SshEvent::Connected { host: _ } => {
+                    SshEvent::Connected { conn: _ } => {
                         cx.notify();
                     }
-                    SshEvent::PaneOutput { host, bytes } => {
-                        state.feed_bytes(host, &bytes);
+                    SshEvent::PaneOutput { conn, bytes } => {
+                        state.feed_bytes(conn, &bytes);
                         cx.notify();
                     }
-                    SshEvent::Disconnected { host, reason: _ } => {
-                        state.drop_session(host);
+                    SshEvent::Disconnected { conn, reason: _ } => {
+                        state.drop_session(conn);
                         cx.notify();
                     }
-                    SshEvent::Error { host, kind: _, msg } => {
-                        tracing::error!(?host, msg, "SSH error");
-                        state.drop_session(host);
+                    SshEvent::Error { conn, kind: _, msg } => {
+                        tracing::error!(?conn, msg, "SSH error");
+                        state.drop_session(conn);
                         cx.notify();
                     }
-                    SshEvent::TmuxQueryStarted { host } => {
+                    SshEvent::TmuxQueryStarted { conn } => {
                         state
                             .tmux_state
-                            .insert(host, crate::state::TmuxState::NotChecked);
+                            .insert(conn, crate::state::TmuxState::NotChecked);
                         cx.notify();
                     }
-                    SshEvent::TmuxSessionsListed { host, sessions } => {
+                    SshEvent::TmuxSessionsListed { conn, sessions } => {
                         // 进入 Detected 状态时清空 attached 标记 —— 重新查询时
                         // 上次 attach 的 session 可能已经不存在或被改名。
                         state.tmux_state.insert(
-                            host,
+                            conn,
                             crate::state::TmuxState::Detected {
                                 sessions,
                                 attached: None,
@@ -68,21 +68,21 @@ pub fn run() {
                         );
                         cx.notify();
                     }
-                    SshEvent::TmuxQueryFailed { host, msg } => {
+                    SshEvent::TmuxQueryFailed { conn, msg } => {
                         state
                             .tmux_state
-                            .insert(host, crate::state::TmuxState::QueryFailed { msg });
+                            .insert(conn, crate::state::TmuxState::QueryFailed { msg });
                         cx.notify();
                     }
-                    SshEvent::TmuxNoTmux { host } => {
+                    SshEvent::TmuxNoTmux { conn } => {
                         state
                             .tmux_state
-                            .insert(host, crate::state::TmuxState::NoTmux);
+                            .insert(conn, crate::state::TmuxState::NoTmux);
                         cx.notify();
                     }
-                    SshEvent::TmuxAttached { host, session } => {
+                    SshEvent::TmuxAttached { conn, session } => {
                         // raw attach 已派发到 PTY；标记 sidebar 高亮当前 session。
-                        state.mark_tmux_attached(host, session);
+                        state.mark_tmux_attached(conn, session);
                         cx.notify();
                     }
                 });

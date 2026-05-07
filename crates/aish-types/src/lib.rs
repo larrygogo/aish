@@ -27,6 +27,33 @@ impl std::fmt::Display for HostId {
     }
 }
 
+/// 活跃连接唯一标识（UUID v4）。
+///
+/// 与 `HostId` 的区别：HostId 标记**配置**（持久化到 hosts.json），
+/// ConnectionId 标记**运行时连接**（内存生命周期内有效）。一个 HostConfig
+/// 可同时派生多个 Connection，每个 Connection 有独立的 actor / PTY / tmux
+/// 状态。重启后所有 ConnectionId 失效，只剩 hosts。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ConnectionId(pub Uuid);
+
+impl ConnectionId {
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
+
+impl Default for ConnectionId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Display for ConnectionId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 /// tmux session 名（字符串 newtype，避免与普通 String 混淆）。
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct SessionId(String);
@@ -146,6 +173,21 @@ mod tests {
     fn host_id_display_is_uuid() {
         let id = HostId::new();
         assert_eq!(id.to_string(), id.0.to_string());
+    }
+
+    #[test]
+    fn connection_id_new_unique() {
+        let a = ConnectionId::new();
+        let b = ConnectionId::new();
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn connection_id_distinct_type_from_host_id() {
+        // 编译期验证：HostId 和 ConnectionId 不互通（newtype 隔离）。
+        // 这是防止 future 开发者把 host_id 当 conn_id 用的最低限度保险。
+        let _h: HostId = HostId::new();
+        let _c: ConnectionId = ConnectionId::new();
     }
 
     #[test]

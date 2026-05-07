@@ -1,59 +1,64 @@
-//! aish-app App State — M2b1 起持有 alacritty_terminal::Term per host。
+//! aish-app App State。
+//!
+//! M3b 起：HostConfig（持久化配置，键 `HostId`）与 Connection（运行时连接，
+//! 键 `ConnectionId`）分离。一个 HostConfig 可派生 N 个并发 Connection，
+//! 每个 Connection 有独立的 actor / PTY / tmux 状态。所有 per-runtime 状态
+//! map（sessions / host_pty_term / host_pty_dimensions / tmux_state）以
+//! `ConnectionId` 为键。
 
 #![allow(dead_code)]
 
 use std::collections::HashMap;
+use std::time::SystemTime;
 
-use aish_types::{HostConfig, HostId, RemoteSession, SessionId};
+use aish_types::{ConnectionId, HostConfig, HostId, RemoteSession, SessionId};
 use alacritty_terminal::event::VoidListener;
 use alacritty_terminal::term::test::TermSize;
 use alacritty_terminal::term::Config as TermConfig;
 use alacritty_terminal::Term;
 use tokio::sync::mpsc;
 
-/// 从 SSH actor task 推回 GPUI 的事件。
+/// 从 SSH actor task 推回 GPUI 的事件。事件以 `ConnectionId` 寻址 —— 同一
+/// HostConfig 的多个连接需要被独立路由到各自的 Term / tmux_state。
 #[derive(Debug)]
 pub enum SshEvent {
     Connected {
-        host: HostId,
+        conn: ConnectionId,
     },
     PaneOutput {
-        host: HostId,
+        conn: ConnectionId,
         bytes: Vec<u8>,
     },
     Disconnected {
-        host: HostId,
+        conn: ConnectionId,
         reason: DisconnectReason,
     },
     Error {
-        host: HostId,
+        conn: ConnectionId,
         kind: SshErrorKind,
         msg: String,
     },
     /// list-sessions 开始
     TmuxQueryStarted {
-        host: HostId,
+        conn: ConnectionId,
     },
     /// list-sessions 成功（包括 tmux 在但 0 session 的情况）
     TmuxSessionsListed {
-        host: HostId,
+        conn: ConnectionId,
         sessions: Vec<RemoteSession>,
     },
     /// list-sessions 失败但远端有 tmux
     TmuxQueryFailed {
-        host: HostId,
+        conn: ConnectionId,
         msg: String,
     },
     /// 远端没 tmux
     TmuxNoTmux {
-        host: HostId,
+        conn: ConnectionId,
     },
-    /// AttachTmux 命令已派发到 raw shell channel。语义：actor 已在 raw PTY
-    /// 里发送 `tmux attach -t '<sess>'\r`，UI 可标记该 session 为"已 attach"
-    /// 用于侧栏高亮。detach 检测不在此事件范围内（用户在 tmux 内 prefix+d
-    /// 后，看 shell 提示符即可判断；M3c 可加 PROMPT_COMMAND 探测）。
+    /// AttachTmux 命令已派发到 raw shell channel。
     TmuxAttached {
-        host: HostId,
+        conn: ConnectionId,
         session: SessionId,
     },
 }
@@ -251,27 +256,43 @@ impl HostFormDraft {
     }
 }
 
+/// 一个活跃连接的元数据（运行时数据，不持久化）。
+#[derive(Debug, Clone)]
+pub struct Connection {
+    pub id: ConnectionId,
+    pub host_id: HostId,
+    /// 显示用，自动生成 `"<host.label> #N"`。N 从 1 开始按 host 内自增。
+    pub label: String,
+    pub opened_at: SystemTime,
+}
+
 /// 单一 root Model：所有 UI 共享状态。
 #[derive(Default)]
 pub struct AppState {
+    /// 持久化配置列表（hosts.json 内容）。
     pub hosts: Vec<HostConfig>,
-    pub selected: Option<HostId>,
-    pub sessions: HashMap<HostId, mpsc::Sender<SessionCommand>>,
+    /// 活跃连接元数据。键 ConnectionId 对应运行时 actor。
+    pub connections: HashMap<ConnectionId, Connection>,
+    /// 当前 terminal 区域显示哪个连接。
+    pub selected_connection: Option<ConnectionId>,
     pub modal: Option<HostFormState>,
 
-    /// raw shell 模式的 per-host alacritty Term（M2b1 行为）
-    pub host_pty_term: HashMap<HostId, Term<VoidListener>>,
-    pub host_pty_dimensions: HashMap<HostId, (u16, u16)>,
-
-    /// 单个 host 的 tmux 状态（M3b 新加）
-    pub tmux_state: HashMap<HostId, TmuxState>,
+    /// 每连接一个 actor 命令通道。
+    pub sessions: HashMap<ConnectionId, mpsc::Sender<SessionCommand>>,
+    /// 每连接一个 alacritty Term（保留 scrollback）。
+    pub host_pty_term: HashMap<ConnectionId, Term<VoidListener>>,
+    /// 每连接一个 PTY 尺寸。
+    pub host_pty_dimensions: HashMap<ConnectionId, (u16, u16)>,
+    /// 每连接一个 tmux 状态（同一 host 的多个连接独立 list-sessions）。
+    pub tmux_state: HashMap<ConnectionId, TmuxState>,
 }
 
 impl AppState {
     pub fn with_hosts(hosts: Vec<HostConfig>) -> Self {
         Self {
             hosts,
-            selected: None,
+            connections: HashMap::new(),
+            selected_connection: None,
             sessions: HashMap::new(),
             modal: None,
             host_pty_term: HashMap::new(),
@@ -280,8 +301,9 @@ impl AppState {
         }
     }
 
-    pub fn select_host(&mut self, id: HostId) {
-        self.selected = Some(id);
+    /// 切换 terminal 显示哪个连接。
+    pub fn select_connection(&mut self, id: ConnectionId) {
+        self.selected_connection = Some(id);
     }
 
     pub fn host_label(&self, id: HostId) -> Option<String> {
@@ -291,41 +313,87 @@ impl AppState {
             .map(|h| h.label.clone())
     }
 
-    pub fn is_session_active(&self, id: HostId) -> bool {
+    /// 给某 host 生成下一个连接 label：`"<host.label> #N"`，N = 当前该 host
+    /// 的连接数 + 1（没考虑回收 id —— 用户关一个再开一个会得到更大的 N）。
+    fn next_label_for(&self, host_id: HostId) -> String {
+        let base = self.host_label(host_id).unwrap_or_else(|| "host".into());
+        let n = self
+            .connections
+            .values()
+            .filter(|c| c.host_id == host_id)
+            .count()
+            + 1;
+        format!("{} #{}", base, n)
+    }
+
+    /// 创建一个新 Connection 元数据；caller 之后再 `register_session` 绑定 actor sender。
+    /// 返回新生成的 ConnectionId。
+    pub fn open_connection(&mut self, host_id: HostId) -> ConnectionId {
+        let id = ConnectionId::new();
+        let label = self.next_label_for(host_id);
+        self.connections.insert(
+            id,
+            Connection {
+                id,
+                host_id,
+                label,
+                opened_at: SystemTime::now(),
+            },
+        );
+        // 自动选中新连接，让 terminal 区域立即切换显示
+        self.selected_connection = Some(id);
+        id
+    }
+
+    /// 该连接是否仍持有 actor sender（即"还活着"）。
+    pub fn is_session_active(&self, id: ConnectionId) -> bool {
         self.sessions.contains_key(&id)
     }
 
-    pub fn register_session(&mut self, id: HostId, sender: mpsc::Sender<SessionCommand>) {
+    pub fn register_session(&mut self, id: ConnectionId, sender: mpsc::Sender<SessionCommand>) {
         self.sessions.insert(id, sender);
         self.host_pty_dimensions
             .insert(id, (DEFAULT_COLS, DEFAULT_ROWS));
     }
 
-    pub fn drop_session(&mut self, id: HostId) {
+    /// 关闭一个连接：清 actor sender + tmux_state，保留 host_pty_term（用户可能想看 scrollback）。
+    /// 完全清理（含 Term + Connection meta）走 [`remove_connection`]。
+    pub fn drop_session(&mut self, id: ConnectionId) {
         self.sessions.remove(&id);
-        // 不删 host_pty_term — 保留 scrollback
-        // 清空 tmux_state（每次连接重新查询）
         self.tmux_state.remove(&id);
     }
 
-    /// 标记某 host 已 attach 到指定 session（仅用于侧栏高亮）。
-    /// 当前 tmux_state 必须是 Detected，否则忽略。
-    pub fn mark_tmux_attached(&mut self, host: HostId, session: SessionId) {
-        if let Some(TmuxState::Detected { attached, .. }) = self.tmux_state.get_mut(&host) {
+    /// 完全移除一个连接：从 connections 和所有 per-conn map 里删掉。
+    /// UI 上点 × 时调用。如果这是当前选中的，selected_connection 重置。
+    pub fn remove_connection(&mut self, id: ConnectionId) {
+        self.connections.remove(&id);
+        self.sessions.remove(&id);
+        self.host_pty_term.remove(&id);
+        self.host_pty_dimensions.remove(&id);
+        self.tmux_state.remove(&id);
+        if self.selected_connection == Some(id) {
+            // 自动切到任意还存在的连接，否则置 None
+            self.selected_connection = self.connections.keys().next().copied();
+        }
+    }
+
+    /// 标记某连接已 attach 到指定 tmux session（仅用于侧栏高亮）。
+    pub fn mark_tmux_attached(&mut self, conn: ConnectionId, session: SessionId) {
+        if let Some(TmuxState::Detected { attached, .. }) = self.tmux_state.get_mut(&conn) {
             *attached = Some(session);
         }
     }
 
-    /// raw shell 模式下，feed bytes 到指定 host 的 Term。
-    pub fn feed_bytes(&mut self, host: HostId, bytes: &[u8]) {
+    /// raw shell 模式下，feed bytes 到指定连接的 Term。
+    pub fn feed_bytes(&mut self, conn: ConnectionId, bytes: &[u8]) {
         let (cols, rows) = self
             .host_pty_dimensions
-            .get(&host)
+            .get(&conn)
             .copied()
             .unwrap_or((DEFAULT_COLS, DEFAULT_ROWS));
         let term = self
             .host_pty_term
-            .entry(host)
+            .entry(conn)
             .or_insert_with(|| make_term(cols, rows));
         let mut processor = alacritty_terminal::vte::ansi::Processor::<
             alacritty_terminal::vte::ansi::StdSyncHandler,
@@ -333,18 +401,18 @@ impl AppState {
         processor.advance(term, bytes);
     }
 
-    /// raw shell 模式：取指定 host 的 Term（只读）。
-    pub fn term_of(&self, host: HostId) -> Option<&Term<VoidListener>> {
-        self.host_pty_term.get(&host)
+    /// 取指定连接的 Term（只读）。
+    pub fn term_of(&self, conn: ConnectionId) -> Option<&Term<VoidListener>> {
+        self.host_pty_term.get(&conn)
     }
 
-    /// raw shell 模式：resize host PTY 大小。
-    pub fn resize_term(&mut self, host: HostId, cols: u16, rows: u16) {
-        if let Some(term) = self.host_pty_term.get_mut(&host) {
+    /// 调整指定连接的 PTY 大小（GPUI 端 alacritty grid + 远端 SIGWINCH 由 actor 完成）。
+    pub fn resize_term(&mut self, conn: ConnectionId, cols: u16, rows: u16) {
+        if let Some(term) = self.host_pty_term.get_mut(&conn) {
             let size = TermSize::new(cols as usize, rows as usize);
             term.resize(size);
         }
-        self.host_pty_dimensions.insert(host, (cols, rows));
+        self.host_pty_dimensions.insert(conn, (cols, rows));
     }
 
     /// 添加一个新 host。
@@ -363,8 +431,8 @@ impl AppState {
         }
     }
 
-    /// 删除 host。同步清理 sessions / host_pty_term / host_pty_dimensions / tmux_state /
-    /// 重置 selected。返回 true = 成功删除，false = 未找到。
+    /// 删除 host 配置。**保留**该 host 名下所有活跃 Connection（继续运行直到
+    /// 用户主动断开或 actor 自然退出）—— 删配置不强制断连。
     ///
     /// **注意**：此函数**不**清理 keyring 条目 — 调用方（host_form save）
     /// 在调本函数前/后调 `persistence::delete_secret_for(id)`。
@@ -374,13 +442,6 @@ impl AppState {
             None => return false,
         };
         self.hosts.remove(idx);
-        self.sessions.remove(&id);
-        self.host_pty_term.remove(&id);
-        self.host_pty_dimensions.remove(&id);
-        self.tmux_state.remove(&id);
-        if self.selected == Some(id) {
-            self.selected = None;
-        }
         true
     }
 }
@@ -419,19 +480,21 @@ mod tests {
     #[test]
     fn feed_bytes_creates_term_on_demand() {
         let h = mk_host("a");
-        let id = h.id;
+        let host_id = h.id;
         let mut state = AppState::with_hosts(vec![h]);
-        state.feed_bytes(id, b"hello\r\n");
-        assert!(state.host_pty_term.contains_key(&id));
+        let conn = state.open_connection(host_id);
+        state.feed_bytes(conn, b"hello\r\n");
+        assert!(state.host_pty_term.contains_key(&conn));
     }
 
     #[test]
     fn feed_bytes_reflects_in_term_grid() {
         let h = mk_host("a");
-        let id = h.id;
+        let host_id = h.id;
         let mut state = AppState::with_hosts(vec![h]);
-        state.feed_bytes(id, b"abc");
-        let term = state.term_of(id).unwrap();
+        let conn = state.open_connection(host_id);
+        state.feed_bytes(conn, b"abc");
+        let term = state.term_of(conn).unwrap();
         let grid = term.grid();
         let first_row = &grid[alacritty_terminal::index::Line(0)];
         assert_eq!(first_row[alacritty_terminal::index::Column(0)].c, 'a');
@@ -442,12 +505,13 @@ mod tests {
     #[tokio::test]
     async fn register_session_inits_dimensions() {
         let h = mk_host("a");
-        let id = h.id;
+        let host_id = h.id;
         let mut state = AppState::with_hosts(vec![h]);
+        let conn = state.open_connection(host_id);
         let (tx, _rx) = mpsc::channel::<SessionCommand>(8);
-        state.register_session(id, tx);
+        state.register_session(conn, tx);
         assert_eq!(
-            state.host_pty_dimensions.get(&id),
+            state.host_pty_dimensions.get(&conn),
             Some(&(DEFAULT_COLS, DEFAULT_ROWS))
         );
     }
@@ -455,24 +519,90 @@ mod tests {
     #[tokio::test]
     async fn drop_session_keeps_terminal() {
         let h = mk_host("a");
-        let id = h.id;
+        let host_id = h.id;
         let mut state = AppState::with_hosts(vec![h]);
+        let conn = state.open_connection(host_id);
         let (tx, _rx) = mpsc::channel::<SessionCommand>(8);
-        state.register_session(id, tx);
-        state.feed_bytes(id, b"x");
-        state.drop_session(id);
-        assert!(state.host_pty_term.contains_key(&id));
-        assert!(!state.is_session_active(id));
+        state.register_session(conn, tx);
+        state.feed_bytes(conn, b"x");
+        state.drop_session(conn);
+        assert!(state.host_pty_term.contains_key(&conn));
+        assert!(!state.is_session_active(conn));
     }
 
     #[test]
     fn resize_updates_dimensions() {
         let h = mk_host("a");
-        let id = h.id;
+        let host_id = h.id;
         let mut state = AppState::with_hosts(vec![h]);
-        state.feed_bytes(id, b"");
-        state.resize_term(id, 100, 30);
-        assert_eq!(state.host_pty_dimensions.get(&id), Some(&(100, 30)));
+        let conn = state.open_connection(host_id);
+        state.feed_bytes(conn, b"");
+        state.resize_term(conn, 100, 30);
+        assert_eq!(state.host_pty_dimensions.get(&conn), Some(&(100, 30)));
+    }
+
+    #[test]
+    fn open_connection_assigns_incrementing_label() {
+        let h = mk_host("box");
+        let host_id = h.id;
+        let mut state = AppState::with_hosts(vec![h]);
+        let c1 = state.open_connection(host_id);
+        let c2 = state.open_connection(host_id);
+        assert_ne!(c1, c2);
+        assert_eq!(state.connections[&c1].label, "box #1");
+        assert_eq!(state.connections[&c2].label, "box #2");
+    }
+
+    #[test]
+    fn open_connection_auto_selects_new_one() {
+        let h = mk_host("a");
+        let host_id = h.id;
+        let mut state = AppState::with_hosts(vec![h]);
+        let c1 = state.open_connection(host_id);
+        assert_eq!(state.selected_connection, Some(c1));
+        let c2 = state.open_connection(host_id);
+        assert_eq!(state.selected_connection, Some(c2));
+    }
+
+    #[test]
+    fn remove_connection_clears_all_per_conn_state() {
+        let h = mk_host("a");
+        let host_id = h.id;
+        let mut state = AppState::with_hosts(vec![h]);
+        let conn = state.open_connection(host_id);
+        state.feed_bytes(conn, b"x");
+        state.host_pty_dimensions.insert(conn, (80, 24));
+        state.tmux_state.insert(conn, TmuxState::NotChecked);
+        state.remove_connection(conn);
+        assert!(!state.connections.contains_key(&conn));
+        assert!(!state.host_pty_term.contains_key(&conn));
+        assert!(!state.host_pty_dimensions.contains_key(&conn));
+        assert!(!state.tmux_state.contains_key(&conn));
+        assert_eq!(state.selected_connection, None);
+    }
+
+    #[test]
+    fn remove_connection_picks_another_when_current_was_selected() {
+        let h = mk_host("a");
+        let host_id = h.id;
+        let mut state = AppState::with_hosts(vec![h]);
+        let c1 = state.open_connection(host_id);
+        let c2 = state.open_connection(host_id);
+        assert_eq!(state.selected_connection, Some(c2));
+        state.remove_connection(c2);
+        assert_eq!(state.selected_connection, Some(c1));
+    }
+
+    #[test]
+    fn remove_host_keeps_active_connections() {
+        let h = mk_host("a");
+        let host_id = h.id;
+        let mut state = AppState::with_hosts(vec![h]);
+        let conn = state.open_connection(host_id);
+        assert!(state.remove_host(host_id));
+        // host 配置删了，但 connection 还在 — 用户能继续用直到主动断
+        assert!(state.hosts.is_empty());
+        assert!(state.connections.contains_key(&conn));
     }
 
     fn write_temp_key_file() -> tempfile::NamedTempFile {
@@ -687,24 +817,14 @@ mod tests {
         assert!(!ok);
     }
 
-    #[tokio::test]
-    async fn remove_host_clears_related_state() {
+    #[test]
+    fn remove_host_only_removes_config() {
         let h = mk_host("v");
-        let id = h.id;
+        let host_id = h.id;
         let mut state = AppState::with_hosts(vec![h]);
-        state.feed_bytes(id, b"hello");
-        let (tx, _rx) = mpsc::channel::<SessionCommand>(8);
-        state.register_session(id, tx);
-        state.select_host(id);
-
-        let ok = state.remove_host(id);
+        let ok = state.remove_host(host_id);
         assert!(ok);
         assert!(state.hosts.is_empty());
-        assert!(!state.host_pty_term.contains_key(&id));
-        assert!(!state.host_pty_dimensions.contains_key(&id));
-        assert!(!state.is_session_active(id));
-        assert_eq!(state.selected, None);
-        assert!(!state.tmux_state.contains_key(&id));
     }
 
     #[test]
@@ -717,30 +837,32 @@ mod tests {
     #[test]
     fn drop_session_clears_tmux_state() {
         let h = mk_host("a");
-        let id = h.id;
+        let host_id = h.id;
         let mut state = AppState::with_hosts(vec![h]);
+        let conn = state.open_connection(host_id);
         let (tx, _rx) = mpsc::channel::<SessionCommand>(8);
-        state.register_session(id, tx);
-        state.tmux_state.insert(id, TmuxState::NotChecked);
-        state.drop_session(id);
-        assert!(!state.tmux_state.contains_key(&id));
+        state.register_session(conn, tx);
+        state.tmux_state.insert(conn, TmuxState::NotChecked);
+        state.drop_session(conn);
+        assert!(!state.tmux_state.contains_key(&conn));
     }
 
     #[test]
     fn mark_tmux_attached_updates_detected_state() {
         let h = mk_host("a");
-        let id = h.id;
+        let host_id = h.id;
         let mut state = AppState::with_hosts(vec![h]);
+        let conn = state.open_connection(host_id);
         let sess = SessionId::new("$0");
         state.tmux_state.insert(
-            id,
+            conn,
             TmuxState::Detected {
                 sessions: vec![],
                 attached: None,
             },
         );
-        state.mark_tmux_attached(id, sess.clone());
-        match state.tmux_state.get(&id) {
+        state.mark_tmux_attached(conn, sess.clone());
+        match state.tmux_state.get(&conn) {
             Some(TmuxState::Detected { attached, .. }) => {
                 assert_eq!(attached.as_ref(), Some(&sess))
             }
@@ -751,12 +873,13 @@ mod tests {
     #[test]
     fn mark_tmux_attached_noop_when_not_detected() {
         let h = mk_host("a");
-        let id = h.id;
+        let host_id = h.id;
         let mut state = AppState::with_hosts(vec![h]);
-        state.tmux_state.insert(id, TmuxState::NotChecked);
-        state.mark_tmux_attached(id, SessionId::new("$0"));
+        let conn = state.open_connection(host_id);
+        state.tmux_state.insert(conn, TmuxState::NotChecked);
+        state.mark_tmux_attached(conn, SessionId::new("$0"));
         assert!(matches!(
-            state.tmux_state.get(&id),
+            state.tmux_state.get(&conn),
             Some(TmuxState::NotChecked)
         ));
     }
