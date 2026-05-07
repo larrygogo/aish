@@ -16,6 +16,9 @@ Thumbs.db
 # aish 运行时数据（开发期可能在项目目录生成）
 .aish-local/
 
+# Claude Code 本地工作区（ScheduleWakeup 等运行时文件）
+.claude/
+
 # Logs / Crash reports
 *.log
 crashes/

@@ -33,10 +33,15 @@ pub(crate) async fn host_session_task(
 ) {
     use aish_secrets::{SecretError, SecretStore};
     use aish_ssh::{ChannelMsg, SshClient};
-    use aish_tmux::{TmuxController, TmuxEvent};
+    use aish_tmux::{build_command, TmuxCommand, TmuxController, TmuxEvent};
     use aish_types::SshAuth;
 
-    use crate::state::SshErrorKind;
+    use crate::state::{SshErrorKind, DEFAULT_COLS, DEFAULT_ROWS};
+
+    // actor 内部跟踪当前 PTY 尺寸 — 单一事实源。
+    // 初始用 DEFAULT；GPUI 第一次 layout 后会通过 SessionCommand::Resize 推入真实值。
+    // attach tmux / 处理 Resize 时都读这个值，避免硬编码 120x40 漂移。
+    let mut current_size: (u16, u16) = (DEFAULT_COLS, DEFAULT_ROWS);
 
     // 0. 如果是 Password auth 且 password 为空（来自 hosts.json），从 keyring 取
     let mut effective_config = config.clone();
@@ -105,7 +110,10 @@ pub(crate) async fn host_session_task(
             return;
         }
     };
-    if let Err(err) = chan.request_pty(120, 40, "xterm-256color").await {
+    if let Err(err) = chan
+        .request_pty(current_size.0, current_size.1, "xterm-256color")
+        .await
+    {
         let _ = event_tx
             .send(SshEvent::Error {
                 host,
@@ -269,8 +277,20 @@ pub(crate) async fn host_session_task(
                     }
                 }
                 Some(SessionCommand::Resize { cols, rows }) => {
+                    current_size = (cols, rows);
+                    // 外层 SSH PTY SIGWINCH —— raw shell 模式直接到 shell；
+                    // tmux -CC 模式给的是 tmux 控制 channel 本身（无害但意义不大）。
                     if let Err(e) = chan.window_change(cols as u32, rows as u32, 0, 0).await {
                         tracing::warn!("PTY resize failed: {}", e);
+                    }
+                    // tmux -CC 模式：必须显式 refresh-client -C 把 client 视口尺寸告诉 server，
+                    // 否则 inner pane 几何不会变（shell 仍按旧 cols/rows 换行 + 留下空行）。
+                    if matches!(mode, ActorMode::TmuxAttached(_)) {
+                        let bytes =
+                            build_command(&TmuxCommand::RefreshClient { cols, rows });
+                        if let Err(e) = chan.data(&bytes[..]).await {
+                            tracing::warn!(?host, "tmux refresh-client failed: {}", e);
+                        }
                     }
                 }
                 Some(SessionCommand::QueryTmuxSessions) => {
@@ -300,7 +320,11 @@ pub(crate) async fn host_session_task(
                         }
                     };
                     // tmux -CC 仍会调 tcgetattr 检查 TTY，没 PTY 会立即报错退出。
-                    if let Err(err) = new_chan.request_pty(120, 40, "xterm-256color").await {
+                    // 用 current_size 而非硬编码，attach 后 tmux 客户端就跟当前 GPUI 视口一致。
+                    if let Err(err) = new_chan
+                        .request_pty(current_size.0, current_size.1, "xterm-256color")
+                        .await
+                    {
                         tracing::error!(?host, "actor: request_pty for tmux -CC failed: {}", err);
                         let _ = event_tx
                             .send(SshEvent::TmuxQueryFailed {
@@ -334,7 +358,11 @@ pub(crate) async fn host_session_task(
                     // tmux attach 现有 session 时不会主动 dump pane 内容。
                     // refresh-client -C 设 client size 触发 %layout-change（驱动 SessionTree）。
                     // 收到 layout-change 时再发 capture-pane 拿当前 pane 内容（见 ChannelMsg::Data 处理）。
-                    if let Err(err) = chan.data(b"refresh-client -C 120x40\n").await {
+                    let refresh_bytes = build_command(&TmuxCommand::RefreshClient {
+                        cols: current_size.0,
+                        rows: current_size.1,
+                    });
+                    if let Err(err) = chan.data(&refresh_bytes[..]).await {
                         tracing::warn!(?host, "actor: send refresh-client failed: {}", err);
                     }
                 }

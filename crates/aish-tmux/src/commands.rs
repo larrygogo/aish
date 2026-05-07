@@ -27,6 +27,11 @@ pub enum TmuxCommand {
     AttachSession { name: String },
     /// list-sessions -F '#{session_id} #{session_name}'
     ListSessions,
+    /// refresh-client -C <cols>x<rows>
+    ///
+    /// tmux -CC 模式下设置 client 报告给 server 的视口尺寸，
+    /// 触发 server 重排所有 attach 的 pane 几何（驱动 %layout-change）。
+    RefreshClient { cols: u16, rows: u16 },
 }
 
 /// 特殊键 → ANSI / 控制字符 hex byte。
@@ -114,6 +119,9 @@ pub fn build_command(cmd: &TmuxCommand) -> Vec<u8> {
             format!("attach-session -t '{}'\n", escaped).into_bytes()
         }
         TmuxCommand::ListSessions => b"list-sessions -F '#{session_id} #{session_name}'\n".to_vec(),
+        TmuxCommand::RefreshClient { cols, rows } => {
+            format!("refresh-client -C {}x{}\n", cols, rows).into_bytes()
+        }
     }
 }
 
@@ -233,6 +241,21 @@ mod tests {
             build_command(&cmd),
             b"list-sessions -F '#{session_id} #{session_name}'\n"
         );
+    }
+
+    #[test]
+    fn refresh_client_format() {
+        let cmd = TmuxCommand::RefreshClient {
+            cols: 200,
+            rows: 60,
+        };
+        assert_eq!(build_command(&cmd), b"refresh-client -C 200x60\n");
+    }
+
+    #[test]
+    fn refresh_client_uses_default_size_when_small() {
+        let cmd = TmuxCommand::RefreshClient { cols: 80, rows: 24 };
+        assert_eq!(build_command(&cmd), b"refresh-client -C 80x24\n");
     }
 
     #[test]
