@@ -1,5 +1,13 @@
 # aish 进度记录
 
+> ⚠️ **2026-05-08 已废弃** — 本文件不再更新，作为 2026-05-07~05-08 一周内 7 个 feature
+> 快速迭代的历史快照保留。索引功能转给 [`docs/superpowers/INDEX.md`](docs/superpowers/INDEX.md)，
+> 工作流改为 superpowers（spec + plan）。详细规则见仓库根 [`CLAUDE.md`](CLAUDE.md)。
+>
+> 下面内容是冻结快照，不要再编辑或追加。
+
+---
+
 > GPUI 桌面 SSH 客户端 + tmux -CC 集成。每次提交后更新此文件。
 
 ---

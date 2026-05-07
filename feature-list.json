@@ -1,4 +1,5 @@
 {
+  "_deprecated": "2026-05-08：本文件已废弃，仅保留作为 2026-05-07~05-08 那一波快速迭代的历史快照。新里程碑改用 superpowers 流：spec 进 docs/superpowers/specs/，plan 进 docs/superpowers/plans/，索引看 docs/superpowers/INDEX.md。详细规则见仓库根 CLAUDE.md。",
   "project": "aish",
   "description": "GPUI 桌面 SSH 客户端 + tmux -CC 集成（多 host、多 pane、自绘 alacritty 终端）",
   "version": "0.1.0",
