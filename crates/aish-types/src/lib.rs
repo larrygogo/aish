@@ -87,12 +87,17 @@ impl std::fmt::Display for ProfileId {
     }
 }
 
-/// SSH 认证方式。Password 不持久化，仅用于"输入即用即丢"。
+/// SSH 认证方式。Password 的 `password` 字段不序列化 — 仅运行时持有；
+/// 持久化到 OS keyring（aish-secrets::SecretStore），hosts.json 只标 kind。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SshAuth {
-    /// 密码模式：连接时由 UI 临时弹窗，绝不存储。
-    Password,
+    /// 密码模式：password 字段不进 hosts.json，存 OS keyring。
+    /// 加载时 password == ""，由 ssh_actor 在 connect 前从 SecretStore 填回。
+    Password {
+        #[serde(default, skip_serializing)]
+        password: String,
+    },
     /// 私钥文件：只存路径，不读内容。
     KeyFile { path: PathBuf },
     /// 委托给 ssh-agent / Pageant / 1Password Agent。
@@ -175,7 +180,10 @@ mod tests {
 
     #[test]
     fn ssh_auth_variants_serialize_distinctly() {
-        let pwd = serde_json::to_string(&SshAuth::Password).unwrap();
+        let pwd = serde_json::to_string(&SshAuth::Password {
+            password: "ignored".into(),
+        })
+        .unwrap();
         let agent = serde_json::to_string(&SshAuth::Agent).unwrap();
         let key = serde_json::to_string(&SshAuth::KeyFile {
             path: PathBuf::from("/tmp/k"),
@@ -185,5 +193,51 @@ mod tests {
         assert!(agent.contains("agent"));
         assert!(key.contains("key_file"));
         assert!(key.contains("/tmp/k"));
+    }
+
+    #[test]
+    fn password_serialize_omits_field() {
+        // password 字段标 #[serde(skip_serializing)] —— JSON 里不应出现 password 值
+        let auth = SshAuth::Password {
+            password: "very-secret".into(),
+        };
+        let json = serde_json::to_string(&auth).unwrap();
+        assert!(json.contains("\"kind\":\"password\""));
+        assert!(!json.contains("very-secret"));
+        assert!(
+            !json.contains("\"password\":"),
+            "password field should be skipped from serialization, got: {}",
+            json
+        );
+    }
+
+    #[test]
+    fn password_deserialize_defaults_empty() {
+        let json = r#"{"kind":"password"}"#;
+        let auth: SshAuth = serde_json::from_str(json).unwrap();
+        match auth {
+            SshAuth::Password { password } => assert_eq!(password, ""),
+            _ => panic!("expected Password variant"),
+        }
+    }
+
+    #[test]
+    fn password_deserialize_ignores_password_field_if_present() {
+        let json = r#"{"kind":"password","password":"leftover"}"#;
+        let auth: SshAuth = serde_json::from_str(json).unwrap();
+        match auth {
+            SshAuth::Password { password } => assert_eq!(password, "leftover"),
+            _ => panic!("expected Password variant"),
+        }
+    }
+
+    #[test]
+    fn key_file_unchanged_compat() {
+        let original = SshAuth::KeyFile {
+            path: PathBuf::from("/home/larry/.ssh/id_ed25519"),
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let parsed: SshAuth = serde_json::from_str(&json).unwrap();
+        assert_eq!(original, parsed);
     }
 }
