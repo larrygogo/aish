@@ -1,0 +1,34 @@
+{
+  "project": "aish",
+  "description": "GPUI 桌面 SSH 客户端 + tmux -CC 集成（多 host、多 pane、自绘 alacritty 终端）",
+  "version": "0.1.0",
+  "tech_stack": {
+    "backend": "Rust (tokio + russh + alacritty_terminal)",
+    "frontend": "GPUI (Zed)",
+    "database": "本地 hosts.json + OS keyring（aish-secrets）",
+    "ai": ""
+  },
+  "stats": {
+    "total": 1,
+    "completed": 1,
+    "in_progress": 0,
+    "pending": 0
+  },
+  "features": [
+    {
+      "id": 1,
+      "category": "fix",
+      "priority": "high",
+      "description": "tmux -CC 客户端尺寸跟随 GPUI 窗口实时变化（修 shell 不自适应宽度 + 底部空黑）",
+      "steps": [
+        "actor 维护 current_size 单一事实源",
+        "request_pty / refresh-client 都改用 current_size",
+        "SessionCommand::Resize 在 TmuxAttached 模式下额外发 refresh-client -C",
+        "aish-tmux 加 TmuxCommand::RefreshClient + 单测"
+      ],
+      "passes": true,
+      "completed_at": "2026-05-07",
+      "notes": "commit 9927326；分支 fix/tmux-client-size-follow-window-20260507-zj"
+    }
+  ]
+}
