@@ -6,8 +6,8 @@
 
 ## 当前状态
 
-- **总功能数**：5
-- **已完成**：5 (100%)
+- **总功能数**：6
+- **已完成**：6 (100%)
 - **进行中**：0
 - **待开始**：0
 - **最后更新**：2026-05-07
@@ -16,6 +16,7 @@
 
 ## 最近完成（最新在前）
 
+- [2026-05-07] feature #6: 鼠标坐标修正 + display_offset 偏移 + tmux mouse on 时滚轮转 SGR mouse wheel（commits 48dd5da → 679cc1f → 2fd213b → 1e3b1b5）
 - [2026-05-07] feature #5: connection chip + 鼠标滚轮 scrollback + tab 双击 inline 重命名（commit: 3cebd36）
 - [2026-05-07] feature #4: tab 系统 + 卡片化默认页 + tmux session picker 弹窗（commit: 37e5895）
 - [2026-05-07] feature #3: 配置与活跃连接分离，一个 host 可开多个独立连接（commit: 74b704d）
@@ -42,6 +43,24 @@
 ---
 
 ## 技术决策记录
+
+### 2026-05-07：tmux 内滚轮看历史靠"远端 SGR mouse"路径，本地不存 alt screen history
+**背景**：用户反馈 tmux attach 后滚轮无效。诊断发现：tmux 用 alternate screen + cursor positioning 重绘，alacritty Term 不写 scrollback，`history_size = 0`，本地 scroll_display 永远被钳到 0。
+**决策**：
+- 不维护 alt screen 的本地 scrollback（与 alacritty 默认行为一致）
+- 鼠标滚轮按 `Term::mode().intersects(MOUSE_MODE)` 分流：开了 mouse on → 发 SGR mouse wheel escape `\x1b[<{button};{col};{row}M` 给 PTY，由远端 tmux/vim/less 自己 scrollback；没开 → 走本地 scroll_display（仅 raw shell 路径有效）
+- **不**走 ALTERNATE_SCROLL（裸方向键）路径 — mouse off 时方向键会传给 inner TUI 应用搞乱屏幕
+**用户负担**：远端 tmux 需要 `set -g mouse on`。这是 tmux 标准配置，但默认是 off。
+**未实现**：X10/UTF8 旧编码（仅 SGR），mouse click/drag 转发（仅 wheel）。
+
+### 2026-05-07：mouse 坐标用 canvas bounds origin 而非 px(8.0) 硬编码
+**背景**：tab_bar (36px) + connection_chip (32px) 加上后，terminal canvas 在窗口里下移近 70px。`current_layout` 之前用 `origin = px(8.0)` 硬编码，pixel_to_grid 减错偏移，拖选 / 点击 grid 坐标算到屏外。
+**决策**：TerminalView 加 `canvas_bounds: Option<Bounds<Pixels>>` 字段；prepaint 在 `on_next_frame` 里同步更新；`current_layout` 用 `bounds.origin + 8px padding`，fallback 到原点（首帧之前）。
+**遗留**：第一次 mouse 事件如果在第一次 paint 之前发生（极小概率），fallback 到 `(0, 0)` 仍会偏移，但实际用户先看到画面再点击不会触发。
+
+### 2026-05-07：渲染层加 display_offset 偏移修 scrollback 视觉
+**背景**：alacritty `display_iter()` 在 `display_offset > 0` 时返回**负数 line index** 的 cells。之前 grid_renderer 直接 `y = origin_y + line.0 * cell_height`，负数 line → y 落在屏幕外侧 → scroll 改了 alacritty 的 display_offset 但视觉无变化。
+**决策**：`GridSnapshot` 加 `display_offset` 字段；paint 阶段所有 line 都 `+ offset` 映射回 viewport 0..screen_lines 范围。
 
 ### 2026-05-07：tab 替换 vs 新开
 **背景**：点默认页 host 卡片启动连接时，是把当前 tab 内容替换成 Connection（同 id），还是新开一个 tab？
@@ -89,4 +108,4 @@
 
 ## 会话历史摘要
 
-- [2026-05-07] 初次会话：① 诊断 + 修复 tmux -CC 客户端尺寸不跟随 GPUI 窗口（feature #1，commit 9927326）；② 用户给参考图希望见到 tmux 原生绿色状态栏，反向重构放弃 -CC 改回 raw attach（feature #2，commit ffe2cdf）；③ 配置与活跃连接分离 —— 引入 ConnectionId、host_list 拆两段、× 按钮断连（feature #3，commit 74b704d）；④ tab 系统 + 卡片化默认页 + tmux session picker 弹窗（feature #4，commit 37e5895）；⑤ M3c 修订版：connection chip + 鼠标滚轮 + tab 重命名 + 文档归档（feature #5，commit 3cebd36 + plan 修订文档）；初始化项目级模板。
+- [2026-05-07] 初次会话：① 诊断 + 修复 tmux -CC 客户端尺寸不跟随 GPUI 窗口（feature #1，commit 9927326）；② 用户给参考图希望见到 tmux 原生绿色状态栏，反向重构放弃 -CC 改回 raw attach（feature #2，commit ffe2cdf）；③ 配置与活跃连接分离 —— 引入 ConnectionId、host_list 拆两段、× 按钮断连（feature #3，commit 74b704d）；④ tab 系统 + 卡片化默认页 + tmux session picker 弹窗（feature #4，commit 37e5895）；⑤ M3c 修订版：connection chip + 鼠标滚轮 + tab 重命名 + 文档归档（feature #5，commit 3cebd36 + plan 修订文档）；⑥ 真机验证暴露三个 bug 串联修：display_offset 渲染偏移 / canvas bounds origin / tmux mouse on 时 SGR wheel 转发（feature #6，commits 48dd5da+679cc1f+2fd213b+1e3b1b5）；初始化项目级模板。

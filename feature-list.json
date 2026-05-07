@@ -9,8 +9,8 @@
     "ai": ""
   },
   "stats": {
-    "total": 5,
-    "completed": 5,
+    "total": 6,
+    "completed": 6,
     "in_progress": 0,
     "pending": 0
   },
@@ -105,6 +105,21 @@
       "passes": true,
       "completed_at": "2026-05-07",
       "notes": "commit 3cebd36；+360/-14 行；workspace 197 全过；遗留：collapse 后的孤儿 connection 没 UI 入口"
+    },
+    {
+      "id": 6,
+      "category": "fix",
+      "priority": "high",
+      "description": "鼠标坐标修正 + 渲染层 display_offset + tmux 内 SGR mouse wheel 转发",
+      "steps": [
+        "GridSnapshot 加 display_offset 字段；paint_grid / paint_cursor 用 line.0 + offset 把负数行映射回 viewport",
+        "TerminalView 加 canvas_bounds 字段；prepaint 通过 next_frame 同步；current_layout 用 bounds.origin + 8px padding（修拖选 / 点击坐标）",
+        "handle_scroll 按 alacritty Term mode 分流：MOUSE_MODE → SGR mouse wheel escape；否则本地 scroll_display",
+        "build_sgr_wheel_bytes：ev.position - canvas.origin → 1-based grid col/row → \\x1b[<{button};{col};{row}M（button 64=up/65=down）"
+      ],
+      "passes": true,
+      "completed_at": "2026-05-07",
+      "notes": "commit 链 48dd5da → 679cc1f → 2fd213b → 1e3b1b5；用户验证 raw shell 滚轮 OK + tmux mouse on 后滚轮 OK + 拖选复制 OK"
     }
   ]
 }
