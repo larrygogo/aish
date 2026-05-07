@@ -277,12 +277,20 @@ pub(crate) async fn host_session_task(
                     mode = ActorMode::TmuxAttached(TmuxController::new());
                     tracing::info!(?host, "actor: switched to TmuxAttached mode");
                     let _ = event_tx.send(SshEvent::TmuxAttached { host }).await;
-                    // tmux attach 现有 session 时不会主动 dump windows/panes 或 pane 内容。
-                    // 1) refresh-client -C 设 size（驱动 %layout-change）
-                    // 2) refresh-client（无参）强制完整 redraw（孤立 session attach 时尤其需要）
-                    let init = b"refresh-client -C 120x40\nrefresh-client\n";
-                    if let Err(err) = chan.data(&init[..]).await {
-                        tracing::warn!(?host, "actor: send refresh-client failed: {}", err);
+                    // tmux attach 现有 session 时不会主动 dump pane 内容。
+                    // 孤立 session（之前无 client attached）尤其如此。
+                    // 策略：
+                    //   1) refresh-client -C 120x40 设 client size（驱动 %layout-change）
+                    //   2) send-keys -t '<sess>' C-l 给 active pane 发 Form-Feed
+                    //      → shell 收到 \x0c 重绘 prompt → tmux 把 redraw 通过 %output 发回
+                    //      代价：会清掉 active pane 之前的滚动输出（与原生 tmux attach 一致）
+                    let sess_quoted = sess_id.as_str().replace('\'', r"'\''");
+                    let init = format!(
+                        "refresh-client -C 120x40\nsend-keys -t '{}' C-l\n",
+                        sess_quoted
+                    );
+                    if let Err(err) = chan.data(init.as_bytes()).await {
+                        tracing::warn!(?host, "actor: send init commands failed: {}", err);
                     }
                 }
                 Some(SessionCommand::Disconnect) | None => {
