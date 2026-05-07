@@ -186,6 +186,11 @@ pub(crate) async fn host_session_task(
                         .await;
                     break;
                 }
+                // M3b 新增命令变体 — Task 4-9 实现时处理
+                Some(SessionCommand::QueryTmuxSessions)
+                | Some(SessionCommand::AttachTmux { .. }) => {
+                    // 暂未实现，忽略
+                }
             },
         }
     }

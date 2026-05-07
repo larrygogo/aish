@@ -123,7 +123,7 @@ impl TerminalView {
         let (cols, rows) = self
             .state
             .read(cx)
-            .pane_dimensions
+            .host_pty_dimensions
             .get(&host)
             .copied()
             .unwrap_or((crate::state::DEFAULT_COLS, crate::state::DEFAULT_ROWS));
@@ -136,7 +136,7 @@ impl TerminalView {
             cols as usize,
         );
         self.state.update(cx, |state, cx| {
-            if let Some(term) = state.pane_terminals.get_mut(&host) {
+            if let Some(term) = state.host_pty_term.get_mut(&host) {
                 crate::terminal::selection::start_selection(term, line, col, side);
             }
             cx.notify();
@@ -152,7 +152,7 @@ impl TerminalView {
         let (cols, rows) = self
             .state
             .read(cx)
-            .pane_dimensions
+            .host_pty_dimensions
             .get(&host)
             .copied()
             .unwrap_or((crate::state::DEFAULT_COLS, crate::state::DEFAULT_ROWS));
@@ -165,7 +165,7 @@ impl TerminalView {
             cols as usize,
         );
         self.state.update(cx, |state, cx| {
-            if let Some(term) = state.pane_terminals.get_mut(&host) {
+            if let Some(term) = state.host_pty_term.get_mut(&host) {
                 crate::terminal::selection::update_selection(term, line, col, side);
             }
             cx.notify();

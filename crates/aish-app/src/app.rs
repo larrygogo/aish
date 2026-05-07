@@ -51,6 +51,8 @@ pub fn run() {
                         state.drop_session(host);
                         cx.notify();
                     }
+                    // M3b 新增事件变体 — Task 4-9 实现时在这里分发处理
+                    _ => {}
                 });
             }
         })

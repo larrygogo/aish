@@ -4,7 +4,8 @@
 
 use std::collections::HashMap;
 
-use aish_types::{HostConfig, HostId};
+use aish_tmux::SessionTree;
+use aish_types::{HostConfig, HostId, PaneId, RemoteSession, SessionId};
 use alacritty_terminal::event::VoidListener;
 use alacritty_terminal::term::test::TermSize;
 use alacritty_terminal::term::Config as TermConfig;
@@ -30,6 +31,49 @@ pub enum SshEvent {
         kind: SshErrorKind,
         msg: String,
     },
+    /// list-sessions 开始
+    TmuxQueryStarted {
+        host: HostId,
+    },
+    /// list-sessions 成功（包括 tmux 在但 0 session 的情况）
+    TmuxSessionsListed {
+        host: HostId,
+        sessions: Vec<RemoteSession>,
+    },
+    /// list-sessions 失败但远端有 tmux
+    TmuxQueryFailed {
+        host: HostId,
+        msg: String,
+    },
+    /// 远端没 tmux
+    TmuxNoTmux {
+        host: HostId,
+    },
+    /// AttachTmux 命令收到，actor 正在切 mode
+    TmuxAttaching {
+        host: HostId,
+        session: SessionId,
+    },
+    /// -CC channel 已开 + TmuxController 已建
+    TmuxAttached {
+        host: HostId,
+    },
+    /// SessionTree 有变化
+    TmuxSessionTreeUpdated {
+        host: HostId,
+        tree: SessionTree,
+    },
+    /// tmux 模式下某 pane 的输出
+    TmuxPaneOutput {
+        host: HostId,
+        pane: PaneId,
+        bytes: bytes::Bytes,
+    },
+    /// -CC channel 关闭
+    TmuxDetached {
+        host: HostId,
+        reason: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -51,8 +95,17 @@ pub enum SshErrorKind {
 #[derive(Debug)]
 pub enum SessionCommand {
     SendBytes(Vec<u8>),
-    Resize { cols: u16, rows: u16 },
+    Resize {
+        cols: u16,
+        rows: u16,
+    },
     Disconnect,
+    /// 触发 ssh_actor 跑 tmux list-sessions（独立 channel exec）
+    QueryTmuxSessions,
+    /// user 点了某个 session，actor 关 raw shell -> 开新 channel attach
+    AttachTmux {
+        session: SessionId,
+    },
 }
 
 /// 默认 PTY 大小（首次 connect 时用，后续按窗口 resize 调整）。
@@ -78,6 +131,23 @@ pub enum AuthKind {
     #[default]
     KeyFile,
     Password,
+}
+
+/// 单个 host 的 tmux 状态。每次连接重置，断开清空。
+#[derive(Debug, Clone)]
+pub enum TmuxState {
+    /// 刚连上，list-sessions 还没跑（瞬态）
+    NotChecked,
+    /// 远端没装 tmux（exec 失败 + stderr 含 "command not found" / "not found"）
+    NoTmux,
+    /// list-sessions 成功（可能空 vec — 远端有 tmux 但无 session）
+    Detected { sessions: Vec<RemoteSession> },
+    /// list-sessions 失败但远端有 tmux
+    QueryFailed { msg: String },
+    /// user 点了某 session，正在 attach（瞬态）
+    Attaching { session: SessionId },
+    /// 已 attach，TmuxController 在 actor 里运行，SessionTree clone 同步过来
+    Attached { session_tree: SessionTree },
 }
 
 /// modal 状态：当前是否在添加 / 编辑 / 删除确认 host。
@@ -197,14 +267,18 @@ impl HostFormDraft {
 pub struct AppState {
     pub hosts: Vec<HostConfig>,
     pub selected: Option<HostId>,
-    /// per-host alacritty Term（vt100 状态机 + grid + scrollback）
-    pub pane_terminals: HashMap<HostId, Term<VoidListener>>,
-    /// per-host 当前 PTY 大小（cols, rows）
-    pub pane_dimensions: HashMap<HostId, (u16, u16)>,
-    /// 已连接 host 的 SessionCommand sender
     pub sessions: HashMap<HostId, mpsc::Sender<SessionCommand>>,
-    /// 当前打开的 modal（添加/编辑/删除确认）；None = 无 modal
     pub modal: Option<HostFormState>,
+
+    /// raw shell 模式的 per-host alacritty Term（M2b1 行为）
+    pub host_pty_term: HashMap<HostId, Term<VoidListener>>,
+    pub host_pty_dimensions: HashMap<HostId, (u16, u16)>,
+
+    /// 单个 host 的 tmux 状态（M3b 新加）
+    pub tmux_state: HashMap<HostId, TmuxState>,
+    /// tmux attach 后 per-pane alacritty Term
+    pub pane_terminals: HashMap<(HostId, PaneId), Term<VoidListener>>,
+    pub pane_dimensions: HashMap<(HostId, PaneId), (u16, u16)>,
 }
 
 impl AppState {
@@ -212,10 +286,13 @@ impl AppState {
         Self {
             hosts,
             selected: None,
-            pane_terminals: HashMap::new(),
-            pane_dimensions: HashMap::new(),
             sessions: HashMap::new(),
             modal: None,
+            host_pty_term: HashMap::new(),
+            host_pty_dimensions: HashMap::new(),
+            tmux_state: HashMap::new(),
+            pane_terminals: HashMap::new(),
+            pane_dimensions: HashMap::new(),
         }
     }
 
@@ -236,47 +313,73 @@ impl AppState {
 
     pub fn register_session(&mut self, id: HostId, sender: mpsc::Sender<SessionCommand>) {
         self.sessions.insert(id, sender);
-        self.pane_dimensions
+        self.host_pty_dimensions
             .insert(id, (DEFAULT_COLS, DEFAULT_ROWS));
     }
 
     pub fn drop_session(&mut self, id: HostId) {
         self.sessions.remove(&id);
-        // 不删 pane_terminals — 保留 scrollback，重连时用户能看到旧输出
+        // 不删 host_pty_term — 保留 scrollback
+        // 但清空 tmux_state（每次连接重新查询）
+        self.tmux_state.remove(&id);
+        // pane_terminals 也清空（tmux 模式 attach 状态丢失）
+        self.pane_terminals.retain(|(h, _), _| h != &id);
+        self.pane_dimensions.retain(|(h, _), _| h != &id);
     }
 
-    /// feed bytes 到指定 host 的 Term（VT100 状态机）。
-    /// 如果 Term 不存在则创建。
+    /// raw shell 模式下，feed bytes 到指定 host 的 Term。
     pub fn feed_bytes(&mut self, host: HostId, bytes: &[u8]) {
         let (cols, rows) = self
-            .pane_dimensions
+            .host_pty_dimensions
             .get(&host)
             .copied()
             .unwrap_or((DEFAULT_COLS, DEFAULT_ROWS));
         let term = self
-            .pane_terminals
+            .host_pty_term
             .entry(host)
             .or_insert_with(|| make_term(cols, rows));
-        // 使用 vte::ansi::Processor（alacritty 自己在 event_loop 中用的入口）
-        // Term<T> 实现了 vte::ansi::Handler，Processor::advance 接受 &mut Handler
         let mut processor = alacritty_terminal::vte::ansi::Processor::<
             alacritty_terminal::vte::ansi::StdSyncHandler,
         >::new();
         processor.advance(term, bytes);
     }
 
-    /// 取指定 host 的 Term（只读）。
+    /// raw shell 模式：取指定 host 的 Term（只读）。
     pub fn term_of(&self, host: HostId) -> Option<&Term<VoidListener>> {
-        self.pane_terminals.get(&host)
+        self.host_pty_term.get(&host)
     }
 
-    /// resize 指定 host 的 Term（同步 alacritty grid）。
+    /// raw shell 模式：resize host PTY 大小。
     pub fn resize_term(&mut self, host: HostId, cols: u16, rows: u16) {
-        if let Some(term) = self.pane_terminals.get_mut(&host) {
+        if let Some(term) = self.host_pty_term.get_mut(&host) {
             let size = TermSize::new(cols as usize, rows as usize);
             term.resize(size);
         }
-        self.pane_dimensions.insert(host, (cols, rows));
+        self.host_pty_dimensions.insert(host, (cols, rows));
+    }
+
+    /// tmux 模式：feed bytes 到指定 (host, pane) 的 Term。
+    pub fn apply_tmux_pane_output(&mut self, host: HostId, pane: PaneId, bytes: &[u8]) {
+        let key = (host, pane);
+        let (cols, rows) = self
+            .pane_dimensions
+            .get(&key)
+            .copied()
+            .unwrap_or((DEFAULT_COLS, DEFAULT_ROWS));
+        let term = self
+            .pane_terminals
+            .entry(key)
+            .or_insert_with(|| make_term(cols, rows));
+        let mut processor = alacritty_terminal::vte::ansi::Processor::<
+            alacritty_terminal::vte::ansi::StdSyncHandler,
+        >::new();
+        processor.advance(term, bytes);
+    }
+
+    /// tmux 模式：更新 host 的 SessionTree（actor 推过来）。
+    pub fn apply_tmux_session_tree(&mut self, host: HostId, tree: SessionTree) {
+        self.tmux_state
+            .insert(host, TmuxState::Attached { session_tree: tree });
     }
 
     /// 添加一个新 host。
@@ -295,7 +398,8 @@ impl AppState {
         }
     }
 
-    /// 删除 host。同步清理 sessions / pane_terminals / pane_dimensions / 重置 selected。
+    /// 删除 host。同步清理 sessions / host_pty_term / host_pty_dimensions / tmux_state /
+    /// pane_terminals / pane_dimensions / 重置 selected。
     /// 返回 true = 成功删除，false = 未找到。
     ///
     /// **注意**：此函数**不**清理 keyring 条目 — 调用方（host_form save）
@@ -307,8 +411,11 @@ impl AppState {
         };
         self.hosts.remove(idx);
         self.sessions.remove(&id);
-        self.pane_terminals.remove(&id);
-        self.pane_dimensions.remove(&id);
+        self.host_pty_term.remove(&id);
+        self.host_pty_dimensions.remove(&id);
+        self.tmux_state.remove(&id);
+        self.pane_terminals.retain(|(h, _), _| h != &id);
+        self.pane_dimensions.retain(|(h, _), _| h != &id);
         if self.selected == Some(id) {
             self.selected = None;
         }
@@ -319,7 +426,9 @@ impl AppState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aish_tmux::SessionTree;
     use aish_types::SshAuth;
+    use aish_types::{PaneId, SessionId};
     use std::path::PathBuf;
     use uuid::Uuid;
 
@@ -342,8 +451,8 @@ mod tests {
         let h = mk_host("a");
         let state = AppState::with_hosts(vec![h]);
         assert_eq!(state.hosts.len(), 1);
-        assert!(state.pane_terminals.is_empty());
-        assert!(state.pane_dimensions.is_empty());
+        assert!(state.host_pty_term.is_empty());
+        assert!(state.host_pty_dimensions.is_empty());
     }
 
     #[test]
@@ -352,7 +461,7 @@ mod tests {
         let id = h.id;
         let mut state = AppState::with_hosts(vec![h]);
         state.feed_bytes(id, b"hello\r\n");
-        assert!(state.pane_terminals.contains_key(&id));
+        assert!(state.host_pty_term.contains_key(&id));
     }
 
     #[test]
@@ -377,7 +486,7 @@ mod tests {
         let (tx, _rx) = mpsc::channel::<SessionCommand>(8);
         state.register_session(id, tx);
         assert_eq!(
-            state.pane_dimensions.get(&id),
+            state.host_pty_dimensions.get(&id),
             Some(&(DEFAULT_COLS, DEFAULT_ROWS))
         );
     }
@@ -391,7 +500,7 @@ mod tests {
         state.register_session(id, tx);
         state.feed_bytes(id, b"x");
         state.drop_session(id);
-        assert!(state.pane_terminals.contains_key(&id));
+        assert!(state.host_pty_term.contains_key(&id));
         assert!(!state.is_session_active(id));
     }
 
@@ -402,7 +511,7 @@ mod tests {
         let mut state = AppState::with_hosts(vec![h]);
         state.feed_bytes(id, b"");
         state.resize_term(id, 100, 30);
-        assert_eq!(state.pane_dimensions.get(&id), Some(&(100, 30)));
+        assert_eq!(state.host_pty_dimensions.get(&id), Some(&(100, 30)));
     }
 
     fn write_temp_key_file() -> tempfile::NamedTempFile {
@@ -622,7 +731,7 @@ mod tests {
         let h = mk_host("v");
         let id = h.id;
         let mut state = AppState::with_hosts(vec![h]);
-        state.feed_bytes(id, b"hello"); // 创建 Term
+        state.feed_bytes(id, b"hello");
         let (tx, _rx) = mpsc::channel::<SessionCommand>(8);
         state.register_session(id, tx);
         state.select_host(id);
@@ -630,10 +739,11 @@ mod tests {
         let ok = state.remove_host(id);
         assert!(ok);
         assert!(state.hosts.is_empty());
-        assert!(!state.pane_terminals.contains_key(&id));
-        assert!(!state.pane_dimensions.contains_key(&id));
+        assert!(!state.host_pty_term.contains_key(&id));
+        assert!(!state.host_pty_dimensions.contains_key(&id));
         assert!(!state.is_session_active(id));
         assert_eq!(state.selected, None);
+        assert!(!state.tmux_state.contains_key(&id));
     }
 
     #[test]
@@ -641,5 +751,52 @@ mod tests {
         let mut state = AppState::with_hosts(vec![]);
         let unknown = HostId(Uuid::new_v4());
         assert!(!state.remove_host(unknown));
+    }
+
+    #[test]
+    fn apply_tmux_pane_output_creates_per_pane_term() {
+        let h = mk_host("a");
+        let id = h.id;
+        let mut state = AppState::with_hosts(vec![h]);
+        state.apply_tmux_pane_output(id, PaneId(7), b"hi");
+        let term = state.pane_terminals.get(&(id, PaneId(7))).unwrap();
+        let grid = term.grid();
+        let first_row = &grid[alacritty_terminal::index::Line(0)];
+        assert_eq!(first_row[alacritty_terminal::index::Column(0)].c, 'h');
+        assert_eq!(first_row[alacritty_terminal::index::Column(1)].c, 'i');
+    }
+
+    #[test]
+    fn apply_tmux_session_tree_sets_attached_state() {
+        let h = mk_host("a");
+        let id = h.id;
+        let mut state = AppState::with_hosts(vec![h]);
+        let tree = SessionTree::new();
+        state.apply_tmux_session_tree(id, tree);
+        match state.tmux_state.get(&id) {
+            Some(TmuxState::Attached { .. }) => {}
+            other => panic!("expected Attached, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn drop_session_clears_tmux_state_and_pane_terminals() {
+        let h = mk_host("a");
+        let id = h.id;
+        let mut state = AppState::with_hosts(vec![h]);
+        let (tx, _rx) = mpsc::channel::<SessionCommand>(8);
+        state.register_session(id, tx);
+        state.apply_tmux_pane_output(id, PaneId(0), b"x");
+        state.tmux_state.insert(id, TmuxState::NotChecked);
+        state.drop_session(id);
+        assert!(!state.tmux_state.contains_key(&id));
+        assert!(!state.pane_terminals.contains_key(&(id, PaneId(0))));
+    }
+
+    // SessionId 在 tests 模块中未直接构造，但 import 已在，编译器会检测到未使用
+    // 保留 import 以确保类型可用性验证
+    #[allow(dead_code)]
+    fn _assert_session_id_usable() -> SessionId {
+        SessionId::new("test")
     }
 }
