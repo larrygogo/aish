@@ -142,6 +142,15 @@ pub(crate) async fn host_session_task(
     loop {
         tokio::select! {
             msg = chan.wait() => match msg {
+                Some(ChannelMsg::ExtendedData { ref data, ext }) => {
+                    tracing::warn!(?host, ext, len = data.len(), payload = %String::from_utf8_lossy(data), "actor: channel ExtendedData");
+                }
+                Some(ChannelMsg::ExitStatus { exit_status }) => {
+                    tracing::warn!(?host, exit_status, "actor: channel ExitStatus");
+                }
+                Some(ChannelMsg::ExitSignal { ref signal_name, .. }) => {
+                    tracing::warn!(?host, signal = ?signal_name, "actor: channel ExitSignal");
+                }
                 Some(ChannelMsg::Data { data }) => match &mut mode {
                     ActorMode::RawShell => {
                         let _ = event_tx
@@ -182,6 +191,7 @@ pub(crate) async fn host_session_task(
                     }
                 },
                 Some(ChannelMsg::Eof) | None => {
+                    tracing::warn!(?host, "actor: channel closed (Eof/None)");
                     let _ = event_tx
                         .send(SshEvent::Disconnected {
                             host,
@@ -190,7 +200,9 @@ pub(crate) async fn host_session_task(
                         .await;
                     break;
                 }
-                Some(_) => {}
+                Some(other) => {
+                    tracing::debug!(?host, ?other, "actor: other ChannelMsg");
+                }
             },
             cmd = cmd_rx.recv() => match cmd {
                 Some(SessionCommand::SendBytes(bytes)) => {
