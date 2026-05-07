@@ -5,10 +5,12 @@
 
 #![allow(dead_code)]
 
+pub mod commands;
 pub mod error;
 pub mod events;
 pub mod types;
 
+pub use commands::{build_command, Key, TmuxCommand};
 pub use error::TmuxError;
 pub use events::TmuxEvent;
 pub use types::{Pane, Session, SessionTree, Window};
