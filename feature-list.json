@@ -9,8 +9,8 @@
     "ai": ""
   },
   "stats": {
-    "total": 1,
-    "completed": 1,
+    "total": 2,
+    "completed": 2,
     "in_progress": 0,
     "pending": 0
   },
@@ -28,7 +28,25 @@
       ],
       "passes": true,
       "completed_at": "2026-05-07",
-      "notes": "commit 9927326；分支 fix/tmux-client-size-follow-window-20260507-zj"
+      "notes": "commit 9927326；后被 #2 部分回退（refresh-client 路径已删，window_change 仍在）"
+    },
+    {
+      "id": 2,
+      "category": "refactor",
+      "priority": "high",
+      "description": "放弃 tmux -CC 控制模式，改回 raw attach 让 tmux 自绘原生 UI（绿色状态栏 + 窗口列表 + pane 边框）",
+      "steps": [
+        "ssh_actor 删 ActorMode + TmuxController feed + capture-pane + refresh-client",
+        "AttachTmux 改成在 raw shell channel 发 'tmux attach -t' 字节",
+        "state 删 pane_terminals/pane_dimensions/last_active_pane + 4 个 -CC SshEvent variants",
+        "TmuxState::Attaching/Attached 删，Detected 加 attached 字段做侧栏高亮",
+        "terminal_view::term_for_render 简化为直接返回 host_pty_term",
+        "tmux_sidebar 删 SessionTree 树形展开 + Attaching 视图；session 行加 ●/○ marker",
+        "aish-tmux crate 标记 controller/protocol/events/SessionTree 为 M3-archived"
+      ],
+      "passes": true,
+      "completed_at": "2026-05-07",
+      "notes": "commit ffe2cdf；净删 295 行；workspace 185 测试全过"
     }
   ]
 }
