@@ -8,14 +8,14 @@
 use gpui::{px, Pixels};
 
 // ────────── 背景层（深 → 浅） ──────────
-/// RootView 全局底色。
-pub const BG_BASE: u32 = 0x0a0a0c;
-/// 卡片 / chip 填充。比 base 亮一档，划层次。
-pub const BG_ELEVATED: u32 = 0x15161a;
+/// RootView 全局底色。纯黑（参考图 9 类 iOS 风）。
+pub const BG_BASE: u32 = 0x000000;
+/// 卡片 / chip 填充。亮一档让卡片"浮"出来。
+pub const BG_ELEVATED: u32 = 0x1c1d22;
 /// hover 高亮态。
-pub const BG_HOVER: u32 = 0x1f2128;
+pub const BG_HOVER: u32 = 0x26282f;
 /// 选中态 / 按下态。
-pub const BG_SELECTED: u32 = 0x26282f;
+pub const BG_SELECTED: u32 = 0x2f3138;
 
 // ────────── 边框 ──────────
 /// 卡片默认边框，几乎贴 elevated 不刺眼。
@@ -43,13 +43,13 @@ pub const CHIP_BLUE_BG: u32 = 0x1f3a5c;
 pub const CHIP_GREEN_BG: u32 = 0x16382f;
 
 // ────────── 字号 ──────────
-/// modal 标题。
+/// section 大标题（"已保存的连接"等）。
 pub fn text_xl() -> Pixels {
-    px(16.0)
+    px(20.0)
 }
 /// host label / tab 标题 / 主要内容。
 pub fn text_lg() -> Pixels {
-    px(14.0)
+    px(15.0)
 }
 /// 副信息、按钮文字、chip。
 pub fn text_sm() -> Pixels {

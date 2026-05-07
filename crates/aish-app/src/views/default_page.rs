@@ -162,29 +162,23 @@ impl Render for DefaultPageView {
                     .child(edit_btn)
                     .child(delete_btn);
 
-                // SSH chip
+                // SSH chip — 圆角胶囊，比 host label 矮一档
                 let chip = div()
-                    .px_2()
+                    .px_2p5()
                     .py_0p5()
                     .text_size(theme::text_xs())
                     .text_color(rgb(theme::ACCENT_BLUE))
                     .bg(rgb(theme::CHIP_BLUE_BG))
-                    .rounded_md()
+                    .rounded_full()
                     .child("SSH");
 
                 div()
                     .group("host_card")
-                    .px_4()
-                    .py_3()
+                    .px_5()
+                    .py_4()
                     .bg(rgb(theme::BG_ELEVATED))
-                    .border_1()
-                    .border_color(rgb(theme::BORDER_SUBTLE))
-                    .rounded_xl()
-                    .hover(|s| {
-                        s.bg(rgb(theme::BG_HOVER))
-                            .border_color(rgb(theme::BORDER_STRONG))
-                            .cursor_pointer()
-                    })
+                    .rounded_2xl()
+                    .hover(|s| s.bg(rgb(theme::BG_HOVER)).cursor_pointer())
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
