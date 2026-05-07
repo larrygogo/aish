@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use gpui::{
     canvas, div, prelude::*, px, rgb, App, Bounds, ClipboardItem, Context, Entity, FocusHandle,
-    Focusable, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, Pixels, ScrollDelta,
-    ScrollWheelEvent, Window,
+    Focusable, KeyDownEvent, Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
+    Pixels, Point, ScrollDelta, ScrollWheelEvent, Window,
 };
 
 use crate::bridge::Bridge;
@@ -127,12 +127,50 @@ impl TerminalView {
         }
     }
 
-    /// 处理鼠标左键按下：开始 selection。
+    /// 处理鼠标左键按下。
+    ///
+    /// 两路分流：
+    /// 1. alacritty Term 含 MOUSE_MODE（远端 tmux/vim 等开了 mouse） → 发 SGR
+    ///    mouse press 字节给远端，不在本地起 selection（避免本地选区干扰
+    ///    远端高亮）。
+    /// 2. 否则 → 本地 alacritty Selection（原行为）。
     fn handle_mouse_down(&mut self, ev: &MouseDownEvent, cx: &mut Context<Self>) {
+        use alacritty_terminal::term::TermMode;
         let conn = match self.state.read(cx).current_connection() {
             Some(c) => c,
             None => return,
         };
+
+        let mode = self
+            .state
+            .read(cx)
+            .host_pty_term
+            .get(&conn)
+            .map(|t| t.mode());
+
+        // 远端 mouse mode：转发并 return
+        if let Some(mode) = mode {
+            if mode.intersects(TermMode::MOUSE_MODE) && mode.contains(TermMode::SGR_MOUSE) {
+                if let Some(button) = sgr_mouse_button(ev.button) {
+                    if let Some(bytes) =
+                        self.build_sgr_mouse_bytes(ev.position, button, &ev.modifiers, true, cx)
+                    {
+                        let sender = self.state.read(cx).sessions.get(&conn).cloned();
+                        if let Some(sender) = sender {
+                            self.bridge.spawn(async move {
+                                let _ = sender.send(SessionCommand::SendBytes(bytes)).await;
+                            });
+                        }
+                        return;
+                    }
+                }
+            }
+        }
+
+        // 本地 selection 路径（原行为）— 仅左键
+        if !matches!(ev.button, MouseButton::Left) {
+            return;
+        }
         let (cols, rows) = self
             .state
             .read(cx)
@@ -156,12 +194,84 @@ impl TerminalView {
         });
     }
 
-    /// 处理鼠标拖拽：更新 selection 末端。
-    fn handle_mouse_move(&mut self, ev: &MouseMoveEvent, cx: &mut Context<Self>) {
+    /// 处理鼠标抬起。仅在远端 mouse mode 时发 SGR release。
+    fn handle_mouse_up(&mut self, ev: &MouseUpEvent, cx: &mut Context<Self>) {
+        use alacritty_terminal::term::TermMode;
         let conn = match self.state.read(cx).current_connection() {
             Some(c) => c,
             None => return,
         };
+        let mode = match self.state.read(cx).host_pty_term.get(&conn) {
+            Some(t) => t.mode(),
+            None => return,
+        };
+        if !mode.intersects(TermMode::MOUSE_MODE) || !mode.contains(TermMode::SGR_MOUSE) {
+            return;
+        }
+        let button = match sgr_mouse_button(ev.button) {
+            Some(b) => b,
+            None => return,
+        };
+        if let Some(bytes) =
+            self.build_sgr_mouse_bytes(ev.position, button, &ev.modifiers, false, cx)
+        {
+            let sender = self.state.read(cx).sessions.get(&conn).cloned();
+            if let Some(sender) = sender {
+                self.bridge.spawn(async move {
+                    let _ = sender.send(SessionCommand::SendBytes(bytes)).await;
+                });
+            }
+        }
+    }
+
+    /// 处理鼠标拖拽 / 移动。两路分流同 mouse_down。
+    fn handle_mouse_move(&mut self, ev: &MouseMoveEvent, cx: &mut Context<Self>) {
+        use alacritty_terminal::term::TermMode;
+        let conn = match self.state.read(cx).current_connection() {
+            Some(c) => c,
+            None => return,
+        };
+
+        let mode = self
+            .state
+            .read(cx)
+            .host_pty_term
+            .get(&conn)
+            .map(|t| t.mode());
+
+        if let Some(mode) = mode {
+            if mode.intersects(TermMode::MOUSE_MOTION | TermMode::MOUSE_DRAG)
+                && mode.contains(TermMode::SGR_MOUSE)
+            {
+                // MOUSE_DRAG 仅当按住按钮时发；MOUSE_MOTION 任何 motion 都发。
+                let pressed_button = ev.pressed_button;
+                let any_pressed = pressed_button.is_some();
+                if mode.contains(TermMode::MOUSE_DRAG) && !any_pressed {
+                    // 仅 drag 模式下，未按键的 motion 不发
+                } else {
+                    let base: u8 = pressed_button
+                        .and_then(sgr_mouse_button)
+                        .unwrap_or(35) // NoneMove
+                        + 32;
+                    if let Some(bytes) =
+                        self.build_sgr_mouse_bytes(ev.position, base, &ev.modifiers, true, cx)
+                    {
+                        let sender = self.state.read(cx).sessions.get(&conn).cloned();
+                        if let Some(sender) = sender {
+                            self.bridge.spawn(async move {
+                                let _ = sender.send(SessionCommand::SendBytes(bytes)).await;
+                            });
+                        }
+                        return;
+                    }
+                }
+            }
+        }
+
+        // 本地 selection 更新（原行为）— 仅在拖拽时
+        if !ev.dragging() {
+            return;
+        }
         let (cols, rows) = self
             .state
             .read(cx)
@@ -257,9 +367,8 @@ impl TerminalView {
 
     /// 把 wheel 事件 + 行数翻成 SGR mouse escape 字节。
     ///
-    /// 仅当 alacritty Term 已宣告 MOUSE_MODE 时调用。每行发一个 button 64/65
-    /// （wheel up/down）press 事件。col/row 是 1-based grid 坐标，从 ev.position
-    /// 减 canvas origin 算出。
+    /// 仅当 alacritty Term 已宣告 MOUSE_MODE 且 SGR_MOUSE 时调用。每行发一个
+    /// button 64/65（wheel up/down）press 事件。
     fn build_sgr_wheel_bytes(
         &self,
         ev: &ScrollWheelEvent,
@@ -268,24 +377,52 @@ impl TerminalView {
         cx: &App,
     ) -> Option<Vec<u8>> {
         use alacritty_terminal::term::TermMode;
-        // 仅支持 SGR 编码。alacritty 也支持 X10/UTF8/None 旧编码，本地实现先省略。
         if !mode.contains(TermMode::SGR_MOUSE) {
             return None;
         }
-        let layout = self.current_layout(cx);
-        let local_x = f32::from(ev.position.x) - f32::from(layout.origin_x);
-        let local_y = f32::from(ev.position.y) - f32::from(layout.origin_y);
-        let col = ((local_x / f32::from(layout.cell_width)).floor() as i32 + 1).max(1);
-        let row = ((local_y / f32::from(layout.cell_height)).floor() as i32 + 1).max(1);
-        // SGR wheel button: 64 = up, 65 = down。按 |scroll_amount| 重复发。
-        let button = if scroll_amount > 0 { 64 } else { 65 };
+        let button = if scroll_amount > 0 { 64u8 } else { 65 };
         let n = scroll_amount.unsigned_abs() as usize;
-        let mut out = Vec::with_capacity(n * 16);
+        let single = self.build_sgr_mouse_bytes(ev.position, button, &ev.modifiers, true, cx)?;
+        let mut out = Vec::with_capacity(n * single.len());
         for _ in 0..n {
-            // press: `\x1b[<{button};{col};{row}M`，无 release（wheel 不 release）
-            out.extend_from_slice(format!("\x1b[<{};{};{}M", button, col, row).as_bytes());
+            out.extend_from_slice(&single);
         }
         Some(out)
+    }
+
+    /// 把 (position, button, modifiers, pressed) 翻成 SGR mouse escape 字节。
+    ///
+    /// 格式：`\x1b[<{button + mods};{col};{row}{M|m}` —— `M` = press / motion，
+    /// `m` = release。col/row 1-based grid 坐标。modifiers 影响 button 高位：
+    /// shift+4, alt+8, ctrl+16。
+    fn build_sgr_mouse_bytes(
+        &self,
+        position: Point<Pixels>,
+        button: u8,
+        modifiers: &Modifiers,
+        pressed: bool,
+        cx: &App,
+    ) -> Option<Vec<u8>> {
+        let layout = self.current_layout(cx);
+        let local_x = f32::from(position.x) - f32::from(layout.origin_x);
+        let local_y = f32::from(position.y) - f32::from(layout.origin_y);
+        if local_x < 0.0 || local_y < 0.0 {
+            return None;
+        }
+        let col = ((local_x / f32::from(layout.cell_width)).floor() as i32 + 1).max(1);
+        let row = ((local_y / f32::from(layout.cell_height)).floor() as i32 + 1).max(1);
+        let mut mods: u8 = 0;
+        if modifiers.shift {
+            mods += 4;
+        }
+        if modifiers.alt {
+            mods += 8;
+        }
+        if modifiers.control {
+            mods += 16;
+        }
+        let suffix = if pressed { 'M' } else { 'm' };
+        Some(format!("\x1b[<{};{};{}{}", button + mods, col, row, suffix).into_bytes())
     }
 
     /// 检测 bounds 变化，算新 cols/rows，若有变化则 debounce 100ms 后触发 resize。
@@ -380,19 +517,49 @@ impl Render for TerminalView {
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, _window, cx| {
                 this.handle_key(event, cx);
             }))
+            // 监听三个鼠标键：左 / 中 / 右。handle_mouse_down 内部按 alacritty
+            // mode 决定走 SGR 转发还是本地 selection。
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, ev: &MouseDownEvent, _window, cx| {
                     this.handle_mouse_down(ev, cx);
                 }),
             )
+            .on_mouse_down(
+                MouseButton::Middle,
+                cx.listener(|this, ev: &MouseDownEvent, _window, cx| {
+                    this.handle_mouse_down(ev, cx);
+                }),
+            )
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(|this, ev: &MouseDownEvent, _window, cx| {
+                    this.handle_mouse_down(ev, cx);
+                }),
+            )
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, ev: &MouseUpEvent, _window, cx| {
+                    this.handle_mouse_up(ev, cx);
+                }),
+            )
+            .on_mouse_up(
+                MouseButton::Middle,
+                cx.listener(|this, ev: &MouseUpEvent, _window, cx| {
+                    this.handle_mouse_up(ev, cx);
+                }),
+            )
+            .on_mouse_up(
+                MouseButton::Right,
+                cx.listener(|this, ev: &MouseUpEvent, _window, cx| {
+                    this.handle_mouse_up(ev, cx);
+                }),
+            )
             .on_scroll_wheel(cx.listener(|this, ev: &ScrollWheelEvent, _window, cx| {
                 this.handle_scroll(ev, cx);
             }))
             .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _window, cx| {
-                if ev.dragging() {
-                    this.handle_mouse_move(ev, cx);
-                }
+                this.handle_mouse_move(ev, cx);
             }))
             .flex_1()
             .h_full()
@@ -421,6 +588,18 @@ impl Render for TerminalView {
                 )
                 .size_full(),
             )
+    }
+}
+
+/// 把 GPUI 的 MouseButton 翻成 SGR mouse 协议的 button code。
+/// 参考 alacritty / iTerm2 的标准约定。Navigate 按键（前进 / 后退）映射成
+/// "Other"（99），调用方应过滤掉不发。
+fn sgr_mouse_button(b: MouseButton) -> Option<u8> {
+    match b {
+        MouseButton::Left => Some(0),
+        MouseButton::Middle => Some(1),
+        MouseButton::Right => Some(2),
+        MouseButton::Navigate(_) => None,
     }
 }
 
