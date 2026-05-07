@@ -28,6 +28,7 @@ use gpui::{div, prelude::*, px, rgb, Context, Entity, MouseButton, MouseDownEven
 
 use crate::bridge::Bridge;
 use crate::state::{AppState, SessionCommand, SshEvent, TabContent};
+use crate::theme;
 
 pub struct ConnectionChipView {
     state: Entity<AppState>,
@@ -85,43 +86,53 @@ impl Render for ConnectionChipView {
             .unwrap_or_else(|| "—".into());
         let is_alive = app.is_session_active(conn);
         let dot_color = if is_alive {
-            rgb(0x4ec9b0) // 绿色 = 活跃
+            rgb(theme::ACCENT_GREEN)
         } else {
-            rgb(0x888888) // 灰色 = 已断连但 tab 还在
+            rgb(theme::TEXT_MUTED)
         };
 
-        // SSH chip
+        // SSH chip — 跟默认页同款胶囊
         let ssh_chip = div()
-            .px_2()
+            .px_2p5()
             .py_0p5()
-            .text_size(px(11.0))
-            .text_color(rgb(0x4a9eff))
-            .bg(rgb(0x1f3a5c))
-            .rounded_md()
+            .text_size(theme::text_xs())
+            .text_color(rgb(theme::ACCENT_BLUE))
+            .bg(rgb(theme::CHIP_BLUE_BG))
+            .rounded_full()
             .child("SSH");
 
-        // collapse 按钮
+        // collapse 按钮（▾ 比 ⊖ 语义清楚 — "向下收回到默认页"）
         let collapse_btn = div()
             .px_2()
             .py_1()
-            .text_color(rgb(0xaaaaaa))
-            .text_size(px(13.0))
-            .hover(|s| s.text_color(rgb(0xffffff)).cursor_pointer())
+            .rounded_md()
+            .text_color(rgb(theme::TEXT_SECONDARY))
+            .text_size(theme::text_lg())
+            .hover(|s| {
+                s.text_color(rgb(theme::TEXT_PRIMARY))
+                    .bg(rgb(theme::BG_SELECTED))
+                    .cursor_pointer()
+            })
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
                     this.handle_collapse(conn, cx);
                 }),
             )
-            .child("⊖");
+            .child("▾");
 
         // close 按钮
         let close_btn = div()
             .px_2()
             .py_1()
-            .text_color(rgb(0xaaaaaa))
-            .text_size(px(13.0))
-            .hover(|s| s.text_color(rgb(0xff6666)).cursor_pointer())
+            .rounded_md()
+            .text_color(rgb(theme::TEXT_SECONDARY))
+            .text_size(theme::text_lg())
+            .hover(|s| {
+                s.text_color(rgb(theme::ACCENT_RED))
+                    .bg(rgb(theme::BG_SELECTED))
+                    .cursor_pointer()
+            })
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
@@ -132,20 +143,25 @@ impl Render for ConnectionChipView {
 
         div()
             .w_full()
-            .h(px(32.0))
-            .bg(rgb(0x141414))
+            .h(px(36.0))
+            .bg(rgb(theme::BG_ELEVATED))
             .border_b_1()
-            .border_color(rgb(0x2a2a2a))
+            .border_color(rgb(theme::BORDER_SUBTLE))
             .flex()
             .flex_row()
             .items_center()
-            .px_3()
+            .px_4()
             .gap_2()
-            .child(div().text_color(dot_color).child("●"))
             .child(
                 div()
-                    .text_color(rgb(0xeeeeee))
-                    .text_size(px(13.0))
+                    .text_color(dot_color)
+                    .text_size(theme::text_xs())
+                    .child("●"),
+            )
+            .child(
+                div()
+                    .text_color(rgb(theme::TEXT_PRIMARY))
+                    .text_size(theme::text_lg())
                     .child(label),
             )
             .child(ssh_chip)

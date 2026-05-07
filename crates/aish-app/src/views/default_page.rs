@@ -130,14 +130,15 @@ impl Render for DefaultPageView {
                 let host_text = format!("{}@{}:{}", h.user, h.host, h.port);
 
                 // 该 host 的活跃连接数
-                let active_count = app
-                    .connections
-                    .values()
-                    .filter(|c| c.host_id == id)
-                    .count();
+                let active_count = app.connections.values().filter(|c| c.host_id == id).count();
 
                 // ───── 左侧 avatar：host 名首字母 + 调色板配色 ─────
-                let initial = label.chars().next().unwrap_or('?').to_uppercase().to_string();
+                let initial = label
+                    .chars()
+                    .next()
+                    .unwrap_or('?')
+                    .to_uppercase()
+                    .to_string();
                 let avatar_bg = theme::avatar_color_for(&label);
                 let avatar = div()
                     .w(px(40.0))

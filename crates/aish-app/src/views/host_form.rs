@@ -11,8 +11,8 @@
 use std::sync::Arc;
 
 use gpui::{
-    div, hsla, opaque_grey, prelude::*, px, rgb, App, Context, Entity, FocusHandle, Focusable,
-    KeyDownEvent, SharedString, Window,
+    div, hsla, prelude::*, px, rgb, App, Context, Entity, FocusHandle, Focusable, KeyDownEvent,
+    SharedString, Window,
 };
 
 use aish_types::HostId;
@@ -20,6 +20,7 @@ use aish_types::HostId;
 use crate::bridge::Bridge;
 use crate::persistence;
 use crate::state::{AppState, HostFormDraft, HostFormState, SshEvent};
+use crate::theme;
 
 /// 当前 focus 的 input 字段。auth_kind == KeyFile 走 KeyPath；== Password 走 Password。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -325,15 +326,16 @@ impl Render for HostFormModal {
             .justify_center()
             .child(
                 div()
-                    .w(px(440.0))
-                    .bg(rgb(0x252525))
-                    .rounded_lg()
+                    .w(px(460.0))
+                    .bg(rgb(theme::BG_ELEVATED))
+                    .rounded_xl()
                     .border_1()
-                    .border_color(opaque_grey(0.3, 1.0))
-                    .p_4()
+                    .border_color(rgb(theme::BORDER_SUBTLE))
+                    .px_6()
+                    .py_5()
                     .flex()
                     .flex_col()
-                    .gap_3()
+                    .gap_4()
                     .child(body)
                     .child(render_buttons(primary_text)),
             )
@@ -350,11 +352,11 @@ fn render_form_body(
     let mut col = div()
         .flex()
         .flex_col()
-        .gap_2()
+        .gap_3()
         .child(
             div()
-                .text_color(rgb(0xffffff))
-                .text_size(px(15.0))
+                .text_color(rgb(theme::TEXT_PRIMARY))
+                .text_size(theme::text_xl())
                 .child(title_str),
         )
         .child(field_row(
@@ -390,30 +392,62 @@ fn render_form_body(
     } else {
         "○ 密码"
     };
+    // 认证方式 segmented control（横向两段，选中高亮）
+    use crate::state::AuthKind;
+    let kf_selected = auth_kind == AuthKind::KeyFile;
+    let pw_selected = auth_kind == AuthKind::Password;
     col = col.child(
         div()
             .flex()
             .flex_row()
-            .gap_4()
-            .py_1()
+            .bg(rgb(theme::BG_BASE))
+            .rounded_md()
+            .p_0p5()
             .child(
                 div()
-                    .px_2()
-                    .text_color(rgb(0xeeeeee))
-                    .text_size(px(13.0))
+                    .flex_1()
+                    .py_1p5()
+                    .text_color(rgb(if kf_selected {
+                        theme::TEXT_PRIMARY
+                    } else {
+                        theme::TEXT_SECONDARY
+                    }))
+                    .bg(rgb(if kf_selected {
+                        theme::BG_SELECTED
+                    } else {
+                        theme::BG_BASE
+                    }))
+                    .text_size(theme::text_sm())
+                    .rounded_md()
+                    .flex()
+                    .items_center()
+                    .justify_center()
                     .child(kf_marker),
             )
             .child(
                 div()
-                    .px_2()
-                    .text_color(rgb(0xeeeeee))
-                    .text_size(px(13.0))
+                    .flex_1()
+                    .py_1p5()
+                    .text_color(rgb(if pw_selected {
+                        theme::TEXT_PRIMARY
+                    } else {
+                        theme::TEXT_SECONDARY
+                    }))
+                    .bg(rgb(if pw_selected {
+                        theme::BG_SELECTED
+                    } else {
+                        theme::BG_BASE
+                    }))
+                    .text_size(theme::text_sm())
+                    .rounded_md()
+                    .flex()
+                    .items_center()
+                    .justify_center()
                     .child(pw_marker),
             ),
     );
 
     // 根据 auth_kind 显示 KeyPath 或 Password 字段
-    use crate::state::AuthKind;
     col = match auth_kind {
         AuthKind::KeyFile => col.child(field_row(
             "key path",
@@ -430,17 +464,17 @@ fn render_form_body(
     if let Some(err) = &draft.error {
         col = col.child(
             div()
-                .text_color(rgb(0xff6666))
-                .text_size(px(12.0))
+                .text_color(rgb(theme::ACCENT_RED))
+                .text_size(theme::text_sm())
                 .child(err.clone()),
         );
     }
 
     col.child(
         div()
-            .text_color(rgb(0x888888))
-            .text_size(px(11.0))
-            .child("Tab 切换字段，Ctrl+T 切 auth 类型，Ctrl+E 切密码可见，Enter 保存，Esc 取消"),
+            .text_color(rgb(theme::TEXT_MUTED))
+            .text_size(theme::text_xs())
+            .child("Tab 切换字段 · Ctrl+T 切 auth · Ctrl+E 切密码可见 · Enter 保存 · Esc 取消"),
     )
     .into_any_element()
 }
@@ -456,46 +490,46 @@ fn password_field_row(password: &str, visible: bool, focused: bool) -> gpui::Any
         SharedString::from("•".repeat(password.chars().count()))
     };
     let border_color = if focused {
-        rgb(0x4a90e2)
+        rgb(theme::ACCENT_BLUE)
     } else {
-        rgb(0x444444)
+        rgb(theme::BORDER_SUBTLE)
     };
     let text_color = if password.is_empty() {
-        rgb(0x555555)
+        rgb(theme::TEXT_MUTED)
     } else {
-        rgb(0xeeeeee)
+        rgb(theme::TEXT_PRIMARY)
     };
     let eye = if visible { "👁" } else { "👁‍🗨" };
     div()
         .flex()
         .flex_row()
         .items_center()
-        .gap_2()
+        .gap_3()
         .child(
             div()
-                .w(px(72.0))
-                .text_color(rgb(0xaaaaaa))
-                .text_size(px(13.0))
+                .w(px(80.0))
+                .text_color(rgb(theme::TEXT_SECONDARY))
+                .text_size(theme::text_sm())
                 .child("password"),
         )
         .child(
             div()
                 .flex_1()
-                .px_2()
-                .py_1()
-                .bg(rgb(0x1d1d1d))
+                .px_3()
+                .py_2()
+                .bg(rgb(theme::BG_BASE))
                 .border_1()
                 .border_color(border_color)
-                .rounded_sm()
+                .rounded_md()
                 .text_color(text_color)
-                .text_size(px(13.0))
+                .text_size(theme::text_sm())
                 .child(display),
         )
         .child(
             div()
                 .px_2()
-                .text_color(rgb(0xaaaaaa))
-                .text_size(px(14.0))
+                .text_color(rgb(theme::TEXT_SECONDARY))
+                .text_size(theme::text_lg())
                 .child(eye),
         )
         .into_any_element()
@@ -508,37 +542,37 @@ fn field_row(label: &str, value: &str, focused: bool) -> gpui::AnyElement {
         SharedString::from(value.to_string())
     };
     let border_color = if focused {
-        rgb(0x4a90e2)
+        rgb(theme::ACCENT_BLUE)
     } else {
-        rgb(0x444444)
+        rgb(theme::BORDER_SUBTLE)
     };
     div()
         .flex()
         .flex_row()
         .items_center()
-        .gap_2()
+        .gap_3()
         .child(
             div()
-                .w(px(72.0))
-                .text_color(rgb(0xaaaaaa))
-                .text_size(px(13.0))
+                .w(px(80.0))
+                .text_color(rgb(theme::TEXT_SECONDARY))
+                .text_size(theme::text_sm())
                 .child(label.to_string()),
         )
         .child(
             div()
                 .flex_1()
-                .px_2()
-                .py_1()
-                .bg(rgb(0x1d1d1d))
+                .px_3()
+                .py_2()
+                .bg(rgb(theme::BG_BASE))
                 .border_1()
                 .border_color(border_color)
-                .rounded_sm()
+                .rounded_md()
                 .text_color(if value.is_empty() {
-                    rgb(0x555555)
+                    rgb(theme::TEXT_MUTED)
                 } else {
-                    rgb(0xeeeeee)
+                    rgb(theme::TEXT_PRIMARY)
                 })
-                .text_size(px(13.0))
+                .text_size(theme::text_sm())
                 .child(display),
         )
         .into_any_element()
@@ -549,24 +583,24 @@ fn render_delete_body(label: &str) -> gpui::AnyElement {
     div()
         .flex()
         .flex_col()
-        .gap_2()
+        .gap_3()
         .child(
             div()
-                .text_color(rgb(0xff6666))
-                .text_size(px(15.0))
+                .text_color(rgb(theme::ACCENT_RED))
+                .text_size(theme::text_xl())
                 .child("确认删除？"),
         )
         .child(
             div()
-                .text_color(rgb(0xcccccc))
-                .text_size(px(13.0))
+                .text_color(rgb(theme::TEXT_PRIMARY))
+                .text_size(theme::text_sm())
                 .child(label_str),
         )
         .child(
             div()
-                .text_color(rgb(0x888888))
-                .text_size(px(11.0))
-                .child("Enter 确认删除，Esc 取消"),
+                .text_color(rgb(theme::TEXT_MUTED))
+                .text_size(theme::text_xs())
+                .child("Enter 确认删除 · Esc 取消"),
         )
         .into_any_element()
 }
@@ -580,19 +614,23 @@ fn render_buttons(primary_text: &str) -> gpui::AnyElement {
         .child(
             div()
                 .px_4()
-                .py_1()
-                .bg(rgb(0x444444))
-                .text_color(rgb(0xeeeeee))
-                .rounded_sm()
+                .py_2()
+                .bg(rgb(theme::BG_BASE))
+                .border_1()
+                .border_color(rgb(theme::BORDER_SUBTLE))
+                .text_color(rgb(theme::TEXT_SECONDARY))
+                .text_size(theme::text_sm())
+                .rounded_md()
                 .child("Cancel (Esc)"),
         )
         .child(
             div()
                 .px_4()
-                .py_1()
-                .bg(rgb(0x4a90e2))
+                .py_2()
+                .bg(rgb(theme::ACCENT_BLUE))
                 .text_color(rgb(0xffffff))
-                .rounded_sm()
+                .text_size(theme::text_sm())
+                .rounded_md()
                 .child(primary_text.to_string()),
         )
         .into_any_element()

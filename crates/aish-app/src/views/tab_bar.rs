@@ -19,6 +19,7 @@ use gpui::{
 
 use crate::bridge::Bridge;
 use crate::state::{AppState, SessionCommand, SshEvent, TabContent};
+use crate::theme;
 
 pub struct TabBarView {
     state: Entity<AppState>,
@@ -207,11 +208,11 @@ impl Render for TabBarView {
                 let is_connection = matches!(t.content, TabContent::Connection(_));
                 let is_editing = editing_tab == Some(id);
 
-                // 关闭按钮（始终可见 — tab 本来就该好关）
+                // 关闭按钮（始终可见）
                 let close_btn = div()
-                    .px_1()
-                    .text_color(rgb(0xaaaaaa))
-                    .hover(|s| s.text_color(rgb(0xff6666)).cursor_pointer())
+                    .px_1p5()
+                    .text_color(rgb(theme::TEXT_SECONDARY))
+                    .hover(|s| s.text_color(rgb(theme::ACCENT_RED)).cursor_pointer())
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
@@ -223,37 +224,64 @@ impl Render for TabBarView {
                 // 连接 tab 用绿点，默认页 tab 不带前缀
                 let prefix: gpui::AnyElement = if is_connection {
                     div()
-                        .text_color(rgb(0x4ec9b0))
+                        .text_color(rgb(theme::ACCENT_GREEN))
+                        .text_size(theme::text_xs())
                         .child("●")
                         .into_any_element()
                 } else {
                     div().child("").into_any_element()
                 };
 
-                // 标题部分：编辑中显示带光标的 buffer，否则显示 title
+                // 标题部分：编辑中用蓝色边框替代光标 `|`
                 let title_el: gpui::AnyElement = if is_editing {
                     div()
-                        .text_color(rgb(0xffffff))
-                        .border_b_1()
-                        .border_color(rgb(0x4a9eff))
-                        .child(format!("{}|", edit_buffer))
+                        .text_color(rgb(theme::TEXT_PRIMARY))
+                        .border_1()
+                        .border_color(rgb(theme::ACCENT_BLUE))
+                        .rounded_md()
+                        .px_1p5()
+                        .child(edit_buffer.clone())
                         .into_any_element()
                 } else {
-                    div().child(title).into_any_element()
+                    div()
+                        .text_color(rgb(if is_selected {
+                            theme::TEXT_PRIMARY
+                        } else {
+                            theme::TEXT_SECONDARY
+                        }))
+                        .child(title)
+                        .into_any_element()
+                };
+
+                // 选中态底部 2px 蓝线（用 border_b 实现）
+                let bottom_line: gpui::AnyElement = if is_selected {
+                    div()
+                        .absolute()
+                        .bottom_0()
+                        .left_0()
+                        .right_0()
+                        .h(px(2.0))
+                        .bg(rgb(theme::ACCENT_BLUE))
+                        .into_any_element()
+                } else {
+                    div().into_any_element()
                 };
 
                 div()
+                    .relative()
                     .flex()
                     .flex_row()
                     .items_center()
                     .gap_2()
-                    .px_3()
-                    .py_2()
-                    .border_r_1()
-                    .border_color(rgb(0x333333))
-                    .text_color(rgb(if is_selected { 0xffffff } else { 0xaaaaaa }))
-                    .bg(rgb(if is_selected { 0x2a2a2a } else { 0x1a1a1a }))
-                    .hover(|s| s.bg(rgb(0x252525)).cursor_pointer())
+                    .px_4()
+                    .h(px(40.0))
+                    .text_size(theme::text_sm())
+                    .bg(rgb(if is_selected {
+                        theme::BG_BASE
+                    } else {
+                        theme::BG_ELEVATED
+                    }))
+                    .hover(|s| s.bg(rgb(theme::BG_HOVER)).cursor_pointer())
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, ev: &MouseDownEvent, w, cx| {
@@ -263,17 +291,22 @@ impl Render for TabBarView {
                     .child(prefix)
                     .child(title_el)
                     .child(close_btn)
+                    .child(bottom_line)
             })
             .collect();
 
         // 末尾 + 按钮新建默认页
         let plus_btn = div()
-            .px_3()
-            .py_2()
-            .text_color(rgb(0xaaaaaa))
+            .px_4()
+            .h(px(40.0))
+            .flex()
+            .items_center()
+            .text_size(theme::text_lg())
+            .text_color(rgb(theme::TEXT_SECONDARY))
+            .bg(rgb(theme::BG_ELEVATED))
             .hover(|s| {
-                s.bg(rgb(0x252525))
-                    .text_color(rgb(0xffffff))
+                s.bg(rgb(theme::BG_HOVER))
+                    .text_color(rgb(theme::TEXT_PRIMARY))
                     .cursor_pointer()
             })
             .on_mouse_down(
@@ -291,10 +324,10 @@ impl Render for TabBarView {
             .flex()
             .flex_row()
             .items_center()
-            .bg(rgb(0x1a1a1a))
+            .bg(rgb(theme::BG_ELEVATED))
             .border_b_1()
-            .border_color(rgb(0x333333))
-            .h(px(36.0))
+            .border_color(rgb(theme::BORDER_SUBTLE))
+            .h(px(40.0))
             .children(tab_items)
             .child(plus_btn)
     }
