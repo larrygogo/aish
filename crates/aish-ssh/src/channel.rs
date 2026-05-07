@@ -73,6 +73,21 @@ impl Channel {
         self.inner.close().await.map_err(SshError::Protocol)
     }
 
+    /// 在 channel 上执行命令（非交互式，无 PTY）。
+    ///
+    /// `want_reply` 传 true 等待服务端确认。
+    /// russh 0.46 Channel::exec(want_reply, command) wrapper。
+    pub async fn run_cmd(
+        &mut self,
+        want_reply: bool,
+        command: impl Into<String>,
+    ) -> Result<(), SshError> {
+        self.inner
+            .exec(want_reply, command.into())
+            .await
+            .map_err(SshError::Protocol)
+    }
+
     /// 通知远端 PTY 大小变化（SIGWINCH）。
     ///
     /// russh 0.46 签名：window_change(col_width, row_height, pix_width, pix_height)

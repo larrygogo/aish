@@ -33,6 +33,7 @@ pub(crate) async fn host_session_task(
 ) {
     use aish_secrets::{SecretError, SecretStore};
     use aish_ssh::{ChannelMsg, SshClient};
+    use aish_tmux::{TmuxController, TmuxEvent};
     use aish_types::SshAuth;
 
     use crate::state::SshErrorKind;
@@ -73,7 +74,6 @@ pub(crate) async fn host_session_task(
     let session = match SshClient::connect(&effective_config).await {
         Ok(s) => s,
         Err(err) => {
-            // 把 aish_ssh::SshErrorKind 映射到 aish-app::state::SshErrorKind
             let kind = match err.kind() {
                 aish_ssh::SshErrorKind::ConnectFailed => SshErrorKind::ConnectFailed,
                 aish_ssh::SshErrorKind::AuthFailed => SshErrorKind::AuthFailed,
@@ -91,7 +91,7 @@ pub(crate) async fn host_session_task(
         }
     };
 
-    // 2. 开 PTY channel
+    // 2. 开 raw PTY channel（M2 行为）
     let mut chan = match session.open_channel().await {
         Ok(c) => c,
         Err(err) => {
@@ -105,7 +105,6 @@ pub(crate) async fn host_session_task(
             return;
         }
     };
-
     if let Err(err) = chan.request_pty(120, 40, "xterm-256color").await {
         let _ = event_tx
             .send(SshEvent::Error {
@@ -116,7 +115,6 @@ pub(crate) async fn host_session_task(
             .await;
         return;
     }
-
     if let Err(err) = chan.shell().await {
         let _ = event_tx
             .send(SshEvent::Error {
@@ -127,22 +125,61 @@ pub(crate) async fn host_session_task(
             .await;
         return;
     }
-
     let _ = event_tx.send(SshEvent::Connected { host }).await;
 
-    // 3. select! loop: read + cmd
+    // 3. spawn 后台 list-sessions（独立 SSH channel）
+    let session_for_query = session.clone();
+    let tx_for_query = event_tx.clone();
+    tokio::spawn(tmux_query_task(host, session_for_query, tx_for_query));
+
+    // 4. mode state machine: RawShell <-> TmuxAttached
+    enum ActorMode {
+        RawShell,
+        TmuxAttached(TmuxController),
+    }
+    let mut mode = ActorMode::RawShell;
+
     loop {
         tokio::select! {
             msg = chan.wait() => match msg {
-                Some(ChannelMsg::Data { data }) => {
-                    // CryptoVec 实现了 Deref<Target=[u8]>，to_vec() 经由 Deref 调用
-                    let _ = event_tx
-                        .send(SshEvent::PaneOutput {
-                            host,
-                            bytes: data.to_vec(),
-                        })
-                        .await;
-                }
+                Some(ChannelMsg::Data { data }) => match &mut mode {
+                    ActorMode::RawShell => {
+                        let _ = event_tx
+                            .send(SshEvent::PaneOutput {
+                                host,
+                                bytes: data.to_vec(),
+                            })
+                            .await;
+                    }
+                    ActorMode::TmuxAttached(controller) => {
+                        let events = controller.feed_bytes(&data);
+                        let mut tree_dirty = false;
+                        for ev in events {
+                            match ev {
+                                TmuxEvent::PaneOutput { pane, data: bytes } => {
+                                    let _ = event_tx
+                                        .send(SshEvent::TmuxPaneOutput {
+                                            host,
+                                            pane,
+                                            bytes,
+                                        })
+                                        .await;
+                                }
+                                _ => {
+                                    tree_dirty = true;
+                                }
+                            }
+                        }
+                        if tree_dirty {
+                            let _ = event_tx
+                                .send(SshEvent::TmuxSessionTreeUpdated {
+                                    host,
+                                    tree: controller.session_tree().clone(),
+                                })
+                                .await;
+                        }
+                    }
+                },
                 Some(ChannelMsg::Eof) | None => {
                     let _ = event_tx
                         .send(SshEvent::Disconnected {
@@ -152,9 +189,7 @@ pub(crate) async fn host_session_task(
                         .await;
                     break;
                 }
-                Some(_) => {
-                    // 其他 ChannelMsg 类型（ExitStatus / WindowAdjusted / 等）暂时忽略
-                }
+                Some(_) => {}
             },
             cmd = cmd_rx.recv() => match cmd {
                 Some(SessionCommand::SendBytes(bytes)) => {
@@ -169,13 +204,51 @@ pub(crate) async fn host_session_task(
                     }
                 }
                 Some(SessionCommand::Resize { cols, rows }) => {
-                    if let Err(e) = chan
-                        .window_change(cols as u32, rows as u32, 0, 0)
-                        .await
-                    {
+                    if let Err(e) = chan.window_change(cols as u32, rows as u32, 0, 0).await {
                         tracing::warn!("PTY resize failed: {}", e);
-                        // resize 失败不致命，继续运行
                     }
+                }
+                Some(SessionCommand::QueryTmuxSessions) => {
+                    let session_for_query = session.clone();
+                    let tx_for_query = event_tx.clone();
+                    tokio::spawn(tmux_query_task(host, session_for_query, tx_for_query));
+                }
+                Some(SessionCommand::AttachTmux { session: sess_id }) => {
+                    let _ = event_tx
+                        .send(SshEvent::TmuxAttaching {
+                            host,
+                            session: sess_id.clone(),
+                        })
+                        .await;
+                    let new_chan = match session.open_channel().await {
+                        Ok(c) => c,
+                        Err(err) => {
+                            let _ = event_tx
+                                .send(SshEvent::TmuxQueryFailed {
+                                    host,
+                                    msg: format!("open new channel: {}", err),
+                                })
+                                .await;
+                            continue;
+                        }
+                    };
+                    let attach_cmd = format!(
+                        "tmux -CC attach -t '{}'",
+                        sess_id.as_str().replace('\'', r"'\''")
+                    );
+                    let mut new_chan = new_chan;
+                    if let Err(err) = new_chan.run_cmd(true, attach_cmd).await {
+                        let _ = event_tx
+                            .send(SshEvent::TmuxQueryFailed {
+                                host,
+                                msg: format!("run tmux -CC: {}", err),
+                            })
+                            .await;
+                        continue;
+                    }
+                    chan = new_chan;
+                    mode = ActorMode::TmuxAttached(TmuxController::new());
+                    let _ = event_tx.send(SshEvent::TmuxAttached { host }).await;
                 }
                 Some(SessionCommand::Disconnect) | None => {
                     let _ = event_tx
@@ -185,11 +258,6 @@ pub(crate) async fn host_session_task(
                         })
                         .await;
                     break;
-                }
-                // M3b 新增命令变体 — Task 4-9 实现时处理
-                Some(SessionCommand::QueryTmuxSessions)
-                | Some(SessionCommand::AttachTmux { .. }) => {
-                    // 暂未实现，忽略
                 }
             },
         }
@@ -260,8 +328,7 @@ fn parse_session_list(stdout: &[u8]) -> Vec<RemoteSession> {
         .collect()
 }
 
-/// 在独立 SSH exec channel 跑 tmux list-sessions，结果通过 SshEvent 推回。
-#[allow(dead_code)]
+/// 在独立 SSH channel 跑 tmux list-sessions，结果通过 SshEvent 推回。
 async fn tmux_query_task(
     host: HostId,
     client: aish_ssh::SshClient,
