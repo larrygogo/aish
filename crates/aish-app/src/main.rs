@@ -6,6 +6,7 @@ mod persistence;
 mod ssh_actor;
 mod state;
 mod terminal;
+mod theme;
 mod views;
 
 use tracing_subscriber::{fmt, EnvFilter};
