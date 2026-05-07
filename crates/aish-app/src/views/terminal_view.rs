@@ -296,7 +296,8 @@ impl Render for TerminalView {
 }
 
 /// 决定 terminal 显示哪个 Term：
-///   - tmux Attached: 取 SessionTree first session -> first window -> first pane 的 Term
+///   - tmux Attached: 优先 last_active_pane（最近一次收到 %output 的 pane），
+///     fallback 到 SessionTree first session/window/pane（M3c 改正式 active 协议）
 ///   - 其他状态: 取 raw shell 模式的 host_pty_term
 pub(crate) fn term_for_render(
     app: &AppState,
@@ -305,6 +306,11 @@ pub(crate) fn term_for_render(
     use crate::state::TmuxState;
     match app.tmux_state.get(&host) {
         Some(TmuxState::Attached { session_tree }) => {
+            if let Some(pane_id) = app.last_active_pane.get(&host) {
+                if let Some(term) = app.pane_terminals.get(&(host, *pane_id)) {
+                    return Some(term);
+                }
+            }
             let session = session_tree.sessions.values().next()?;
             let window = session.windows.values().next()?;
             let pane_id = window.panes.keys().next()?;

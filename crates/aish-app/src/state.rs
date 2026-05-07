@@ -279,6 +279,9 @@ pub struct AppState {
     /// tmux attach 后 per-pane alacritty Term
     pub pane_terminals: HashMap<(HostId, PaneId), Term<VoidListener>>,
     pub pane_dimensions: HashMap<(HostId, PaneId), (u16, u16)>,
+    /// 最近一次收到 %output 的 pane id（M3b 用作"当前显示 pane"）。
+    /// M3c 改为正式 active_pane 协议事件维护。
+    pub last_active_pane: HashMap<HostId, PaneId>,
 }
 
 impl AppState {
@@ -293,6 +296,7 @@ impl AppState {
             tmux_state: HashMap::new(),
             pane_terminals: HashMap::new(),
             pane_dimensions: HashMap::new(),
+            last_active_pane: HashMap::new(),
         }
     }
 
@@ -325,6 +329,7 @@ impl AppState {
         // pane_terminals 也清空（tmux 模式 attach 状态丢失）
         self.pane_terminals.retain(|(h, _), _| h != &id);
         self.pane_dimensions.retain(|(h, _), _| h != &id);
+        self.last_active_pane.remove(&id);
     }
 
     /// raw shell 模式下，feed bytes 到指定 host 的 Term。
@@ -360,6 +365,7 @@ impl AppState {
 
     /// tmux 模式：feed bytes 到指定 (host, pane) 的 Term。
     pub fn apply_tmux_pane_output(&mut self, host: HostId, pane: PaneId, bytes: &[u8]) {
+        self.last_active_pane.insert(host, pane);
         let key = (host, pane);
         let (cols, rows) = self
             .pane_dimensions
@@ -416,6 +422,7 @@ impl AppState {
         self.tmux_state.remove(&id);
         self.pane_terminals.retain(|(h, _), _| h != &id);
         self.pane_dimensions.retain(|(h, _), _| h != &id);
+        self.last_active_pane.remove(&id);
         if self.selected == Some(id) {
             self.selected = None;
         }
