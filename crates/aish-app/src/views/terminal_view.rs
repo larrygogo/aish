@@ -187,10 +187,7 @@ impl TerminalView {
     fn handle_scroll(&mut self, ev: &ScrollWheelEvent, cx: &mut Context<Self>) {
         let conn = match self.state.read(cx).current_connection() {
             Some(c) => c,
-            None => {
-                tracing::info!("scroll: no current_connection, ignoring");
-                return;
-            }
+            None => return,
         };
         let lines: i32 = match ev.delta {
             ScrollDelta::Lines(p) => p.y.round() as i32,
@@ -200,15 +197,14 @@ impl TerminalView {
                 (f32::from(p.y) / ch).round() as i32
             }
         };
-        tracing::info!(?ev.delta, lines, "scroll: wheel event");
         if lines == 0 {
             return;
         }
+        // 每 tick 多滚 3 行，体感更接近主流终端。
         let scroll_amount = lines * 3;
         self.state.update(cx, |state, cx| {
             if let Some(term) = state.host_pty_term.get_mut(&conn) {
                 term.scroll_display(alacritty_terminal::grid::Scroll::Delta(scroll_amount));
-                tracing::info!(delta = scroll_amount, "scroll: alacritty scrolled");
             }
             cx.notify();
         });

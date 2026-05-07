@@ -49,7 +49,11 @@ pub fn paint_cursor(
     }
 
     let cursor_point = snapshot.cursor_point;
-    let display_line = cursor_point.line.0;
+    // alacritty cursor.point 是活动屏幕坐标（0..screen_lines-1）；用户滚到历史时
+    // viewport 的"虚拟原点"在 Line(-display_offset)，加 offset 后 cursor 在
+    // viewport 中的行号 = cursor_line + offset。超出 0..screen_lines 时不画。
+    let offset = snapshot.display_offset as i32;
+    let display_line = cursor_point.line.0 + offset;
     let col = cursor_point.column.0 as i32;
     let x = layout.origin_x + layout.cell_width * col as f32;
     let y = layout.display_line_to_y(display_line);

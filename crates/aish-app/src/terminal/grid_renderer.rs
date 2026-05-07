@@ -48,17 +48,22 @@ impl GridLayout {
 
 /// 从 Term 中提取可见 grid 快照，避免后续 paint 时的借用冲突。
 pub struct GridSnapshot {
-    /// (point, cell) 按 display_iter 顺序
+    /// (point, cell) 按 display_iter 顺序。`point.line` 是 alacritty 内部的
+    /// 绝对 line 坐标 — 滚到历史时为负数。viewport 顶行 = `Line(-display_offset)`。
     pub cells: Vec<Indexed<Cell>>,
-    /// 光标位置
+    /// 光标位置（alacritty 绝对坐标）
     pub cursor_point: Point,
     /// 当前选中范围（grid 坐标）。None = 无选中
     pub selection_range: Option<SelectionRange>,
+    /// 截快照时的 display_offset。paint 阶段用 `point.line.0 + display_offset`
+    /// 把历史行的负数 line index 映射回 viewport 0..screen_lines 范围内显示。
+    pub display_offset: usize,
 }
 
 impl GridSnapshot {
     pub fn from_term(term: &Term<VoidListener>) -> Self {
         let cursor_point = term.grid().cursor.point;
+        let display_offset = term.grid().display_offset();
         let cells = term
             .grid()
             .display_iter()
@@ -72,6 +77,7 @@ impl GridSnapshot {
             cells,
             cursor_point,
             selection_range,
+            display_offset,
         }
     }
 }
@@ -103,13 +109,16 @@ pub fn paint_grid(snapshot: &GridSnapshot, layout: &GridLayout, window: &mut Win
     let font_size = gpui::px(terminal_font::FONT_SIZE);
     let line_height = layout.cell_height;
     let cell_width = layout.cell_width;
+    // alacritty 的 line index 是绝对坐标（看历史时为负数，viewport 顶 = -display_offset）。
+    // 加上 display_offset 把 line 映射回 0..screen_lines 的 viewport 行号。
+    let offset = snapshot.display_offset as i32;
 
     // --- Pass 1: 背景色矩形 + 选中高亮 ---
     // 选中色：#3a3a8a 80% 不透明度
     let selection_bg: Hsla = hsla(243.0 / 360.0, 0.4, 0.38, 0.8);
 
     for indexed in &snapshot.cells {
-        let display_line = indexed.point.line.0;
+        let display_line = indexed.point.line.0 + offset;
         let col = indexed.point.column.0 as i32;
         let x = layout.origin_x + cell_width * col as f32;
         let y = layout.display_line_to_y(display_line);
@@ -147,7 +156,7 @@ pub fn paint_grid(snapshot: &GridSnapshot, layout: &GridLayout, window: &mut Win
 
     for indexed in &snapshot.cells {
         let c = indexed.cell.c;
-        let display_line = indexed.point.line.0;
+        let display_line = indexed.point.line.0 + offset;
 
         // 换行时 flush
         if display_line != current_line {
