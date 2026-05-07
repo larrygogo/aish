@@ -66,15 +66,25 @@ impl SshClient {
                     )));
                 }
             }
-            SshAuth::Password => {
-                return Err(SshError::Auth(
-                    "Password auth not supported in M2a (use KeyFile)".into(),
-                ));
+            SshAuth::Password { password } => {
+                if password.is_empty() {
+                    return Err(SshError::Auth(
+                        "密码为空（keyring 未取到值或未设置）".into(),
+                    ));
+                }
+                let auth_res = handle
+                    .authenticate_password(&cfg.user, password)
+                    .await
+                    .map_err(SshError::from)?;
+                if !auth_res {
+                    return Err(SshError::Auth(format!(
+                        "server rejected password for user {}",
+                        cfg.user
+                    )));
+                }
             }
             SshAuth::Agent => {
-                return Err(SshError::Auth(
-                    "Agent auth not supported in M2a (use KeyFile)".into(),
-                ));
+                return Err(SshError::Auth("Agent auth not supported (M5+)".into()));
             }
         }
 
@@ -146,22 +156,47 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn connect_with_password_auth_returns_unsupported_error() {
-        let cfg = mk_cfg(SshAuth::Password);
+    async fn connect_with_empty_password_returns_auth_error() {
+        // 空 password = keyring 未取到值的情况，应当 fail-fast
+        let cfg = mk_cfg(SshAuth::Password {
+            password: String::new(),
+        });
         let result =
             tokio::time::timeout(std::time::Duration::from_secs(5), SshClient::connect(&cfg)).await;
-        // timeout 或 Err 都接受
         match result {
-            Err(_timeout) => {} // tokio timeout，也 OK
+            Err(_timeout) => {} // tokio timeout，OK
             Ok(Err(SshError::Auth(msg))) => {
                 assert!(
-                    msg.contains("KeyFile"),
-                    "expected KeyFile mention, got: {}",
+                    msg.contains("密码为空") || msg.contains("empty"),
+                    "expected empty password mention, got: {}",
                     msg
                 );
             }
             Ok(Err(_)) => {} // TCP connect 先失败（127.0.0.1:22 没 sshd），也接受
-            Ok(Ok(_)) => panic!("expected error for Password auth"),
+            Ok(Ok(_)) => panic!("expected error for empty Password"),
+        }
+    }
+
+    #[tokio::test]
+    async fn connect_with_nonempty_password_attempts_auth() {
+        // 非空 password — TCP 多半连不上 127.0.0.1:22，但绝不应该是
+        // 「密码为空」或 「not supported」 的错误（因为我们要走到 authenticate_password）
+        let cfg = mk_cfg(SshAuth::Password {
+            password: "definitely-wrong".into(),
+        });
+        let result =
+            tokio::time::timeout(std::time::Duration::from_secs(5), SshClient::connect(&cfg)).await;
+        match result {
+            Err(_timeout) => {} // tokio timeout，OK
+            Ok(Err(SshError::Auth(msg))) => {
+                assert!(
+                    !msg.contains("密码为空") && !msg.contains("not supported"),
+                    "should attempt actual auth, got: {}",
+                    msg
+                );
+            }
+            Ok(Err(_)) => {} // 任何其他错误（TCP 失败等）OK
+            Ok(Ok(_)) => panic!("local 127.0.0.1:22 不应能用任意密码登录"),
         }
     }
 
