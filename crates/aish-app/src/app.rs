@@ -142,6 +142,7 @@ pub fn run() {
 struct RootView {
     state: Entity<AppState>,
     host_list: Entity<crate::views::HostListView>,
+    tmux_sidebar: Entity<crate::views::TmuxSidebarView>,
     terminal: Entity<crate::views::TerminalView>,
     host_form: Entity<crate::views::HostFormModal>,
 }
@@ -157,6 +158,9 @@ impl RootView {
         let host_list = cx.new(|cx| {
             crate::views::HostListView::new(state.clone(), bridge.clone(), tx.clone(), cx)
         });
+        let tmux_sidebar = cx.new(|cx| {
+            crate::views::TmuxSidebarView::new(state.clone(), bridge.clone(), tx.clone(), cx)
+        });
         let terminal = cx.new(|cx| {
             crate::views::TerminalView::new(state.clone(), bridge.clone(), tx.clone(), cx)
         });
@@ -166,6 +170,7 @@ impl RootView {
         Self {
             state,
             host_list,
+            tmux_sidebar,
             terminal,
             host_form,
         }
@@ -182,6 +187,7 @@ impl Render for RootView {
             .size_full()
             .bg(rgb(0x1d1f21))
             .child(self.host_list.clone())
+            .child(self.tmux_sidebar.clone())
             .child(self.terminal.clone());
 
         let mut root = div().relative().size_full().child(main);

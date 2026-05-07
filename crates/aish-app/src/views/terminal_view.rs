@@ -298,10 +298,10 @@ impl Render for TerminalView {
 /// 决定 terminal 显示哪个 Term：
 ///   - tmux Attached: 取 SessionTree first session -> first window -> first pane 的 Term
 ///   - 其他状态: 取 raw shell 模式的 host_pty_term
-pub(crate) fn term_for_render<'a>(
-    app: &'a AppState,
+pub(crate) fn term_for_render(
+    app: &AppState,
     host: aish_types::HostId,
-) -> Option<&'a alacritty_terminal::Term<alacritty_terminal::event::VoidListener>> {
+) -> Option<&alacritty_terminal::Term<alacritty_terminal::event::VoidListener>> {
     use crate::state::TmuxState;
     match app.tmux_state.get(&host) {
         Some(TmuxState::Attached { session_tree }) => {
@@ -322,7 +322,7 @@ fn take_snapshot(
 ) -> Option<GridSnapshot> {
     let host = host?;
     let app_state = state.read(cx);
-    let term = term_for_render(&app_state, host)?;
+    let term = term_for_render(app_state, host)?;
     Some(GridSnapshot::from_term(term))
 }
 
