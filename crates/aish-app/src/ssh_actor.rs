@@ -6,7 +6,7 @@
 
 #![allow(dead_code)]
 
-use aish_types::{HostConfig, HostId};
+use aish_types::{HostConfig, HostId, RemoteSession};
 use tokio::sync::mpsc;
 
 use crate::state::{DisconnectReason, SessionCommand, SshEvent};
@@ -241,9 +241,113 @@ pub fn encode_key(key: &str, ctrl: bool, _alt: bool) -> Vec<u8> {
     }
 }
 
+/// 解析 tmux list-sessions -F '#{session_id}|#{session_name}' 的 stdout。
+fn parse_session_list(stdout: &[u8]) -> Vec<RemoteSession> {
+    let s = String::from_utf8_lossy(stdout);
+    s.lines()
+        .filter_map(|line| {
+            let (id, name) = line.split_once('|')?;
+            let id_trimmed = id.trim();
+            let name_trimmed = name.trim();
+            if id_trimmed.is_empty() {
+                return None;
+            }
+            Some(RemoteSession {
+                id: aish_types::SessionId::new(id_trimmed),
+                name: name_trimmed.to_string(),
+            })
+        })
+        .collect()
+}
+
+/// 在独立 SSH exec channel 跑 tmux list-sessions，结果通过 SshEvent 推回。
+#[allow(dead_code)]
+async fn tmux_query_task(
+    host: HostId,
+    client: aish_ssh::SshClient,
+    event_tx: mpsc::Sender<SshEvent>,
+) {
+    let _ = event_tx.send(SshEvent::TmuxQueryStarted { host }).await;
+    let result = client
+        .exec_command("tmux list-sessions -F '#{session_id}|#{session_name}'")
+        .await;
+    match result {
+        Ok(r) if r.exit_code == 0 => {
+            let sessions = parse_session_list(&r.stdout);
+            let _ = event_tx
+                .send(SshEvent::TmuxSessionsListed { host, sessions })
+                .await;
+        }
+        Ok(r) => {
+            let s = String::from_utf8_lossy(&r.stderr).to_string();
+            if s.contains("command not found") || s.contains("not found") {
+                let _ = event_tx.send(SshEvent::TmuxNoTmux { host }).await;
+            } else if s.contains("no server running") || s.contains("no sessions") {
+                let _ = event_tx
+                    .send(SshEvent::TmuxSessionsListed {
+                        host,
+                        sessions: vec![],
+                    })
+                    .await;
+            } else {
+                let trimmed = s.trim();
+                let msg = if trimmed.is_empty() {
+                    format!("tmux list-sessions exit {}", r.exit_code)
+                } else {
+                    trimmed.to_string()
+                };
+                let _ = event_tx.send(SshEvent::TmuxQueryFailed { host, msg }).await;
+            }
+        }
+        Err(e) => {
+            let _ = event_tx
+                .send(SshEvent::TmuxQueryFailed {
+                    host,
+                    msg: e.to_string(),
+                })
+                .await;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_session_list_basic() {
+        let s = b"$0|dev\n$1|work\n";
+        let result = parse_session_list(s);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].id.as_str(), "$0");
+        assert_eq!(result[0].name, "dev");
+        assert_eq!(result[1].id.as_str(), "$1");
+        assert_eq!(result[1].name, "work");
+    }
+
+    #[test]
+    fn parse_session_list_empty_stdout() {
+        let result = parse_session_list(b"");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn parse_session_list_trims_whitespace() {
+        let s = b"  $0  |  dev with spaces  \n";
+        let result = parse_session_list(s);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].id.as_str(), "$0");
+        assert_eq!(result[0].name, "dev with spaces");
+    }
+
+    #[test]
+    fn parse_session_list_skips_lines_without_pipe() {
+        let s = b"$0|dev\nbroken-line\n$1|work\n";
+        let result = parse_session_list(s);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].name, "dev");
+        assert_eq!(result[1].name, "work");
+    }
 
     #[tokio::test]
     async fn password_empty_no_keyring_entry_emits_auth_error() {
