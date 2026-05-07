@@ -9,8 +9,8 @@
     "ai": ""
   },
   "stats": {
-    "total": 3,
-    "completed": 3,
+    "total": 4,
+    "completed": 4,
     "in_progress": 0,
     "pending": 0
   },
@@ -67,6 +67,27 @@
       "passes": true,
       "completed_at": "2026-05-07",
       "notes": "commit 74b704d；+553/-269 行；192 测试全过；keyring 仍按 HostId（多连接共享密码）"
+    },
+    {
+      "id": 4,
+      "category": "ui",
+      "priority": "high",
+      "description": "tab 系统 + 卡片化默认页 + tmux session picker 弹窗（对齐用户参考图设计）",
+      "steps": [
+        "aish-types: 加 TabId(Uuid) 类型 + 单测",
+        "state: 加 Tab/TabContent；AppState 加 tabs/selected_tab/pending_session_picker；启动自建 Default tab",
+        "state: 方法 current_tab/current_connection/new_default_tab/select_tab/replace_current_tab/close_tab",
+        "state: remove_connection 不再删 tab，把引用 tab 转回 Default 保留",
+        "views/tab_bar: 顶部 tab 栏，× 按钮发 Disconnect+remove_connection+close_tab；末尾 + 按钮新建默认页",
+        "views/default_page: host 卡片网格 + 添加/编辑/删除按钮；点卡片在当前 tab 启动 connection",
+        "views/session_picker: 半透明遮罩 + 居中卡片；点 session 发 AttachTmux，点遮罩或跳过 = 关弹窗",
+        "app.rs: TmuxSessionsListed 处理时若 sessions 非空 + 当前 tab 是该 conn → 弹 picker",
+        "app.rs: RootView 重组（TabBar + body 按 current_tab 切 DefaultPage/Terminal）",
+        "views/host_list 清空待清；views/tmux_sidebar 不再 pub use（保留备用）"
+      ],
+      "passes": true,
+      "completed_at": "2026-05-07",
+      "notes": "commit 37e5895；+895/-365 行；7 个新 tab 测试；workspace 197 全过；session_picker 自动触发依赖事件链"
     }
   ]
 }
