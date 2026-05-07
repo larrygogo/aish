@@ -6,7 +6,8 @@ use std::time::Duration;
 
 use gpui::{
     canvas, div, prelude::*, px, rgb, App, Bounds, ClipboardItem, Context, Entity, FocusHandle,
-    Focusable, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, Pixels, Window,
+    Focusable, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, Pixels, ScrollDelta,
+    ScrollWheelEvent, Window,
 };
 
 use crate::bridge::Bridge;
@@ -173,6 +174,42 @@ impl TerminalView {
         });
     }
 
+    /// 处理鼠标滚轮：滚动 alacritty Term 的 display offset 看 scrollback。
+    ///
+    /// alacritty `Scroll::Delta(n)`：n>0 = 把视口向上滚（看更老的内容），
+    /// n<0 = 向下（回到当前 prompt）。
+    ///
+    /// GPUI 的 ScrollDelta:
+    /// - `Lines(Point<f32>)`: 鼠标滚轮（每 tick 通常 1 行），y 正 = 向上
+    /// - `Pixels(Point<Pixels>)`: 触摸板，按 cell_height 换算成行数
+    ///
+    /// 本地 alacritty grid 滚动**不改变** PTY size，远端不感知。
+    fn handle_scroll(&mut self, ev: &ScrollWheelEvent, cx: &mut Context<Self>) {
+        let conn = match self.state.read(cx).current_connection() {
+            Some(c) => c,
+            None => return,
+        };
+        let lines: i32 = match ev.delta {
+            ScrollDelta::Lines(p) => p.y.round() as i32,
+            ScrollDelta::Pixels(p) => {
+                let (_, ch) = font::cell_size(cx);
+                let ch = f32::from(ch).max(1.0);
+                (f32::from(p.y) / ch).round() as i32
+            }
+        };
+        if lines == 0 {
+            return;
+        }
+        // 每 tick 多滚 3 行，体感更接近主流终端。
+        let scroll_amount = lines * 3;
+        self.state.update(cx, |state, cx| {
+            if let Some(term) = state.host_pty_term.get_mut(&conn) {
+                term.scroll_display(alacritty_terminal::grid::Scroll::Delta(scroll_amount));
+            }
+            cx.notify();
+        });
+    }
+
     /// 检测 bounds 变化，算新 cols/rows，若有变化则 debounce 100ms 后触发 resize。
     ///
     /// 在 canvas prepaint 的下一帧回调中调用（通过 window.on_next_frame）。
@@ -263,6 +300,9 @@ impl Render for TerminalView {
                     this.handle_mouse_down(ev, cx);
                 }),
             )
+            .on_scroll_wheel(cx.listener(|this, ev: &ScrollWheelEvent, _window, cx| {
+                this.handle_scroll(ev, cx);
+            }))
             .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _window, cx| {
                 if ev.dragging() {
                     this.handle_mouse_move(ev, cx);
