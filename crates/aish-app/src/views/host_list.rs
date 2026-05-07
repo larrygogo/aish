@@ -143,13 +143,16 @@ impl Render for HostListView {
                     )
                     .child("🗑");
 
-                // icons 容器：默认隐藏，group hover 时以 flex 显示
+                // icons 容器：默认透明（始终参与 layout/prepaint），group hover 时显示。
+                // 不能用 .hidden() — GPUI 11f0ca5 上 display:None 会跳过 child prepaint，
+                // 一旦 hover 切换到 flex，paint 阶段访问未 prepaint 的 child 会 panic
+                // ("must call prepaint before paint")。
                 let icons = div()
                     .flex()
                     .flex_row()
                     .gap_1()
-                    .hidden()
-                    .group_hover("host_row", |s| s.flex())
+                    .opacity(0.0)
+                    .group_hover("host_row", |s| s.opacity(1.0))
                     .child(edit_btn)
                     .child(delete_btn);
 
