@@ -295,29 +295,16 @@ impl Render for TerminalView {
     }
 }
 
-/// 决定 terminal 显示哪个 Term：
-///   - tmux Attached: 优先 last_active_pane（最近一次收到 %output 的 pane），
-///     fallback 到 SessionTree first session/window/pane（M3c 改正式 active 协议）
-///   - 其他状态: 取 raw shell 模式的 host_pty_term
+/// 决定 terminal 显示哪个 Term。
+///
+/// raw attach 路径下不再区分 tmux/non-tmux —— 整条 PTY 字节流都喂给
+/// `host_pty_term`，tmux 自身画状态栏/窗口列表/pane 边框，alacritty Term 当
+/// 一块大画布即可。M3-archived：之前 -CC 模式的 per-pane Term 已废。
 pub(crate) fn term_for_render(
     app: &AppState,
     host: aish_types::HostId,
 ) -> Option<&alacritty_terminal::Term<alacritty_terminal::event::VoidListener>> {
-    use crate::state::TmuxState;
-    match app.tmux_state.get(&host) {
-        Some(TmuxState::Attached { session_tree }) => {
-            if let Some(pane_id) = app.last_active_pane.get(&host) {
-                if let Some(term) = app.pane_terminals.get(&(host, *pane_id)) {
-                    return Some(term);
-                }
-            }
-            let session = session_tree.sessions.values().next()?;
-            let window = session.windows.values().next()?;
-            let pane_id = window.panes.keys().next()?;
-            app.pane_terminals.get(&(host, *pane_id))
-        }
-        _ => app.host_pty_term.get(&host),
-    }
+    app.host_pty_term.get(&host)
 }
 
 /// 在 prepaint 阶段读取 Term grid 快照（读借用安全）。
@@ -356,8 +343,7 @@ fn paint_terminal(
 mod tests {
     use super::*;
     use crate::state::AppState;
-    use aish_tmux::SessionTree;
-    use aish_types::{HostId, PaneId, SessionId, WindowId};
+    use aish_types::HostId;
 
     fn mk_state_with_host() -> (AppState, HostId) {
         let cfg = aish_types::HostConfig {
@@ -376,7 +362,7 @@ mod tests {
     }
 
     #[test]
-    fn term_for_render_returns_host_pty_when_no_tmux() {
+    fn term_for_render_returns_host_pty() {
         let (mut state, id) = mk_state_with_host();
         state.feed_bytes(id, b"x");
         let term = term_for_render(&state, id);
@@ -388,30 +374,6 @@ mod tests {
         let (state, _id) = mk_state_with_host();
         let unknown = HostId::new();
         let term = term_for_render(&state, unknown);
-        assert!(term.is_none());
-    }
-
-    #[test]
-    fn term_for_render_returns_pane_term_when_attached() {
-        let (mut state, id) = mk_state_with_host();
-        state.apply_tmux_pane_output(id, PaneId(7), b"hi");
-
-        let mut tree = SessionTree::new();
-        let sid = SessionId::new("$0");
-        tree.add_session(sid.clone(), "default".into());
-        tree.add_window(sid, WindowId(0), "main".into()).unwrap();
-        tree.add_pane(WindowId(0), PaneId(7)).unwrap();
-        state.apply_tmux_session_tree(id, tree);
-
-        let term = term_for_render(&state, id);
-        assert!(term.is_some());
-    }
-
-    #[test]
-    fn term_for_render_attached_with_empty_tree_falls_back_to_none() {
-        let (mut state, id) = mk_state_with_host();
-        state.apply_tmux_session_tree(id, SessionTree::new());
-        let term = term_for_render(&state, id);
         assert!(term.is_none());
     }
 }

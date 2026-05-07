@@ -6,7 +6,7 @@
 
 #![allow(dead_code)]
 
-use aish_types::{HostConfig, HostId, PaneId, RemoteSession};
+use aish_types::{HostConfig, HostId, RemoteSession};
 use tokio::sync::mpsc;
 
 use crate::state::{DisconnectReason, SessionCommand, SshEvent};
@@ -33,15 +33,14 @@ pub(crate) async fn host_session_task(
 ) {
     use aish_secrets::{SecretError, SecretStore};
     use aish_ssh::{ChannelMsg, SshClient};
-    use aish_tmux::{build_command, TmuxCommand, TmuxController, TmuxEvent};
     use aish_types::SshAuth;
 
     use crate::state::{SshErrorKind, DEFAULT_COLS, DEFAULT_ROWS};
 
-    // actor 内部跟踪当前 PTY 尺寸 — 单一事实源。
-    // 初始用 DEFAULT；GPUI 第一次 layout 后会通过 SessionCommand::Resize 推入真实值。
-    // attach tmux / 处理 Resize 时都读这个值，避免硬编码 120x40 漂移。
-    let mut current_size: (u16, u16) = (DEFAULT_COLS, DEFAULT_ROWS);
+    // 初始 PTY 尺寸用 DEFAULT 占位 —— GPUI 第一次 layout 后立即通过
+    // SessionCommand::Resize 触发 chan.window_change，把 SIGWINCH 透传到远端
+    // shell；tmux attach 后 tmux 自身根据 PTY size 变化重排 pane（SIGWINCH
+    // 链路：本地 → SSH → 远端 PTY → tmux server → tmux client → pane shell）。
 
     // 0. 如果是 Password auth 且 password 为空（来自 hosts.json），从 keyring 取
     let mut effective_config = config.clone();
@@ -111,7 +110,7 @@ pub(crate) async fn host_session_task(
         }
     };
     if let Err(err) = chan
-        .request_pty(current_size.0, current_size.1, "xterm-256color")
+        .request_pty(DEFAULT_COLS, DEFAULT_ROWS, "xterm-256color")
         .await
     {
         let _ = event_tx
@@ -140,18 +139,8 @@ pub(crate) async fn host_session_task(
     let tx_for_query = event_tx.clone();
     tokio::spawn(tmux_query_task(host, session_for_query, tx_for_query));
 
-    // 4. mode state machine: RawShell <-> TmuxAttached
-    enum ActorMode {
-        RawShell,
-        TmuxAttached(TmuxController),
-    }
-    let mut mode = ActorMode::RawShell;
-
-    // capture-pane reply 配对状态：attach 后第一次收到 layout-change 时发 capture-pane，
-    // 等下一个 CommandReply 把 content 当 active pane 内容 emit。
-    let mut pending_capture: Option<PaneId> = None;
-    let mut capture_requested: bool = false;
-
+    // 4. 主循环：raw shell 单一模式。tmux attach 不再切换协议，只是往 channel
+    //    发送 `tmux attach -t '<sess>'\r` 字节，让远端 tmux 接管 PTY 渲染。
     loop {
         tokio::select! {
             msg = chan.wait() => match msg {
@@ -164,92 +153,14 @@ pub(crate) async fn host_session_task(
                 Some(ChannelMsg::ExitSignal { ref signal_name, .. }) => {
                     tracing::warn!(?host, signal = ?signal_name, "actor: channel ExitSignal");
                 }
-                Some(ChannelMsg::Data { data }) => match &mut mode {
-                    ActorMode::RawShell => {
-                        let _ = event_tx
-                            .send(SshEvent::PaneOutput {
-                                host,
-                                bytes: data.to_vec(),
-                            })
-                            .await;
-                    }
-                    ActorMode::TmuxAttached(controller) => {
-                        tracing::info!(?host, len = data.len(), preview = %String::from_utf8_lossy(&data[..data.len().min(80)]).escape_debug().to_string(), "actor: tmux bytes recv");
-                        let events = controller.feed_bytes(&data);
-                        let mut tree_dirty = false;
-                        // 从 events 里挑出 layout 字串供 capture 决策（只看第一条）
-                        let mut first_layout: Option<String> = None;
-                        for ev in events {
-                            match ev {
-                                TmuxEvent::PaneOutput { pane, data: bytes } => {
-                                    let _ = event_tx
-                                        .send(SshEvent::TmuxPaneOutput {
-                                            host,
-                                            pane,
-                                            bytes,
-                                        })
-                                        .await;
-                                }
-                                TmuxEvent::LayoutChanged { ref layout, .. } => {
-                                    if first_layout.is_none() {
-                                        first_layout = Some(layout.clone());
-                                    }
-                                    tree_dirty = true;
-                                }
-                                TmuxEvent::CommandReply { content, .. } => {
-                                    if let Some(pane_id) = pending_capture.take() {
-                                        if !content.is_empty() {
-                                            let mut payload = String::new();
-                                            // cursor home + clear screen，然后逐行写
-                                            payload.push_str("\x1b[H\x1b[2J");
-                                            for (i, line) in content.iter().enumerate() {
-                                                if i > 0 {
-                                                    payload.push_str("\r\n");
-                                                }
-                                                payload.push_str(line);
-                                            }
-                                            let bytes = bytes::Bytes::from(payload.into_bytes());
-                                            tracing::info!(?host, ?pane_id, len = bytes.len(), "actor: capture-pane reply → emit TmuxPaneOutput");
-                                            let _ = event_tx
-                                                .send(SshEvent::TmuxPaneOutput {
-                                                    host,
-                                                    pane: pane_id,
-                                                    bytes,
-                                                })
-                                                .await;
-                                        }
-                                    }
-                                }
-                                _ => {
-                                    tree_dirty = true;
-                                }
-                            }
-                        }
-                        // 发起 capture-pane（只发一次）
-                        if !capture_requested {
-                            if let Some(layout) = first_layout {
-                                if let Some(pane) = aish_tmux::extract_pane_ids(&layout).into_iter().next() {
-                                    let cmd = format!("capture-pane -e -p -t %{}\n", pane.0);
-                                    tracing::info!(?host, ?pane, cmd = cmd.trim(), "actor: requesting capture-pane");
-                                    if let Err(e) = chan.data(cmd.as_bytes()).await {
-                                        tracing::warn!(?host, "actor: capture-pane send failed: {}", e);
-                                    } else {
-                                        pending_capture = Some(pane);
-                                        capture_requested = true;
-                                    }
-                                }
-                            }
-                        }
-                        if tree_dirty {
-                            let _ = event_tx
-                                .send(SshEvent::TmuxSessionTreeUpdated {
-                                    host,
-                                    tree: controller.session_tree().clone(),
-                                })
-                                .await;
-                        }
-                    }
-                },
+                Some(ChannelMsg::Data { data }) => {
+                    let _ = event_tx
+                        .send(SshEvent::PaneOutput {
+                            host,
+                            bytes: data.to_vec(),
+                        })
+                        .await;
+                }
                 Some(ChannelMsg::Eof) | None => {
                     tracing::warn!(?host, "actor: channel closed (Eof/None)");
                     let _ = event_tx
@@ -277,20 +188,10 @@ pub(crate) async fn host_session_task(
                     }
                 }
                 Some(SessionCommand::Resize { cols, rows }) => {
-                    current_size = (cols, rows);
-                    // 外层 SSH PTY SIGWINCH —— raw shell 模式直接到 shell；
-                    // tmux -CC 模式给的是 tmux 控制 channel 本身（无害但意义不大）。
+                    // SIGWINCH 透传到远端 PTY；raw shell 模式下到 shell，tmux attach
+                    // 模式下到 tmux client（tmux client 自己根据 PTY size 重排 panes）。
                     if let Err(e) = chan.window_change(cols as u32, rows as u32, 0, 0).await {
                         tracing::warn!("PTY resize failed: {}", e);
-                    }
-                    // tmux -CC 模式：必须显式 refresh-client -C 把 client 视口尺寸告诉 server，
-                    // 否则 inner pane 几何不会变（shell 仍按旧 cols/rows 换行 + 留下空行）。
-                    if matches!(mode, ActorMode::TmuxAttached(_)) {
-                        let bytes =
-                            build_command(&TmuxCommand::RefreshClient { cols, rows });
-                        if let Err(e) = chan.data(&bytes[..]).await {
-                            tracing::warn!(?host, "tmux refresh-client failed: {}", e);
-                        }
                     }
                 }
                 Some(SessionCommand::QueryTmuxSessions) => {
@@ -299,72 +200,27 @@ pub(crate) async fn host_session_task(
                     tokio::spawn(tmux_query_task(host, session_for_query, tx_for_query));
                 }
                 Some(SessionCommand::AttachTmux { session: sess_id }) => {
-                    tracing::info!(?host, sess = sess_id.as_str(), "actor: AttachTmux received");
+                    // 在当前 raw shell PTY 里发 `tmux attach -t '<sess>'\r`。
+                    // tmux 接管渲染（自带状态栏/窗口列表/pane 边框），用户在 tmux
+                    // 内 prefix+d detach 后自然回到 shell 提示符。aish 不再用 -CC
+                    // 控制模式（M3-archived），SessionTree / pane 树等也不维护。
+                    let escaped = sess_id.as_str().replace('\'', r"'\''");
+                    let attach_bytes = format!("tmux attach -t '{}'\r", escaped).into_bytes();
+                    tracing::info!(
+                        ?host,
+                        sess = sess_id.as_str(),
+                        "actor: AttachTmux → send-keys to raw shell"
+                    );
+                    if let Err(e) = chan.data(&attach_bytes[..]).await {
+                        tracing::warn!(?host, "actor: send tmux attach failed: {}", e);
+                        continue;
+                    }
                     let _ = event_tx
-                        .send(SshEvent::TmuxAttaching {
+                        .send(SshEvent::TmuxAttached {
                             host,
-                            session: sess_id.clone(),
+                            session: sess_id,
                         })
                         .await;
-                    let mut new_chan = match session.open_channel().await {
-                        Ok(c) => c,
-                        Err(err) => {
-                            tracing::error!(?host, "actor: open new channel failed: {}", err);
-                            let _ = event_tx
-                                .send(SshEvent::TmuxQueryFailed {
-                                    host,
-                                    msg: format!("open new channel: {}", err),
-                                })
-                                .await;
-                            continue;
-                        }
-                    };
-                    // tmux -CC 仍会调 tcgetattr 检查 TTY，没 PTY 会立即报错退出。
-                    // 用 current_size 而非硬编码，attach 后 tmux 客户端就跟当前 GPUI 视口一致。
-                    if let Err(err) = new_chan
-                        .request_pty(current_size.0, current_size.1, "xterm-256color")
-                        .await
-                    {
-                        tracing::error!(?host, "actor: request_pty for tmux -CC failed: {}", err);
-                        let _ = event_tx
-                            .send(SshEvent::TmuxQueryFailed {
-                                host,
-                                msg: format!("request_pty: {}", err),
-                            })
-                            .await;
-                        continue;
-                    }
-                    let attach_cmd = format!(
-                        "tmux -CC attach -t '{}'",
-                        sess_id.as_str().replace('\'', r"'\''")
-                    );
-                    tracing::info!(?host, cmd = attach_cmd.as_str(), "actor: running tmux -CC");
-                    if let Err(err) = new_chan.run_cmd(true, attach_cmd).await {
-                        tracing::error!(?host, "actor: run tmux -CC failed: {}", err);
-                        let _ = event_tx
-                            .send(SshEvent::TmuxQueryFailed {
-                                host,
-                                msg: format!("run tmux -CC: {}", err),
-                            })
-                            .await;
-                        continue;
-                    }
-                    chan = new_chan;
-                    mode = ActorMode::TmuxAttached(TmuxController::new());
-                    pending_capture = None;
-                    capture_requested = false;
-                    tracing::info!(?host, "actor: switched to TmuxAttached mode");
-                    let _ = event_tx.send(SshEvent::TmuxAttached { host }).await;
-                    // tmux attach 现有 session 时不会主动 dump pane 内容。
-                    // refresh-client -C 设 client size 触发 %layout-change（驱动 SessionTree）。
-                    // 收到 layout-change 时再发 capture-pane 拿当前 pane 内容（见 ChannelMsg::Data 处理）。
-                    let refresh_bytes = build_command(&TmuxCommand::RefreshClient {
-                        cols: current_size.0,
-                        rows: current_size.1,
-                    });
-                    if let Err(err) = chan.data(&refresh_bytes[..]).await {
-                        tracing::warn!(?host, "actor: send refresh-client failed: {}", err);
-                    }
                 }
                 Some(SessionCommand::Disconnect) | None => {
                     let _ = event_tx

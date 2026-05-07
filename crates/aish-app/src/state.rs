@@ -4,8 +4,7 @@
 
 use std::collections::HashMap;
 
-use aish_tmux::SessionTree;
-use aish_types::{HostConfig, HostId, PaneId, RemoteSession, SessionId};
+use aish_types::{HostConfig, HostId, RemoteSession, SessionId};
 use alacritty_terminal::event::VoidListener;
 use alacritty_terminal::term::test::TermSize;
 use alacritty_terminal::term::Config as TermConfig;
@@ -49,30 +48,13 @@ pub enum SshEvent {
     TmuxNoTmux {
         host: HostId,
     },
-    /// AttachTmux 命令收到，actor 正在切 mode
-    TmuxAttaching {
-        host: HostId,
-        session: SessionId,
-    },
-    /// -CC channel 已开 + TmuxController 已建
+    /// AttachTmux 命令已派发到 raw shell channel。语义：actor 已在 raw PTY
+    /// 里发送 `tmux attach -t '<sess>'\r`，UI 可标记该 session 为"已 attach"
+    /// 用于侧栏高亮。detach 检测不在此事件范围内（用户在 tmux 内 prefix+d
+    /// 后，看 shell 提示符即可判断；M3c 可加 PROMPT_COMMAND 探测）。
     TmuxAttached {
         host: HostId,
-    },
-    /// SessionTree 有变化
-    TmuxSessionTreeUpdated {
-        host: HostId,
-        tree: SessionTree,
-    },
-    /// tmux 模式下某 pane 的输出
-    TmuxPaneOutput {
-        host: HostId,
-        pane: PaneId,
-        bytes: bytes::Bytes,
-    },
-    /// -CC channel 关闭
-    TmuxDetached {
-        host: HostId,
-        reason: String,
+        session: SessionId,
     },
 }
 
@@ -134,20 +116,27 @@ pub enum AuthKind {
 }
 
 /// 单个 host 的 tmux 状态。每次连接重置，断开清空。
+///
+/// M3-archived（2026-05-07）：之前的 `Attaching` / `Attached { session_tree }`
+/// 是 tmux -CC 控制模式专用，aish 已回退到 raw attach 路径，attach 后由 tmux
+/// 自身绘制 UI（含状态栏），状态栏字段 / SessionTree / pane 树都不再维护。
+/// 当前侧栏只展示 list-sessions 的 sessions 列表 + "最近 attached 的 SessionId"
+/// 用于高亮，不区分 Attaching 中间态。
 #[derive(Debug, Clone)]
 pub enum TmuxState {
     /// 刚连上，list-sessions 还没跑（瞬态）
     NotChecked,
     /// 远端没装 tmux（exec 失败 + stderr 含 "command not found" / "not found"）
     NoTmux,
-    /// list-sessions 成功（可能空 vec — 远端有 tmux 但无 session）
-    Detected { sessions: Vec<RemoteSession> },
+    /// list-sessions 成功（可能空 vec — 远端有 tmux 但无 session）。
+    /// `attached` 记录最近一次点击 attach 的 session id，仅用于侧栏高亮；
+    /// 用户在 tmux 内 detach 后，aish 不感知（保持 Some），需要重新 list 才会更新。
+    Detected {
+        sessions: Vec<RemoteSession>,
+        attached: Option<SessionId>,
+    },
     /// list-sessions 失败但远端有 tmux
     QueryFailed { msg: String },
-    /// user 点了某 session，正在 attach（瞬态）
-    Attaching { session: SessionId },
-    /// 已 attach，TmuxController 在 actor 里运行，SessionTree clone 同步过来
-    Attached { session_tree: SessionTree },
 }
 
 /// modal 状态：当前是否在添加 / 编辑 / 删除确认 host。
@@ -276,12 +265,6 @@ pub struct AppState {
 
     /// 单个 host 的 tmux 状态（M3b 新加）
     pub tmux_state: HashMap<HostId, TmuxState>,
-    /// tmux attach 后 per-pane alacritty Term
-    pub pane_terminals: HashMap<(HostId, PaneId), Term<VoidListener>>,
-    pub pane_dimensions: HashMap<(HostId, PaneId), (u16, u16)>,
-    /// 最近一次收到 %output 的 pane id（M3b 用作"当前显示 pane"）。
-    /// M3c 改为正式 active_pane 协议事件维护。
-    pub last_active_pane: HashMap<HostId, PaneId>,
 }
 
 impl AppState {
@@ -294,9 +277,6 @@ impl AppState {
             host_pty_term: HashMap::new(),
             host_pty_dimensions: HashMap::new(),
             tmux_state: HashMap::new(),
-            pane_terminals: HashMap::new(),
-            pane_dimensions: HashMap::new(),
-            last_active_pane: HashMap::new(),
         }
     }
 
@@ -324,12 +304,16 @@ impl AppState {
     pub fn drop_session(&mut self, id: HostId) {
         self.sessions.remove(&id);
         // 不删 host_pty_term — 保留 scrollback
-        // 但清空 tmux_state（每次连接重新查询）
+        // 清空 tmux_state（每次连接重新查询）
         self.tmux_state.remove(&id);
-        // pane_terminals 也清空（tmux 模式 attach 状态丢失）
-        self.pane_terminals.retain(|(h, _), _| h != &id);
-        self.pane_dimensions.retain(|(h, _), _| h != &id);
-        self.last_active_pane.remove(&id);
+    }
+
+    /// 标记某 host 已 attach 到指定 session（仅用于侧栏高亮）。
+    /// 当前 tmux_state 必须是 Detected，否则忽略。
+    pub fn mark_tmux_attached(&mut self, host: HostId, session: SessionId) {
+        if let Some(TmuxState::Detected { attached, .. }) = self.tmux_state.get_mut(&host) {
+            *attached = Some(session);
+        }
     }
 
     /// raw shell 模式下，feed bytes 到指定 host 的 Term。
@@ -363,31 +347,6 @@ impl AppState {
         self.host_pty_dimensions.insert(host, (cols, rows));
     }
 
-    /// tmux 模式：feed bytes 到指定 (host, pane) 的 Term。
-    pub fn apply_tmux_pane_output(&mut self, host: HostId, pane: PaneId, bytes: &[u8]) {
-        self.last_active_pane.insert(host, pane);
-        let key = (host, pane);
-        let (cols, rows) = self
-            .pane_dimensions
-            .get(&key)
-            .copied()
-            .unwrap_or((DEFAULT_COLS, DEFAULT_ROWS));
-        let term = self
-            .pane_terminals
-            .entry(key)
-            .or_insert_with(|| make_term(cols, rows));
-        let mut processor = alacritty_terminal::vte::ansi::Processor::<
-            alacritty_terminal::vte::ansi::StdSyncHandler,
-        >::new();
-        processor.advance(term, bytes);
-    }
-
-    /// tmux 模式：更新 host 的 SessionTree（actor 推过来）。
-    pub fn apply_tmux_session_tree(&mut self, host: HostId, tree: SessionTree) {
-        self.tmux_state
-            .insert(host, TmuxState::Attached { session_tree: tree });
-    }
-
     /// 添加一个新 host。
     pub fn add_host(&mut self, cfg: HostConfig) {
         self.hosts.push(cfg);
@@ -405,8 +364,7 @@ impl AppState {
     }
 
     /// 删除 host。同步清理 sessions / host_pty_term / host_pty_dimensions / tmux_state /
-    /// pane_terminals / pane_dimensions / 重置 selected。
-    /// 返回 true = 成功删除，false = 未找到。
+    /// 重置 selected。返回 true = 成功删除，false = 未找到。
     ///
     /// **注意**：此函数**不**清理 keyring 条目 — 调用方（host_form save）
     /// 在调本函数前/后调 `persistence::delete_secret_for(id)`。
@@ -420,9 +378,6 @@ impl AppState {
         self.host_pty_term.remove(&id);
         self.host_pty_dimensions.remove(&id);
         self.tmux_state.remove(&id);
-        self.pane_terminals.retain(|(h, _), _| h != &id);
-        self.pane_dimensions.retain(|(h, _), _| h != &id);
-        self.last_active_pane.remove(&id);
         if self.selected == Some(id) {
             self.selected = None;
         }
@@ -433,9 +388,8 @@ impl AppState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aish_tmux::SessionTree;
+    use aish_types::SessionId;
     use aish_types::SshAuth;
-    use aish_types::{PaneId, SessionId};
     use std::path::PathBuf;
     use uuid::Uuid;
 
@@ -761,49 +715,49 @@ mod tests {
     }
 
     #[test]
-    fn apply_tmux_pane_output_creates_per_pane_term() {
-        let h = mk_host("a");
-        let id = h.id;
-        let mut state = AppState::with_hosts(vec![h]);
-        state.apply_tmux_pane_output(id, PaneId(7), b"hi");
-        let term = state.pane_terminals.get(&(id, PaneId(7))).unwrap();
-        let grid = term.grid();
-        let first_row = &grid[alacritty_terminal::index::Line(0)];
-        assert_eq!(first_row[alacritty_terminal::index::Column(0)].c, 'h');
-        assert_eq!(first_row[alacritty_terminal::index::Column(1)].c, 'i');
-    }
-
-    #[test]
-    fn apply_tmux_session_tree_sets_attached_state() {
-        let h = mk_host("a");
-        let id = h.id;
-        let mut state = AppState::with_hosts(vec![h]);
-        let tree = SessionTree::new();
-        state.apply_tmux_session_tree(id, tree);
-        match state.tmux_state.get(&id) {
-            Some(TmuxState::Attached { .. }) => {}
-            other => panic!("expected Attached, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn drop_session_clears_tmux_state_and_pane_terminals() {
+    fn drop_session_clears_tmux_state() {
         let h = mk_host("a");
         let id = h.id;
         let mut state = AppState::with_hosts(vec![h]);
         let (tx, _rx) = mpsc::channel::<SessionCommand>(8);
         state.register_session(id, tx);
-        state.apply_tmux_pane_output(id, PaneId(0), b"x");
         state.tmux_state.insert(id, TmuxState::NotChecked);
         state.drop_session(id);
         assert!(!state.tmux_state.contains_key(&id));
-        assert!(!state.pane_terminals.contains_key(&(id, PaneId(0))));
     }
 
-    // SessionId 在 tests 模块中未直接构造，但 import 已在，编译器会检测到未使用
-    // 保留 import 以确保类型可用性验证
-    #[allow(dead_code)]
-    fn _assert_session_id_usable() -> SessionId {
-        SessionId::new("test")
+    #[test]
+    fn mark_tmux_attached_updates_detected_state() {
+        let h = mk_host("a");
+        let id = h.id;
+        let mut state = AppState::with_hosts(vec![h]);
+        let sess = SessionId::new("$0");
+        state.tmux_state.insert(
+            id,
+            TmuxState::Detected {
+                sessions: vec![],
+                attached: None,
+            },
+        );
+        state.mark_tmux_attached(id, sess.clone());
+        match state.tmux_state.get(&id) {
+            Some(TmuxState::Detected { attached, .. }) => {
+                assert_eq!(attached.as_ref(), Some(&sess))
+            }
+            other => panic!("expected Detected, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn mark_tmux_attached_noop_when_not_detected() {
+        let h = mk_host("a");
+        let id = h.id;
+        let mut state = AppState::with_hosts(vec![h]);
+        state.tmux_state.insert(id, TmuxState::NotChecked);
+        state.mark_tmux_attached(id, SessionId::new("$0"));
+        assert!(matches!(
+            state.tmux_state.get(&id),
+            Some(TmuxState::NotChecked)
+        ));
     }
 }

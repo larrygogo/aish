@@ -1,8 +1,12 @@
-//! 中间栏：按 host 的 TmuxState 显示 6 种视图。
+//! 中间栏：按 host 的 TmuxState 显示 4 种视图。
+//!
+//! M3-archived（2026-05-07）：之前 -CC 模式有 Attaching / Attached 两个额外视图
+//! （含 SessionTree 树形展开），已随 raw attach 改造一并删除。点击 session 行
+//! 后由 actor 在 raw shell 里发送 `tmux attach -t '<sess>'\r`，sidebar 仅高亮
+//! 当前 attached 的 session，不再展开 windows/panes。
 
 use std::sync::Arc;
 
-use aish_tmux::SessionTree;
 use aish_types::{HostId, RemoteSession, SessionId};
 use gpui::{div, prelude::*, px, rgb, Context, Entity, MouseButton, MouseDownEvent, Window};
 
@@ -76,9 +80,9 @@ impl Render for TmuxSidebarView {
                 TmuxState::NotChecked => spinner_view("查询 tmux 中…"),
                 TmuxState::NoTmux => notmux_view(),
                 TmuxState::QueryFailed { msg } => query_failed_view(msg),
-                TmuxState::Detected { sessions } => session_list_view(*host, sessions, cx),
-                TmuxState::Attaching { session } => attaching_view(session),
-                TmuxState::Attached { session_tree } => session_tree_view(session_tree),
+                TmuxState::Detected { sessions, attached } => {
+                    session_list_view(*host, sessions, attached.as_ref(), cx)
+                }
             },
         };
 
@@ -207,6 +211,7 @@ fn query_failed_view(msg: &str) -> gpui::AnyElement {
 fn session_list_view(
     host: HostId,
     sessions: &[RemoteSession],
+    attached: Option<&SessionId>,
     cx: &mut Context<TmuxSidebarView>,
 ) -> gpui::AnyElement {
     let mut col = div().flex().flex_col();
@@ -223,10 +228,19 @@ fn session_list_view(
     } else {
         for s in sessions {
             let session_id = s.id.clone();
-            let label = format!("○ {}", s.name);
+            let is_attached = attached == Some(&s.id);
+            // ● = 当前 attached（绿色），○ = 未 attach（灰色）
+            let (marker, marker_color) = if is_attached {
+                ("●", rgb(0x4ec9b0))
+            } else {
+                ("○", rgb(0x888888))
+            };
             let row = div()
                 .px_3()
                 .py_2()
+                .flex()
+                .flex_row()
+                .gap_2()
                 .text_color(rgb(0xcccccc))
                 .text_size(px(13.0))
                 .hover(|st| st.bg(rgb(0x2a2a2a)).cursor_pointer())
@@ -236,7 +250,8 @@ fn session_list_view(
                         this.handle_attach(host, session_id.clone(), cx);
                     }),
                 )
-                .child(label);
+                .child(div().text_color(marker_color).child(marker))
+                .child(div().child(s.name.clone()));
             col = col.child(row);
         }
     }
@@ -251,72 +266,6 @@ fn session_list_view(
             .border_color(rgb(0x333333))
             .child("+ new session (M3c)"),
     );
-
-    col.into_any_element()
-}
-
-fn attaching_view(session: &SessionId) -> gpui::AnyElement {
-    div()
-        .px_3()
-        .py_4()
-        .flex()
-        .flex_col()
-        .gap_2()
-        .child(
-            div()
-                .text_color(rgb(0xcccccc))
-                .text_size(px(12.0))
-                .child(format!("连接 tmux session: {}", session.as_str())),
-        )
-        .child(
-            div()
-                .text_color(rgb(0xaaaaaa))
-                .text_size(px(11.0))
-                .child("⠋ -CC handshake…"),
-        )
-        .into_any_element()
-}
-
-fn session_tree_view(tree: &SessionTree) -> gpui::AnyElement {
-    let mut col = div().flex().flex_col().px_2().py_2().gap_1();
-
-    if tree.sessions.is_empty() {
-        col = col.child(
-            div()
-                .text_color(rgb(0x888888))
-                .text_size(px(11.0))
-                .child("(等待 tmux 协议数据…)"),
-        );
-    } else {
-        for (sid, sess) in &tree.sessions {
-            let is_active = tree.active_session.as_ref() == Some(sid);
-            let s_marker = if is_active { "●" } else { "○" };
-            col = col.child(
-                div()
-                    .text_color(rgb(0xeeeeee))
-                    .text_size(px(13.0))
-                    .child(format!("{} {} ({})", s_marker, sess.name, sid.as_str())),
-            );
-            for (wid, win) in &sess.windows {
-                col = col.child(
-                    div()
-                        .pl_4()
-                        .text_color(rgb(0xcccccc))
-                        .text_size(px(12.0))
-                        .child(format!("├─ {} ({})", win.name, wid)),
-                );
-                for pane_id in win.panes.keys() {
-                    col = col.child(
-                        div()
-                            .pl_8()
-                            .text_color(rgb(0xaaaaaa))
-                            .text_size(px(11.0))
-                            .child(format!("├─ pane {}", pane_id)),
-                    );
-                }
-            }
-        }
-    }
 
     col.into_any_element()
 }

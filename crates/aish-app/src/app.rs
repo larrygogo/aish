@@ -57,9 +57,15 @@ pub fn run() {
                         cx.notify();
                     }
                     SshEvent::TmuxSessionsListed { host, sessions } => {
-                        state
-                            .tmux_state
-                            .insert(host, crate::state::TmuxState::Detected { sessions });
+                        // 进入 Detected 状态时清空 attached 标记 —— 重新查询时
+                        // 上次 attach 的 session 可能已经不存在或被改名。
+                        state.tmux_state.insert(
+                            host,
+                            crate::state::TmuxState::Detected {
+                                sessions,
+                                attached: None,
+                            },
+                        );
                         cx.notify();
                     }
                     SshEvent::TmuxQueryFailed { host, msg } => {
@@ -74,42 +80,9 @@ pub fn run() {
                             .insert(host, crate::state::TmuxState::NoTmux);
                         cx.notify();
                     }
-                    SshEvent::TmuxAttaching { host, session } => {
-                        state
-                            .tmux_state
-                            .insert(host, crate::state::TmuxState::Attaching { session });
-                        cx.notify();
-                    }
-                    SshEvent::TmuxAttached { host } => {
-                        state.tmux_state.insert(
-                            host,
-                            crate::state::TmuxState::Attached {
-                                session_tree: aish_tmux::SessionTree::new(),
-                            },
-                        );
-                        cx.notify();
-                    }
-                    SshEvent::TmuxSessionTreeUpdated { host, tree } => {
-                        tracing::info!(
-                            ?host,
-                            sessions = tree.sessions.len(),
-                            "app: TmuxSessionTreeUpdated"
-                        );
-                        state.apply_tmux_session_tree(host, tree);
-                        cx.notify();
-                    }
-                    SshEvent::TmuxPaneOutput { host, pane, bytes } => {
-                        tracing::info!(
-                            ?host,
-                            ?pane,
-                            len = bytes.len(),
-                            "app: TmuxPaneOutput → state.apply_tmux_pane_output"
-                        );
-                        state.apply_tmux_pane_output(host, pane, &bytes);
-                        cx.notify();
-                    }
-                    SshEvent::TmuxDetached { host, reason: _ } => {
-                        state.tmux_state.remove(&host);
+                    SshEvent::TmuxAttached { host, session } => {
+                        // raw attach 已派发到 PTY；标记 sidebar 高亮当前 session。
+                        state.mark_tmux_attached(host, session);
                         cx.notify();
                     }
                 });
