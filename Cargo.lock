@@ -125,9 +125,7 @@ dependencies = [
 name = "aish-tmux"
 version = "0.1.0"
 dependencies = [
- "aish-ssh",
  "aish-types",
- "anyhow",
  "bytes",
  "thiserror 1.0.69",
  "tracing",

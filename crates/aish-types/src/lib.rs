@@ -28,7 +28,7 @@ impl std::fmt::Display for HostId {
 }
 
 /// tmux session 名（字符串 newtype，避免与普通 String 混淆）。
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct SessionId(String);
 
 impl SessionId {

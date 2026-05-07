@@ -6,12 +6,10 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "aish tmux control mode 协议层（M3 实现）"
+description = "aish tmux control mode 协议层（pure state machine）"
 
 [dependencies]
 aish-types = { workspace = true }
-aish-ssh = { workspace = true }
-anyhow = { workspace = true }
+bytes = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-bytes = { workspace = true }
