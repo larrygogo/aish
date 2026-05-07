@@ -116,21 +116,64 @@ fn parse_begin_end(rest: &str, kind: &str) -> Result<ParsedEvent, TmuxError> {
     })
 }
 
-fn parse_output(rest: &str, full_line: &str) -> Result<ParsedEvent, TmuxError> {
-    // %<pane-id> <hex-bytes>
+fn parse_output(rest: &str, _full_line: &str) -> Result<ParsedEvent, TmuxError> {
+    // %<pane-id> <data>
+    // tmux -CC 默认用 octal-escape 编码：可打印 ASCII 字面输出，不可打印用 \NNN（octal）。
+    // 历史上 tmux 1.8 之前用 hex 编码，现代版本（>= 2.4）默认 octal-escape。
     let mut iter = rest.splitn(2, ' ');
     let pane_str = iter
         .next()
         .ok_or_else(|| TmuxError::UnknownEvent(format!("%output missing pane: {}", rest)))?;
-    let hex_str = iter.next().unwrap_or("");
+    let data_str = iter.next().unwrap_or("");
 
     let pane = parse_pane_id(pane_str)?;
-    let data =
-        hex_decode(hex_str).map_err(|_| TmuxError::HexDecodeFailed(full_line.to_string()))?;
+    let data = decode_octal_escape(data_str);
     Ok(ParsedEvent::Output {
         pane,
         data: Bytes::from(data),
     })
+}
+
+/// 解码 tmux -CC `%output` 的 octal-escape 编码。
+///
+/// 规则：
+///   - `\NNN` (恰好 3 位 octal) → byte
+///   - `\\` → `\`
+///   - 其他字面字节直接输出
+pub fn decode_octal_escape(s: &str) -> Vec<u8> {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' && i + 1 < bytes.len() {
+            let next = bytes[i + 1];
+            if next == b'\\' {
+                out.push(b'\\');
+                i += 2;
+                continue;
+            }
+            // 期望 \NNN (3 位 octal)
+            if i + 3 < bytes.len()
+                && (b'0'..=b'7').contains(&bytes[i + 1])
+                && (b'0'..=b'7').contains(&bytes[i + 2])
+                && (b'0'..=b'7').contains(&bytes[i + 3])
+            {
+                let n = ((bytes[i + 1] - b'0') as u16) * 64
+                    + ((bytes[i + 2] - b'0') as u16) * 8
+                    + ((bytes[i + 3] - b'0') as u16);
+                out.push(n as u8);
+                i += 4;
+                continue;
+            }
+            // 兜底：异常 \X 序列保留 backslash + 跳过
+            out.push(b'\\');
+            i += 1;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    out
 }
 
 fn parse_session_changed(rest: &str) -> Result<ParsedEvent, TmuxError> {
@@ -287,21 +330,49 @@ mod tests {
     }
 
     #[test]
-    fn parse_output_decodes_hex() {
-        // "hi" = 0x68 0x69
-        let ev = parse_line("%output %3 6869").unwrap().unwrap();
+    fn parse_output_decodes_octal_escape() {
+        // tmux -CC: 可打印 ASCII 字面，不可打印 \NNN
+        // "hi\n" → 字面 hi 加 \012
+        let ev = parse_line("%output %3 hi\\012").unwrap().unwrap();
         if let ParsedEvent::Output { pane, data } = ev {
             assert_eq!(pane, PaneId(3));
-            assert_eq!(&data[..], b"hi");
+            assert_eq!(&data[..], b"hi\n");
         } else {
             panic!("wrong variant");
         }
     }
 
     #[test]
-    fn parse_output_invalid_hex_errors() {
-        let r = parse_line("%output %3 not-hex");
-        assert!(r.is_err());
+    fn parse_output_handles_escape_sequences() {
+        // 真实 tmux 输出片段（ANSI escape）：\033[2D
+        let ev = parse_line("%output %5 \\033[2D").unwrap().unwrap();
+        if let ParsedEvent::Output { data, .. } = ev {
+            assert_eq!(&data[..], b"\x1b[2D");
+        } else {
+            panic!("wrong variant");
+        }
+    }
+
+    #[test]
+    fn parse_output_handles_literal_backslash() {
+        // \\ → \
+        let ev = parse_line("%output %1 a\\\\b").unwrap().unwrap();
+        if let ParsedEvent::Output { data, .. } = ev {
+            assert_eq!(&data[..], b"a\\b");
+        } else {
+            panic!("wrong variant");
+        }
+    }
+
+    #[test]
+    fn parse_output_empty_data_is_ok() {
+        let ev = parse_line("%output %2 ").unwrap().unwrap();
+        if let ParsedEvent::Output { pane, data } = ev {
+            assert_eq!(pane, PaneId(2));
+            assert!(data.is_empty());
+        } else {
+            panic!("wrong variant");
+        }
     }
 
     #[test]

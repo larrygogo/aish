@@ -295,14 +295,14 @@ mod tests {
     }
 
     #[test]
-    fn feed_pane_output_decodes_hex() {
+    fn feed_pane_output_decodes_octal_escape() {
         let mut ctrl = TmuxController::new();
-        // "hi" = 0x68 0x69
-        let events = ctrl.feed_bytes(b"%output %3 6869\n");
+        // tmux -CC: 字面 + \NNN octal
+        let events = ctrl.feed_bytes(b"%output %3 hi\\012\n");
         assert_eq!(events.len(), 1);
         if let TmuxEvent::PaneOutput { pane, data } = &events[0] {
             assert_eq!(*pane, PaneId(3));
-            assert_eq!(&data[..], b"hi");
+            assert_eq!(&data[..], b"hi\n");
         } else {
             panic!("wrong variant");
         }
@@ -321,7 +321,7 @@ mod tests {
     fn feed_multi_lines_in_one_call() {
         let mut ctrl = TmuxController::new();
         let events =
-            ctrl.feed_bytes(b"%session-changed $0 default\n%window-add @0\n%output %0 6869\n");
+            ctrl.feed_bytes(b"%session-changed $0 default\n%window-add @0\n%output %0 hi\n");
         assert_eq!(events.len(), 4); // SessionAdded + ClientSessionChanged + WindowAdded + PaneOutput
     }
 
