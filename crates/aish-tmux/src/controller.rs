@@ -13,7 +13,7 @@ use crate::events::TmuxEvent;
 use crate::protocol::{parse_line, ParsedEvent};
 use crate::types::SessionTree;
 
-/// 从 tmux layout 字串提取所有 pane id。
+/// 从 tmux layout 字串提取所有 pane id（公开供 actor 用）。
 ///
 /// layout 例：
 ///   - 单 pane: `bb62,80x24,0,0,1`
@@ -22,7 +22,7 @@ use crate::types::SessionTree;
 ///
 /// 每个 leaf 形如 `WxH,X,Y,ID`。算法：把 `{`/`}`/`[`/`]` 当 `,` 切，
 /// 扫 token 流找连续 `WxH, N, N, N` 4-token 序列，最后 N 即 pane id。
-fn extract_pane_ids(layout: &str) -> Vec<PaneId> {
+pub fn extract_pane_ids(layout: &str) -> Vec<PaneId> {
     let normalized: String = layout
         .chars()
         .map(|c| match c {
@@ -75,6 +75,8 @@ pub struct TmuxController {
     parser_buf: Vec<u8>,
     /// 标记当前是否在 %begin/%end 块内（命令响应内容）
     in_command_response: bool,
+    /// 当前命令响应：(num, 已收 lines)。在 %begin 时建，%end 时取出 emit。
+    current_reply: Option<(u64, Vec<String>)>,
 }
 
 impl Default for TmuxController {
@@ -89,6 +91,7 @@ impl TmuxController {
             state: SessionTree::new(),
             parser_buf: Vec::new(),
             in_command_response: false,
+            current_reply: None,
         }
     }
 
@@ -137,11 +140,20 @@ impl TmuxController {
 
     fn handle_parsed(&mut self, ev: ParsedEvent, events: &mut Vec<TmuxEvent>) {
         match ev {
-            ParsedEvent::Begin { .. } => {
+            ParsedEvent::Begin { num, .. } => {
                 self.in_command_response = true;
+                self.current_reply = Some((num, Vec::new()));
             }
-            ParsedEvent::End { .. } => {
+            ParsedEvent::End { num, .. } => {
                 self.in_command_response = false;
+                if let Some((reply_num, content)) = self.current_reply.take() {
+                    if reply_num == num {
+                        events.push(TmuxEvent::CommandReply {
+                            num: reply_num,
+                            content,
+                        });
+                    }
+                }
             }
             ParsedEvent::Error { ts, num, flags: _ } => {
                 events.push(TmuxEvent::Exit {
@@ -241,8 +253,10 @@ impl TmuxController {
             ParsedEvent::Exit { reason } => {
                 events.push(TmuxEvent::Exit { reason });
             }
-            ParsedEvent::CommandOutput(_) => {
-                // 命令响应内容；M3a 不解析
+            ParsedEvent::CommandOutput(line) => {
+                if let Some((_, ref mut content)) = self.current_reply {
+                    content.push(line);
+                }
             }
         }
     }

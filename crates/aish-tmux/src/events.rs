@@ -40,6 +40,12 @@ pub enum TmuxEvent {
     Exit {
         reason: String,
     },
+    /// 命令响应：%begin <ts> <num> 到 %end <ts> <num> 之间的所有非 % 行。
+    /// 调用方按发送顺序匹配 reply（tmux 串行处理，按发送顺序回复）。
+    CommandReply {
+        num: u64,
+        content: Vec<String>,
+    },
 }
 
 #[cfg(test)]

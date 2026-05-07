@@ -6,7 +6,7 @@
 
 #![allow(dead_code)]
 
-use aish_types::{HostConfig, HostId, RemoteSession};
+use aish_types::{HostConfig, HostId, PaneId, RemoteSession};
 use tokio::sync::mpsc;
 
 use crate::state::{DisconnectReason, SessionCommand, SshEvent};
@@ -139,6 +139,11 @@ pub(crate) async fn host_session_task(
     }
     let mut mode = ActorMode::RawShell;
 
+    // capture-pane reply 配对状态：attach 后第一次收到 layout-change 时发 capture-pane，
+    // 等下一个 CommandReply 把 content 当 active pane 内容 emit。
+    let mut pending_capture: Option<PaneId> = None;
+    let mut capture_requested: bool = false;
+
     loop {
         tokio::select! {
             msg = chan.wait() => match msg {
@@ -164,6 +169,8 @@ pub(crate) async fn host_session_task(
                         tracing::info!(?host, len = data.len(), preview = %String::from_utf8_lossy(&data[..data.len().min(80)]).escape_debug().to_string(), "actor: tmux bytes recv");
                         let events = controller.feed_bytes(&data);
                         let mut tree_dirty = false;
+                        // 从 events 里挑出 layout 字串供 capture 决策（只看第一条）
+                        let mut first_layout: Option<String> = None;
                         for ev in events {
                             match ev {
                                 TmuxEvent::PaneOutput { pane, data: bytes } => {
@@ -175,8 +182,53 @@ pub(crate) async fn host_session_task(
                                         })
                                         .await;
                                 }
+                                TmuxEvent::LayoutChanged { ref layout, .. } => {
+                                    if first_layout.is_none() {
+                                        first_layout = Some(layout.clone());
+                                    }
+                                    tree_dirty = true;
+                                }
+                                TmuxEvent::CommandReply { content, .. } => {
+                                    if let Some(pane_id) = pending_capture.take() {
+                                        if !content.is_empty() {
+                                            let mut payload = String::new();
+                                            // cursor home + clear screen，然后逐行写
+                                            payload.push_str("\x1b[H\x1b[2J");
+                                            for (i, line) in content.iter().enumerate() {
+                                                if i > 0 {
+                                                    payload.push_str("\r\n");
+                                                }
+                                                payload.push_str(line);
+                                            }
+                                            let bytes = bytes::Bytes::from(payload.into_bytes());
+                                            tracing::info!(?host, ?pane_id, len = bytes.len(), "actor: capture-pane reply → emit TmuxPaneOutput");
+                                            let _ = event_tx
+                                                .send(SshEvent::TmuxPaneOutput {
+                                                    host,
+                                                    pane: pane_id,
+                                                    bytes,
+                                                })
+                                                .await;
+                                        }
+                                    }
+                                }
                                 _ => {
                                     tree_dirty = true;
+                                }
+                            }
+                        }
+                        // 发起 capture-pane（只发一次）
+                        if !capture_requested {
+                            if let Some(layout) = first_layout {
+                                if let Some(pane) = aish_tmux::extract_pane_ids(&layout).into_iter().next() {
+                                    let cmd = format!("capture-pane -e -p -t %{}\n", pane.0);
+                                    tracing::info!(?host, ?pane, cmd = cmd.trim(), "actor: requesting capture-pane");
+                                    if let Err(e) = chan.data(cmd.as_bytes()).await {
+                                        tracing::warn!(?host, "actor: capture-pane send failed: {}", e);
+                                    } else {
+                                        pending_capture = Some(pane);
+                                        capture_requested = true;
+                                    }
                                 }
                             }
                         }
@@ -275,22 +327,15 @@ pub(crate) async fn host_session_task(
                     }
                     chan = new_chan;
                     mode = ActorMode::TmuxAttached(TmuxController::new());
+                    pending_capture = None;
+                    capture_requested = false;
                     tracing::info!(?host, "actor: switched to TmuxAttached mode");
                     let _ = event_tx.send(SshEvent::TmuxAttached { host }).await;
                     // tmux attach 现有 session 时不会主动 dump pane 内容。
-                    // 孤立 session（之前无 client attached）尤其如此。
-                    // 策略：
-                    //   1) refresh-client -C 120x40 设 client size（驱动 %layout-change）
-                    //   2) send-keys -t '<sess>' C-l 给 active pane 发 Form-Feed
-                    //      → shell 收到 \x0c 重绘 prompt → tmux 把 redraw 通过 %output 发回
-                    //      代价：会清掉 active pane 之前的滚动输出（与原生 tmux attach 一致）
-                    let sess_quoted = sess_id.as_str().replace('\'', r"'\''");
-                    let init = format!(
-                        "refresh-client -C 120x40\nsend-keys -t '{}' C-l\n",
-                        sess_quoted
-                    );
-                    if let Err(err) = chan.data(init.as_bytes()).await {
-                        tracing::warn!(?host, "actor: send init commands failed: {}", err);
+                    // refresh-client -C 设 client size 触发 %layout-change（驱动 SessionTree）。
+                    // 收到 layout-change 时再发 capture-pane 拿当前 pane 内容（见 ChannelMsg::Data 处理）。
+                    if let Err(err) = chan.data(b"refresh-client -C 120x40\n").await {
+                        tracing::warn!(?host, "actor: send refresh-client failed: {}", err);
                     }
                 }
                 Some(SessionCommand::Disconnect) | None => {

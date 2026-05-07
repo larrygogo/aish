@@ -13,7 +13,7 @@ pub mod protocol;
 pub mod types;
 
 pub use commands::{build_command, Key, TmuxCommand};
-pub use controller::TmuxController;
+pub use controller::{extract_pane_ids, TmuxController};
 pub use error::TmuxError;
 pub use events::TmuxEvent;
 pub use types::{Pane, Session, SessionTree, Window};
