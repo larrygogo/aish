@@ -90,10 +90,21 @@ pub fn run() {
                         cx.notify();
                     }
                     SshEvent::TmuxSessionTreeUpdated { host, tree } => {
+                        tracing::info!(
+                            ?host,
+                            sessions = tree.sessions.len(),
+                            "app: TmuxSessionTreeUpdated"
+                        );
                         state.apply_tmux_session_tree(host, tree);
                         cx.notify();
                     }
                     SshEvent::TmuxPaneOutput { host, pane, bytes } => {
+                        tracing::info!(
+                            ?host,
+                            ?pane,
+                            len = bytes.len(),
+                            "app: TmuxPaneOutput → state.apply_tmux_pane_output"
+                        );
                         state.apply_tmux_pane_output(host, pane, &bytes);
                         cx.notify();
                     }
