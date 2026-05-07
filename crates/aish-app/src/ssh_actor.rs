@@ -25,18 +25,52 @@ pub fn spawn_session(
     cmd_tx
 }
 
-async fn host_session_task(
+pub(crate) async fn host_session_task(
     host: HostId,
     config: HostConfig,
     mut cmd_rx: mpsc::Receiver<SessionCommand>,
     event_tx: mpsc::Sender<SshEvent>,
 ) {
+    use aish_secrets::{SecretError, SecretStore};
     use aish_ssh::{ChannelMsg, SshClient};
+    use aish_types::SshAuth;
 
     use crate::state::SshErrorKind;
 
+    // 0. 如果是 Password auth 且 password 为空（来自 hosts.json），从 keyring 取
+    let mut effective_config = config.clone();
+    if let SshAuth::Password { password } = &mut effective_config.auth {
+        if password.is_empty() {
+            match SecretStore::get(host) {
+                Ok(p) => {
+                    *password = p;
+                }
+                Err(SecretError::NoEntry) => {
+                    let _ = event_tx
+                        .send(SshEvent::Error {
+                            host,
+                            kind: SshErrorKind::AuthFailed,
+                            msg: "keyring 中没有该 host 的密码（请重新在 GUI 中输入并保存）".into(),
+                        })
+                        .await;
+                    return;
+                }
+                Err(e) => {
+                    let _ = event_tx
+                        .send(SshEvent::Error {
+                            host,
+                            kind: SshErrorKind::AuthFailed,
+                            msg: format!("从 keyring 读取密码失败: {}", e),
+                        })
+                        .await;
+                    return;
+                }
+            }
+        }
+    }
+
     // 1. 连接 + 认证
-    let session = match SshClient::connect(&config).await {
+    let session = match SshClient::connect(&effective_config).await {
         Ok(s) => s,
         Err(err) => {
             // 把 aish_ssh::SshErrorKind 映射到 aish-app::state::SshErrorKind
@@ -205,6 +239,51 @@ pub fn encode_key(key: &str, ctrl: bool, _alt: bool) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn password_empty_no_keyring_entry_emits_auth_error() {
+        // password 为空 + keyring 无该 host 条目 → 期望立即 emit AuthFailed Error
+        use aish_types::{HostConfig, SshAuth};
+
+        let cfg = HostConfig {
+            id: aish_types::HostId::new(),
+            label: "no-pwd".into(),
+            host: "127.0.0.1".into(),
+            port: 22,
+            user: "root".into(),
+            auth: SshAuth::Password {
+                password: String::new(),
+            },
+            env_profile: None,
+        };
+        let host_id = cfg.id;
+
+        let (event_tx, mut event_rx) = mpsc::channel::<SshEvent>(8);
+        let (_cmd_tx, cmd_rx) = mpsc::channel::<SessionCommand>(8);
+
+        // 直接调 host_session_task — 因为没 keyring 条目应立即 emit Error 然后 return
+        let task_handle = tokio::spawn(host_session_task(host_id, cfg, cmd_rx, event_tx));
+
+        let evt = tokio::time::timeout(std::time::Duration::from_secs(2), event_rx.recv())
+            .await
+            .expect("timed out waiting for Error event");
+        match evt {
+            Some(SshEvent::Error {
+                kind: crate::state::SshErrorKind::AuthFailed,
+                msg,
+                ..
+            }) => {
+                assert!(
+                    msg.contains("keyring") || msg.contains("没有"),
+                    "expected keyring/没有 in msg, got: {}",
+                    msg
+                );
+            }
+            other => panic!("expected AuthFailed Error, got: {:?}", other),
+        }
+
+        task_handle.await.unwrap();
+    }
 
     #[test]
     fn encode_normal_chars() {
