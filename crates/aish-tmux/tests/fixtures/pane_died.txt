@@ -1,0 +1,4 @@
+%session-changed $0 default
+%window-add @0
+%window-close @0
+%exit

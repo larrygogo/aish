@@ -1,0 +1,7 @@
+%session-changed $0 dev
+%window-add @0
+%window-renamed @0 editor
+%window-add @1
+%window-renamed @1 server
+%window-add @2
+%window-renamed @2 logs

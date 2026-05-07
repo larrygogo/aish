@@ -1,0 +1,4 @@
+%session-changed $0 default
+%window-add @0
+%output %0 6c730a
+%output %0 66696c652e7478740a
