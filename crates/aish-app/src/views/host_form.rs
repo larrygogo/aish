@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use gpui::{
     div, hsla, prelude::*, px, rgb, App, Context, Entity, FocusHandle, Focusable, KeyDownEvent,
-    SharedString, Window,
+    MouseButton, MouseDownEvent, SharedString, Window,
 };
 
 use aish_types::HostId;
@@ -263,6 +263,32 @@ impl HostFormModal {
         self.focus_field = FocusField::Label;
     }
 
+    /// 鼠标点击切到指定字段。
+    fn focus_to(&mut self, field: FocusField, cx: &mut Context<Self>) {
+        self.focus_field = field;
+        cx.notify();
+    }
+
+    /// 鼠标点 segmented 强制设 auth_kind 到指定值（区别于 keyboard toggle）。
+    fn set_auth_kind(&mut self, kind: crate::state::AuthKind, cx: &mut Context<Self>) {
+        self.state.update(cx, |state, cx| {
+            if let Some(modal) = &mut state.modal {
+                let draft = match modal {
+                    HostFormState::Adding(d) | HostFormState::Editing { draft: d, .. } => d,
+                    HostFormState::DeleteConfirm { .. } => return,
+                };
+                draft.auth_kind = kind;
+                draft.error = None;
+                cx.notify();
+            }
+        });
+        // focus 跳到对应字段
+        self.focus_field = match kind {
+            crate::state::AuthKind::KeyFile => FocusField::KeyPath,
+            crate::state::AuthKind::Password => FocusField::Password,
+        };
+    }
+
     /// 切换 password_visible（mask ↔ 明文）。
     fn toggle_password_visible(&mut self, cx: &mut Context<Self>) {
         self.state.update(cx, |state, cx| {
@@ -299,8 +325,8 @@ impl Render for HostFormModal {
         };
 
         let body: gpui::AnyElement = match kind {
-            ("add", Some(draft), _) => render_form_body("添加 Host", draft, focus_field),
-            ("edit", Some(draft), _) => render_form_body("编辑 Host", draft, focus_field),
+            ("add", Some(draft), _) => self.render_form_body("添加 Host", draft, focus_field, cx),
+            ("edit", Some(draft), _) => self.render_form_body("编辑 Host", draft, focus_field, cx),
             ("delete", _, Some(label)) => render_delete_body(label),
             _ => return div().into_any_element(),
         };
@@ -311,11 +337,14 @@ impl Render for HostFormModal {
             "Save (Enter)"
         };
 
-        // 全屏半透明遮罩 + 居中 modal 卡片。
-        // 使用 absolute + top_0 + left_0 + size_full 而非 inset_0（GPUI 无该 API）。
+        // 全屏半透明遮罩 + 居中 modal 卡片。点击遮罩 = cancel。
         div()
             .track_focus(&self.focus_handle)
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _w, cx| this.handle_key(ev, cx)))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _ev: &MouseDownEvent, _w, cx| this.cancel(cx)),
+            )
             .absolute()
             .top_0()
             .left_0()
@@ -326,6 +355,8 @@ impl Render for HostFormModal {
             .justify_center()
             .child(
                 div()
+                    // 阻止点击 modal 内部冒泡到遮罩触发 cancel
+                    .on_mouse_down(MouseButton::Left, |_ev: &MouseDownEvent, _w, _cx| {})
                     .w(px(460.0))
                     .bg(rgb(theme::BG_ELEVATED))
                     .rounded_xl()
@@ -337,245 +368,344 @@ impl Render for HostFormModal {
                     .flex_col()
                     .gap_4()
                     .child(body)
-                    .child(render_buttons(primary_text)),
+                    .child(self.render_buttons(primary_text, cx)),
             )
             .into_any_element()
     }
 }
 
-fn render_form_body(
-    title: &str,
-    draft: &HostFormDraft,
-    focus_field: FocusField,
-) -> gpui::AnyElement {
-    let title_str = title.to_string();
-    let mut col = div()
-        .flex()
-        .flex_col()
-        .gap_3()
-        .child(
-            div()
-                .text_color(rgb(theme::TEXT_PRIMARY))
-                .text_size(theme::text_xl())
-                .child(title_str),
-        )
-        .child(field_row(
-            "label",
-            &draft.label,
-            focus_field == FocusField::Label,
-        ))
-        .child(field_row(
-            "host",
-            &draft.host,
-            focus_field == FocusField::Host,
-        ))
-        .child(field_row(
-            "port",
-            &draft.port,
-            focus_field == FocusField::Port,
-        ))
-        .child(field_row(
-            "user",
-            &draft.user,
-            focus_field == FocusField::User,
-        ));
+impl HostFormModal {
+    fn render_form_body(
+        &self,
+        title: &str,
+        draft: &HostFormDraft,
+        focus_field: FocusField,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        use crate::state::AuthKind;
 
-    // auth radio（当前选中: ● 否则 ○）— M2d 用 Ctrl+T 切换，无 mouse listener
-    let auth_kind = draft.auth_kind;
-    let kf_marker = if auth_kind == crate::state::AuthKind::KeyFile {
-        "● 密钥"
-    } else {
-        "○ 密钥"
-    };
-    let pw_marker = if auth_kind == crate::state::AuthKind::Password {
-        "● 密码"
-    } else {
-        "○ 密码"
-    };
-    // 认证方式 segmented control（横向两段，选中高亮）
-    use crate::state::AuthKind;
-    let kf_selected = auth_kind == AuthKind::KeyFile;
-    let pw_selected = auth_kind == AuthKind::Password;
-    col = col.child(
+        let title_str = title.to_string();
+        let auth_kind = draft.auth_kind;
+        let kf_selected = auth_kind == AuthKind::KeyFile;
+        let pw_selected = auth_kind == AuthKind::Password;
+
+        let mut col = div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(
+                div()
+                    .text_color(rgb(theme::TEXT_PRIMARY))
+                    .text_size(theme::text_xl())
+                    .child(title_str),
+            )
+            .child(self.field_row(
+                "label",
+                &draft.label,
+                focus_field == FocusField::Label,
+                FocusField::Label,
+                cx,
+            ))
+            .child(self.field_row(
+                "host",
+                &draft.host,
+                focus_field == FocusField::Host,
+                FocusField::Host,
+                cx,
+            ))
+            .child(self.field_row(
+                "port",
+                &draft.port,
+                focus_field == FocusField::Port,
+                FocusField::Port,
+                cx,
+            ))
+            .child(self.field_row(
+                "user",
+                &draft.user,
+                focus_field == FocusField::User,
+                FocusField::User,
+                cx,
+            ));
+
+        // 认证方式 segmented control（点击切 auth_kind）
+        let kf_marker = if kf_selected { "● 密钥" } else { "○ 密钥" };
+        let pw_marker = if pw_selected { "● 密码" } else { "○ 密码" };
+        col = col.child(
+            div()
+                .flex()
+                .flex_row()
+                .bg(rgb(theme::BG_BASE))
+                .rounded_md()
+                .p_0p5()
+                .child(
+                    div()
+                        .flex_1()
+                        .py_1p5()
+                        .text_color(rgb(if kf_selected {
+                            theme::TEXT_PRIMARY
+                        } else {
+                            theme::TEXT_SECONDARY
+                        }))
+                        .bg(rgb(if kf_selected {
+                            theme::BG_SELECTED
+                        } else {
+                            theme::BG_BASE
+                        }))
+                        .text_size(theme::text_sm())
+                        .rounded_md()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .hover(|s| s.cursor_pointer())
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
+                                this.set_auth_kind(AuthKind::KeyFile, cx);
+                            }),
+                        )
+                        .child(kf_marker),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .py_1p5()
+                        .text_color(rgb(if pw_selected {
+                            theme::TEXT_PRIMARY
+                        } else {
+                            theme::TEXT_SECONDARY
+                        }))
+                        .bg(rgb(if pw_selected {
+                            theme::BG_SELECTED
+                        } else {
+                            theme::BG_BASE
+                        }))
+                        .text_size(theme::text_sm())
+                        .rounded_md()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .hover(|s| s.cursor_pointer())
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
+                                this.set_auth_kind(AuthKind::Password, cx);
+                            }),
+                        )
+                        .child(pw_marker),
+                ),
+        );
+
+        col = match auth_kind {
+            AuthKind::KeyFile => col.child(self.field_row(
+                "key path",
+                &draft.key_path,
+                focus_field == FocusField::KeyPath,
+                FocusField::KeyPath,
+                cx,
+            )),
+            AuthKind::Password => col.child(self.password_field_row(
+                &draft.password,
+                draft.password_visible,
+                focus_field == FocusField::Password,
+                cx,
+            )),
+        };
+
+        if let Some(err) = &draft.error {
+            col = col.child(
+                div()
+                    .text_color(rgb(theme::ACCENT_RED))
+                    .text_size(theme::text_sm())
+                    .child(err.clone()),
+            );
+        }
+
+        col.child(
+            div()
+                .text_color(rgb(theme::TEXT_MUTED))
+                .text_size(theme::text_xs())
+                .child("Tab 切换字段 · Ctrl+T 切 auth · Ctrl+E 切密码可见 · Enter 保存 · Esc 取消"),
+        )
+        .into_any_element()
+    }
+
+    /// 密码字段行：input + 👁 toggle 图标（点击切可见性）。
+    fn password_field_row(
+        &self,
+        password: &str,
+        visible: bool,
+        focused: bool,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        let display: SharedString = if password.is_empty() {
+            SharedString::from("(unchanged) 输入新密码所换")
+        } else if visible {
+            SharedString::from(password.to_string())
+        } else {
+            SharedString::from("•".repeat(password.chars().count()))
+        };
+        let border_color = if focused {
+            rgb(theme::ACCENT_BLUE)
+        } else {
+            rgb(theme::BORDER_SUBTLE)
+        };
+        let text_color = if password.is_empty() {
+            rgb(theme::TEXT_MUTED)
+        } else {
+            rgb(theme::TEXT_PRIMARY)
+        };
+        let eye = if visible { "👁" } else { "👁‍🗨" };
         div()
             .flex()
             .flex_row()
-            .bg(rgb(theme::BG_BASE))
-            .rounded_md()
-            .p_0p5()
+            .items_center()
+            .gap_3()
             .child(
                 div()
-                    .flex_1()
-                    .py_1p5()
-                    .text_color(rgb(if kf_selected {
-                        theme::TEXT_PRIMARY
-                    } else {
-                        theme::TEXT_SECONDARY
-                    }))
-                    .bg(rgb(if kf_selected {
-                        theme::BG_SELECTED
-                    } else {
-                        theme::BG_BASE
-                    }))
+                    .w(px(80.0))
+                    .text_color(rgb(theme::TEXT_SECONDARY))
                     .text_size(theme::text_sm())
-                    .rounded_md()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(kf_marker),
+                    .child("password"),
             )
             .child(
                 div()
                     .flex_1()
-                    .py_1p5()
-                    .text_color(rgb(if pw_selected {
-                        theme::TEXT_PRIMARY
-                    } else {
-                        theme::TEXT_SECONDARY
-                    }))
-                    .bg(rgb(if pw_selected {
-                        theme::BG_SELECTED
-                    } else {
-                        theme::BG_BASE
-                    }))
-                    .text_size(theme::text_sm())
+                    .px_3()
+                    .py_2()
+                    .bg(rgb(theme::BG_BASE))
+                    .border_1()
+                    .border_color(border_color)
                     .rounded_md()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(pw_marker),
-            ),
-    );
-
-    // 根据 auth_kind 显示 KeyPath 或 Password 字段
-    col = match auth_kind {
-        AuthKind::KeyFile => col.child(field_row(
-            "key path",
-            &draft.key_path,
-            focus_field == FocusField::KeyPath,
-        )),
-        AuthKind::Password => col.child(password_field_row(
-            &draft.password,
-            draft.password_visible,
-            focus_field == FocusField::Password,
-        )),
-    };
-
-    if let Some(err) = &draft.error {
-        col = col.child(
-            div()
-                .text_color(rgb(theme::ACCENT_RED))
-                .text_size(theme::text_sm())
-                .child(err.clone()),
-        );
+                    .text_color(text_color)
+                    .text_size(theme::text_sm())
+                    .hover(|s| s.cursor_pointer())
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
+                            this.focus_to(FocusField::Password, cx);
+                        }),
+                    )
+                    .child(display),
+            )
+            .child(
+                div()
+                    .px_2()
+                    .text_color(rgb(theme::TEXT_SECONDARY))
+                    .text_size(theme::text_lg())
+                    .hover(|s| s.cursor_pointer())
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
+                            this.toggle_password_visible(cx);
+                        }),
+                    )
+                    .child(eye),
+            )
+            .into_any_element()
     }
 
-    col.child(
+    fn field_row(
+        &self,
+        label: &str,
+        value: &str,
+        focused: bool,
+        target_field: FocusField,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        let display: SharedString = if value.is_empty() {
+            SharedString::from("(空)")
+        } else {
+            SharedString::from(value.to_string())
+        };
+        let border_color = if focused {
+            rgb(theme::ACCENT_BLUE)
+        } else {
+            rgb(theme::BORDER_SUBTLE)
+        };
         div()
-            .text_color(rgb(theme::TEXT_MUTED))
-            .text_size(theme::text_xs())
-            .child("Tab 切换字段 · Ctrl+T 切 auth · Ctrl+E 切密码可见 · Enter 保存 · Esc 取消"),
-    )
-    .into_any_element()
-}
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_3()
+            .child(
+                div()
+                    .w(px(80.0))
+                    .text_color(rgb(theme::TEXT_SECONDARY))
+                    .text_size(theme::text_sm())
+                    .child(label.to_string()),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .px_3()
+                    .py_2()
+                    .bg(rgb(theme::BG_BASE))
+                    .border_1()
+                    .border_color(border_color)
+                    .rounded_md()
+                    .text_color(if value.is_empty() {
+                        rgb(theme::TEXT_MUTED)
+                    } else {
+                        rgb(theme::TEXT_PRIMARY)
+                    })
+                    .text_size(theme::text_sm())
+                    .hover(|s| s.cursor_pointer())
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
+                            this.focus_to(target_field, cx);
+                        }),
+                    )
+                    .child(display),
+            )
+            .into_any_element()
+    }
 
-/// 密码字段行：input(mask/明文) + 👁 toggle 图标。
-/// 编辑模式下 password 为空时显示 placeholder「(unchanged) 输入新密码所换」。
-fn password_field_row(password: &str, visible: bool, focused: bool) -> gpui::AnyElement {
-    let display: SharedString = if password.is_empty() {
-        SharedString::from("(unchanged) 输入新密码所换")
-    } else if visible {
-        SharedString::from(password.to_string())
-    } else {
-        SharedString::from("•".repeat(password.chars().count()))
-    };
-    let border_color = if focused {
-        rgb(theme::ACCENT_BLUE)
-    } else {
-        rgb(theme::BORDER_SUBTLE)
-    };
-    let text_color = if password.is_empty() {
-        rgb(theme::TEXT_MUTED)
-    } else {
-        rgb(theme::TEXT_PRIMARY)
-    };
-    let eye = if visible { "👁" } else { "👁‍🗨" };
-    div()
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap_3()
-        .child(
-            div()
-                .w(px(80.0))
-                .text_color(rgb(theme::TEXT_SECONDARY))
-                .text_size(theme::text_sm())
-                .child("password"),
-        )
-        .child(
-            div()
-                .flex_1()
-                .px_3()
-                .py_2()
-                .bg(rgb(theme::BG_BASE))
-                .border_1()
-                .border_color(border_color)
-                .rounded_md()
-                .text_color(text_color)
-                .text_size(theme::text_sm())
-                .child(display),
-        )
-        .child(
-            div()
-                .px_2()
-                .text_color(rgb(theme::TEXT_SECONDARY))
-                .text_size(theme::text_lg())
-                .child(eye),
-        )
-        .into_any_element()
-}
-
-fn field_row(label: &str, value: &str, focused: bool) -> gpui::AnyElement {
-    let display: SharedString = if value.is_empty() {
-        SharedString::from("(空)")
-    } else {
-        SharedString::from(value.to_string())
-    };
-    let border_color = if focused {
-        rgb(theme::ACCENT_BLUE)
-    } else {
-        rgb(theme::BORDER_SUBTLE)
-    };
-    div()
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap_3()
-        .child(
-            div()
-                .w(px(80.0))
-                .text_color(rgb(theme::TEXT_SECONDARY))
-                .text_size(theme::text_sm())
-                .child(label.to_string()),
-        )
-        .child(
-            div()
-                .flex_1()
-                .px_3()
-                .py_2()
-                .bg(rgb(theme::BG_BASE))
-                .border_1()
-                .border_color(border_color)
-                .rounded_md()
-                .text_color(if value.is_empty() {
-                    rgb(theme::TEXT_MUTED)
-                } else {
-                    rgb(theme::TEXT_PRIMARY)
-                })
-                .text_size(theme::text_sm())
-                .child(display),
-        )
-        .into_any_element()
+    fn render_buttons(&self, primary_text: &str, cx: &mut Context<Self>) -> gpui::AnyElement {
+        div()
+            .flex()
+            .flex_row()
+            .gap_2()
+            .justify_end()
+            .child(
+                div()
+                    .px_4()
+                    .py_2()
+                    .bg(rgb(theme::BG_BASE))
+                    .border_1()
+                    .border_color(rgb(theme::BORDER_SUBTLE))
+                    .text_color(rgb(theme::TEXT_SECONDARY))
+                    .text_size(theme::text_sm())
+                    .rounded_md()
+                    .hover(|s| {
+                        s.bg(rgb(theme::BG_HOVER))
+                            .text_color(rgb(theme::TEXT_PRIMARY))
+                            .cursor_pointer()
+                    })
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _ev: &MouseDownEvent, _w, cx| this.cancel(cx)),
+                    )
+                    .child("Cancel (Esc)"),
+            )
+            .child(
+                div()
+                    .px_4()
+                    .py_2()
+                    .bg(rgb(theme::ACCENT_BLUE))
+                    .text_color(rgb(0xffffff))
+                    .text_size(theme::text_sm())
+                    .rounded_md()
+                    .hover(|s| s.cursor_pointer())
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _ev: &MouseDownEvent, _w, cx| this.save(cx)),
+                    )
+                    .child(primary_text.to_string()),
+            )
+            .into_any_element()
+    }
 }
 
 fn render_delete_body(label: &str) -> gpui::AnyElement {
@@ -605,33 +735,3 @@ fn render_delete_body(label: &str) -> gpui::AnyElement {
         .into_any_element()
 }
 
-fn render_buttons(primary_text: &str) -> gpui::AnyElement {
-    div()
-        .flex()
-        .flex_row()
-        .gap_2()
-        .justify_end()
-        .child(
-            div()
-                .px_4()
-                .py_2()
-                .bg(rgb(theme::BG_BASE))
-                .border_1()
-                .border_color(rgb(theme::BORDER_SUBTLE))
-                .text_color(rgb(theme::TEXT_SECONDARY))
-                .text_size(theme::text_sm())
-                .rounded_md()
-                .child("Cancel (Esc)"),
-        )
-        .child(
-            div()
-                .px_4()
-                .py_2()
-                .bg(rgb(theme::ACCENT_BLUE))
-                .text_color(rgb(0xffffff))
-                .text_size(theme::text_sm())
-                .rounded_md()
-                .child(primary_text.to_string()),
-        )
-        .into_any_element()
-}
