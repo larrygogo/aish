@@ -72,6 +72,14 @@ pub fn make_term(cols: u16, rows: u16) -> Term<VoidListener> {
     Term::new(config, &size, VoidListener)
 }
 
+/// 表单中选中的认证类型（radio 控件）。
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum AuthKind {
+    #[default]
+    KeyFile,
+    Password,
+}
+
 /// modal 状态：当前是否在添加 / 编辑 / 删除确认 host。
 #[derive(Debug)]
 pub enum HostFormState {
@@ -87,29 +95,50 @@ pub struct HostFormDraft {
     pub host: String,
     pub port: String,
     pub user: String,
+    /// 当前选中的 auth 类型（radio）
+    pub auth_kind: AuthKind,
+    /// auth_kind == KeyFile 时使用
     pub key_path: String,
+    /// auth_kind == Password 时使用。
+    /// 编辑模式下默认 ""，留空表示「不改密码」（保留 keyring 现有值）。
+    pub password: String,
+    /// 控制密码字段 mask / 明文 显示（👁 toggle）
+    pub password_visible: bool,
     /// 校验失败时显示在 modal 底部的红字。
     pub error: Option<String>,
 }
 
 impl HostFormDraft {
     /// 从已有 HostConfig 填充（用于编辑）。
+    /// 注意：Password 模式下 password 字段保持 ""，placeholder 提示「(unchanged)」；
+    /// 不从 keyring 预读密码（最小化内存暴露 + 编辑保存空 = 不动 keyring）。
     pub fn from_config(cfg: &HostConfig) -> Self {
-        let key_path = match &cfg.auth {
-            aish_types::SshAuth::KeyFile { path } => path.display().to_string(),
-            _ => String::new(),
+        let (auth_kind, key_path) = match &cfg.auth {
+            aish_types::SshAuth::KeyFile { path } => {
+                (AuthKind::KeyFile, path.display().to_string())
+            }
+            aish_types::SshAuth::Password { .. } => (AuthKind::Password, String::new()),
+            aish_types::SshAuth::Agent => (AuthKind::KeyFile, String::new()),
         };
         Self {
             label: cfg.label.clone(),
             host: cfg.host.clone(),
             port: cfg.port.to_string(),
             user: cfg.user.clone(),
+            auth_kind,
             key_path,
+            password: String::new(),
+            password_visible: false,
             error: None,
         }
     }
 
     /// 校验并转回 HostConfig。`id` Some 表示编辑（保留原 id）/ None 表示新建。
+    ///
+    /// auth_kind 决定走 KeyFile 还是 Password 校验路径：
+    ///   - KeyFile: 校验 key path 非空 + 文件存在
+    ///   - Password: 校验 password 非空（**编辑模式例外**：编辑时空 password 表示「不改」，
+    ///     由 caller 在 save 流程中区分；into_config 这里要求新建模式必须填密码）
     #[allow(clippy::wrong_self_convention)]
     pub fn into_config(&self, id: Option<HostId>) -> Result<HostConfig, String> {
         if self.label.trim().is_empty() {
@@ -126,14 +155,30 @@ impl HostFormDraft {
         if self.user.trim().is_empty() {
             return Err("user 不能为空".into());
         }
-        let key_path = self.key_path.trim();
-        if key_path.is_empty() {
-            return Err("key path 不能为空".into());
-        }
-        let key_pathbuf = std::path::PathBuf::from(key_path);
-        if !key_pathbuf.exists() {
-            return Err(format!("key 文件不存在: {}", key_path));
-        }
+
+        let auth = match self.auth_kind {
+            AuthKind::KeyFile => {
+                let key_path = self.key_path.trim();
+                if key_path.is_empty() {
+                    return Err("key path 不能为空".into());
+                }
+                let key_pathbuf = std::path::PathBuf::from(key_path);
+                if !key_pathbuf.exists() {
+                    return Err(format!("key 文件不存在: {}", key_path));
+                }
+                aish_types::SshAuth::KeyFile { path: key_pathbuf }
+            }
+            AuthKind::Password => {
+                // 新建模式：必须填密码
+                // 编辑模式：留空表示「不改」（caller 解释；into_config 仅做语义透传）
+                if id.is_none() && self.password.is_empty() {
+                    return Err("password 不能为空".into());
+                }
+                aish_types::SshAuth::Password {
+                    password: self.password.clone(),
+                }
+            }
+        };
 
         Ok(HostConfig {
             id: id.unwrap_or_else(|| HostId(uuid::Uuid::new_v4())),
@@ -141,7 +186,7 @@ impl HostFormDraft {
             host: self.host.trim().into(),
             port,
             user: self.user.trim().into(),
-            auth: aish_types::SshAuth::KeyFile { path: key_pathbuf },
+            auth,
             env_profile: None,
         })
     }
@@ -252,6 +297,9 @@ impl AppState {
 
     /// 删除 host。同步清理 sessions / pane_terminals / pane_dimensions / 重置 selected。
     /// 返回 true = 成功删除，false = 未找到。
+    ///
+    /// **注意**：此函数**不**清理 keyring 条目 — 调用方（host_form save）
+    /// 在调本函数前/后调 `persistence::delete_secret_for(id)`。
     pub fn remove_host(&mut self, id: HostId) -> bool {
         let idx = match self.hosts.iter().position(|h| h.id == id) {
             Some(i) => i,
@@ -362,13 +410,16 @@ mod tests {
     }
 
     #[test]
-    fn draft_into_config_validates_empty_label() {
+    fn draft_keyfile_into_config_validates_empty_label() {
         let draft = HostFormDraft {
             label: "".into(),
             host: "1.2.3.4".into(),
             port: "22".into(),
             user: "root".into(),
+            auth_kind: AuthKind::KeyFile,
             key_path: "/tmp/x".into(),
+            password: "".into(),
+            password_visible: false,
             error: None,
         };
         let r = draft.into_config(None);
@@ -377,58 +428,71 @@ mod tests {
     }
 
     #[test]
-    fn draft_into_config_validates_port_non_numeric() {
+    fn draft_keyfile_into_config_validates_port_non_numeric() {
         let draft = HostFormDraft {
             label: "v".into(),
             host: "1.2.3.4".into(),
             port: "abc".into(),
             user: "root".into(),
+            auth_kind: AuthKind::KeyFile,
             key_path: "/tmp/x".into(),
+            password: "".into(),
+            password_visible: false,
             error: None,
         };
-        let r = draft.into_config(None);
-        assert!(r.unwrap_err().contains("port"));
+        assert!(draft.into_config(None).unwrap_err().contains("port"));
     }
 
     #[test]
-    fn draft_into_config_validates_key_file_exists() {
+    fn draft_keyfile_into_config_validates_key_file_exists() {
         let draft = HostFormDraft {
             label: "v".into(),
             host: "1.2.3.4".into(),
             port: "22".into(),
             user: "root".into(),
+            auth_kind: AuthKind::KeyFile,
             key_path: "/nonexistent/path/aish_test_only".into(),
+            password: "".into(),
+            password_visible: false,
             error: None,
         };
-        let r = draft.into_config(None);
-        assert!(r.unwrap_err().contains("key 文件不存在"));
+        assert!(draft
+            .into_config(None)
+            .unwrap_err()
+            .contains("key 文件不存在"));
     }
 
     #[test]
-    fn draft_into_config_succeeds_with_existing_key() {
+    fn draft_keyfile_into_config_succeeds_with_existing_key() {
         let key = write_temp_key_file();
         let draft = HostFormDraft {
             label: "v".into(),
             host: "1.2.3.4".into(),
             port: "22".into(),
             user: "root".into(),
+            auth_kind: AuthKind::KeyFile,
             key_path: key.path().display().to_string(),
+            password: "".into(),
+            password_visible: false,
             error: None,
         };
         let cfg = draft.into_config(None).unwrap();
         assert_eq!(cfg.label, "v");
-        assert_eq!(cfg.port, 22);
+        assert!(matches!(cfg.auth, aish_types::SshAuth::KeyFile { .. }));
     }
 
     #[test]
-    fn draft_into_config_preserves_id_when_provided() {
+    fn draft_keyfile_into_config_preserves_id_when_provided() {
         let key = write_temp_key_file();
         let draft = HostFormDraft {
             label: "v".into(),
             host: "1.2.3.4".into(),
             port: "22".into(),
             user: "root".into(),
+            auth_kind: AuthKind::KeyFile,
             key_path: key.path().display().to_string(),
+            password: "".into(),
+            password_visible: false,
             error: None,
         };
         let id = HostId(Uuid::new_v4());
@@ -437,12 +501,88 @@ mod tests {
     }
 
     #[test]
-    fn draft_from_config_extracts_key_path() {
+    fn draft_password_new_requires_nonempty_password() {
+        let draft = HostFormDraft {
+            label: "v".into(),
+            host: "1.2.3.4".into(),
+            port: "22".into(),
+            user: "root".into(),
+            auth_kind: AuthKind::Password,
+            key_path: "".into(),
+            password: "".into(),
+            password_visible: false,
+            error: None,
+        };
+        let r = draft.into_config(None);
+        assert!(r.is_err());
+        assert!(r.unwrap_err().contains("password"));
+    }
+
+    #[test]
+    fn draft_password_new_succeeds_with_password() {
+        let draft = HostFormDraft {
+            label: "v".into(),
+            host: "1.2.3.4".into(),
+            port: "22".into(),
+            user: "root".into(),
+            auth_kind: AuthKind::Password,
+            key_path: "".into(),
+            password: "secret".into(),
+            password_visible: false,
+            error: None,
+        };
+        let cfg = draft.into_config(None).unwrap();
+        match cfg.auth {
+            aish_types::SshAuth::Password { password } => assert_eq!(password, "secret"),
+            _ => panic!("expected Password variant"),
+        }
+    }
+
+    #[test]
+    fn draft_password_edit_allows_empty_password() {
+        let id = HostId(Uuid::new_v4());
+        let draft = HostFormDraft {
+            label: "v".into(),
+            host: "1.2.3.4".into(),
+            port: "22".into(),
+            user: "root".into(),
+            auth_kind: AuthKind::Password,
+            key_path: "".into(),
+            password: "".into(),
+            password_visible: false,
+            error: None,
+        };
+        let cfg = draft.into_config(Some(id)).unwrap();
+        match cfg.auth {
+            aish_types::SshAuth::Password { password } => assert_eq!(password, ""),
+            _ => panic!("expected Password variant"),
+        }
+    }
+
+    #[test]
+    fn draft_from_config_password_keeps_password_empty() {
+        let host = HostConfig {
+            id: HostId::new(),
+            label: "v".into(),
+            host: "1.2.3.4".into(),
+            port: 22,
+            user: "root".into(),
+            auth: aish_types::SshAuth::Password {
+                password: "this-should-be-ignored".into(),
+            },
+            env_profile: None,
+        };
+        let draft = HostFormDraft::from_config(&host);
+        assert_eq!(draft.auth_kind, AuthKind::Password);
+        assert_eq!(draft.password, ""); // 不预填
+    }
+
+    #[test]
+    fn draft_from_config_keyfile_extracts_path() {
         let h = mk_host("v");
         let draft = HostFormDraft::from_config(&h);
-        assert_eq!(draft.label, "v");
-        assert_eq!(draft.port, "22");
-        assert!(draft.key_path.contains("id_ed25519") || draft.key_path.contains("/tmp/k"));
+        assert_eq!(draft.auth_kind, AuthKind::KeyFile);
+        assert!(draft.key_path.contains("/tmp/k") || draft.key_path.contains("\\tmp\\k"));
     }
 
     #[test]
