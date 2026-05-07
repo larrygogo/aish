@@ -31,6 +31,10 @@ pub struct TerminalView {
     last_pty_size: Option<(aish_types::ConnectionId, u16, u16)>,
     /// 进行中的 resize debounce task — drop 即取消。
     pending_resize: Option<gpui::Task<()>>,
+    /// canvas 的 paint bounds（窗口绝对坐标）。每次 paint 由 prepaint 通过
+    /// on_next_frame 异步写入。mouse_down/move 事件的 position 是窗口绝对坐标，
+    /// 必须减去 bounds.origin + padding 才能映射到 grid 坐标。
+    canvas_bounds: Option<Bounds<Pixels>>,
 }
 
 impl TerminalView {
@@ -63,6 +67,7 @@ impl TerminalView {
             cursor_state,
             last_pty_size: None,
             pending_resize: None,
+            canvas_bounds: None,
         }
     }
 
@@ -105,14 +110,20 @@ impl TerminalView {
         });
     }
 
-    /// 根据当前字体计算 GridLayout（固定 8px padding）。
+    /// 根据当前字体 + 最近一次 canvas bounds 计算 GridLayout（含 8px padding）。
+    /// 鼠标事件的 ev.position 是窗口绝对坐标 — 必须减 canvas.origin 才能落到
+    /// grid 上。如果 canvas_bounds 还没就绪（首帧之前），回退到原点 + 8px padding。
     fn current_layout(&self, cx: &App) -> grid_renderer::GridLayout {
         let (cw, ch) = font::cell_size(cx);
+        let (origin_x, origin_y) = match self.canvas_bounds {
+            Some(b) => (b.origin.x + px(8.0), b.origin.y + px(8.0)),
+            None => (px(8.0), px(8.0)),
+        };
         grid_renderer::GridLayout {
             cell_width: cw,
             cell_height: ch,
-            origin_x: px(8.0),
-            origin_y: px(8.0),
+            origin_x,
+            origin_y,
         }
     }
 
@@ -211,9 +222,12 @@ impl TerminalView {
     }
 
     /// 检测 bounds 变化，算新 cols/rows，若有变化则 debounce 100ms 后触发 resize。
+    /// 同时把 bounds 缓存到 `self.canvas_bounds` 供 mouse handler 用于 grid 坐标换算。
     ///
     /// 在 canvas prepaint 的下一帧回调中调用（通过 window.on_next_frame）。
     fn check_resize(&mut self, bounds: Bounds<Pixels>, cx: &mut Context<Self>) {
+        self.canvas_bounds = Some(bounds);
+
         let conn = match self.state.read(cx).current_connection() {
             Some(c) => c,
             None => return,
