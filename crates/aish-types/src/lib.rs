@@ -87,6 +87,13 @@ impl std::fmt::Display for ProfileId {
     }
 }
 
+/// 远端 tmux list-sessions 输出的单条 session 信息（纯展示用，不含 windows/panes）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteSession {
+    pub id: SessionId,
+    pub name: String,
+}
+
 /// SSH 认证方式。Password 的 `password` 字段不序列化 — 仅运行时持有；
 /// 持久化到 OS keyring（aish-secrets::SecretStore），hosts.json 只标 kind。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -239,5 +246,15 @@ mod tests {
         let json = serde_json::to_string(&original).unwrap();
         let parsed: SshAuth = serde_json::from_str(&json).unwrap();
         assert_eq!(original, parsed);
+    }
+
+    #[test]
+    fn remote_session_basic() {
+        let s = RemoteSession {
+            id: SessionId::new("$0"),
+            name: "dev".into(),
+        };
+        assert_eq!(s.id.as_str(), "$0");
+        assert_eq!(s.name, "dev");
     }
 }
