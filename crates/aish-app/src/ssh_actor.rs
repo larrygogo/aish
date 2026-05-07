@@ -161,7 +161,7 @@ pub(crate) async fn host_session_task(
                             .await;
                     }
                     ActorMode::TmuxAttached(controller) => {
-                        tracing::debug!(?host, len = data.len(), "actor: tmux bytes recv");
+                        tracing::info!(?host, len = data.len(), preview = %String::from_utf8_lossy(&data[..data.len().min(80)]).escape_debug().to_string(), "actor: tmux bytes recv");
                         let events = controller.feed_bytes(&data);
                         let mut tree_dirty = false;
                         for ev in events {
@@ -201,7 +201,7 @@ pub(crate) async fn host_session_task(
                     break;
                 }
                 Some(other) => {
-                    tracing::debug!(?host, ?other, "actor: other ChannelMsg");
+                    tracing::info!(?host, ?other, "actor: other ChannelMsg");
                 }
             },
             cmd = cmd_rx.recv() => match cmd {
