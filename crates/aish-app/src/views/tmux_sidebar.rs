@@ -29,18 +29,28 @@ impl TmuxSidebarView {
 
     fn dispatch_command(&self, host: HostId, cmd: SessionCommand, cx: &mut Context<Self>) {
         let app = self.state.read(cx);
-        if let Some(sender) = app.sessions.get(&host).cloned() {
-            self.bridge.spawn(async move {
-                let _ = sender.send(cmd).await;
-            });
+        match app.sessions.get(&host).cloned() {
+            Some(sender) => {
+                tracing::info!(?host, ?cmd, "tmux_sidebar: dispatch SessionCommand");
+                self.bridge.spawn(async move {
+                    if let Err(e) = sender.send(cmd).await {
+                        tracing::error!("tmux_sidebar: send to actor failed: {}", e);
+                    }
+                });
+            }
+            None => {
+                tracing::warn!(?host, "tmux_sidebar: no session sender for host");
+            }
         }
     }
 
     fn handle_refresh(&mut self, host: HostId, cx: &mut Context<Self>) {
+        tracing::info!(?host, "tmux_sidebar: refresh clicked");
         self.dispatch_command(host, SessionCommand::QueryTmuxSessions, cx);
     }
 
     fn handle_attach(&mut self, host: HostId, session: SessionId, cx: &mut Context<Self>) {
+        tracing::info!(?host, ?session, "tmux_sidebar: session row clicked");
         self.dispatch_command(host, SessionCommand::AttachTmux { session }, cx);
     }
 }

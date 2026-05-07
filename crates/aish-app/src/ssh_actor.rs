@@ -152,6 +152,7 @@ pub(crate) async fn host_session_task(
                             .await;
                     }
                     ActorMode::TmuxAttached(controller) => {
+                        tracing::debug!(?host, len = data.len(), "actor: tmux bytes recv");
                         let events = controller.feed_bytes(&data);
                         let mut tree_dirty = false;
                         for ev in events {
@@ -214,6 +215,7 @@ pub(crate) async fn host_session_task(
                     tokio::spawn(tmux_query_task(host, session_for_query, tx_for_query));
                 }
                 Some(SessionCommand::AttachTmux { session: sess_id }) => {
+                    tracing::info!(?host, sess = sess_id.as_str(), "actor: AttachTmux received");
                     let _ = event_tx
                         .send(SshEvent::TmuxAttaching {
                             host,
@@ -223,6 +225,7 @@ pub(crate) async fn host_session_task(
                     let new_chan = match session.open_channel().await {
                         Ok(c) => c,
                         Err(err) => {
+                            tracing::error!(?host, "actor: open new channel failed: {}", err);
                             let _ = event_tx
                                 .send(SshEvent::TmuxQueryFailed {
                                     host,
@@ -236,8 +239,10 @@ pub(crate) async fn host_session_task(
                         "tmux -CC attach -t '{}'",
                         sess_id.as_str().replace('\'', r"'\''")
                     );
+                    tracing::info!(?host, cmd = attach_cmd.as_str(), "actor: running tmux -CC");
                     let mut new_chan = new_chan;
                     if let Err(err) = new_chan.run_cmd(true, attach_cmd).await {
+                        tracing::error!(?host, "actor: run tmux -CC failed: {}", err);
                         let _ = event_tx
                             .send(SshEvent::TmuxQueryFailed {
                                 host,
@@ -248,6 +253,7 @@ pub(crate) async fn host_session_task(
                     }
                     chan = new_chan;
                     mode = ActorMode::TmuxAttached(TmuxController::new());
+                    tracing::info!(?host, "actor: switched to TmuxAttached mode");
                     let _ = event_tx.send(SshEvent::TmuxAttached { host }).await;
                 }
                 Some(SessionCommand::Disconnect) | None => {
