@@ -213,12 +213,79 @@ impl TerminalView {
         }
         // 每 tick 多滚 3 行，体感更接近主流终端。
         let scroll_amount = lines * 3;
+
+        // 两条处理路径，按 alacritty Term mode 决定：
+        // 1. MOUSE_MODE 启用（tmux `set -g mouse on` / vim `mouse=a` 等开了
+        //    远端鼠标支持）→ 发 SGR mouse wheel escape 给 PTY，远端处理：
+        //    tmux 进 copy mode 翻 scrollback / vim 翻 buffer / less 上滚。
+        // 2. 否则 → 本地 alacritty scroll_display（raw shell 模式有效；
+        //    tmux alt screen 没 history 也无效，需要用户开 mouse on）。
+        // 不走 ALTERNATE_SCROLL（发裸方向键）路径 — 在 mouse off 时会把方向
+        // 键传给 TUI 应用搞乱屏幕。
+        use alacritty_terminal::term::TermMode;
+
+        let term_mode = self
+            .state
+            .read(cx)
+            .host_pty_term
+            .get(&conn)
+            .map(|t| t.mode());
+
+        if let Some(mode) = term_mode {
+            if mode.intersects(TermMode::MOUSE_MODE) {
+                // SGR mouse wheel: 发字节给远端
+                if let Some(bytes) = self.build_sgr_wheel_bytes(ev, scroll_amount, *mode, cx) {
+                    let sender = self.state.read(cx).sessions.get(&conn).cloned();
+                    if let Some(sender) = sender {
+                        self.bridge.spawn(async move {
+                            let _ = sender.send(SessionCommand::SendBytes(bytes)).await;
+                        });
+                    }
+                    return;
+                }
+            }
+        }
+
+        // 本地 alacritty scroll
         self.state.update(cx, |state, cx| {
             if let Some(term) = state.host_pty_term.get_mut(&conn) {
                 term.scroll_display(alacritty_terminal::grid::Scroll::Delta(scroll_amount));
             }
             cx.notify();
         });
+    }
+
+    /// 把 wheel 事件 + 行数翻成 SGR mouse escape 字节。
+    ///
+    /// 仅当 alacritty Term 已宣告 MOUSE_MODE 时调用。每行发一个 button 64/65
+    /// （wheel up/down）press 事件。col/row 是 1-based grid 坐标，从 ev.position
+    /// 减 canvas origin 算出。
+    fn build_sgr_wheel_bytes(
+        &self,
+        ev: &ScrollWheelEvent,
+        scroll_amount: i32,
+        mode: alacritty_terminal::term::TermMode,
+        cx: &App,
+    ) -> Option<Vec<u8>> {
+        use alacritty_terminal::term::TermMode;
+        // 仅支持 SGR 编码。alacritty 也支持 X10/UTF8/None 旧编码，本地实现先省略。
+        if !mode.contains(TermMode::SGR_MOUSE) {
+            return None;
+        }
+        let layout = self.current_layout(cx);
+        let local_x = f32::from(ev.position.x) - f32::from(layout.origin_x);
+        let local_y = f32::from(ev.position.y) - f32::from(layout.origin_y);
+        let col = ((local_x / f32::from(layout.cell_width)).floor() as i32 + 1).max(1);
+        let row = ((local_y / f32::from(layout.cell_height)).floor() as i32 + 1).max(1);
+        // SGR wheel button: 64 = up, 65 = down。按 |scroll_amount| 重复发。
+        let button = if scroll_amount > 0 { 64 } else { 65 };
+        let n = scroll_amount.unsigned_abs() as usize;
+        let mut out = Vec::with_capacity(n * 16);
+        for _ in 0..n {
+            // press: `\x1b[<{button};{col};{row}M`，无 release（wheel 不 release）
+            out.extend_from_slice(format!("\x1b[<{};{};{}M", button, col, row).as_bytes());
+        }
+        Some(out)
     }
 
     /// 检测 bounds 变化，算新 cols/rows，若有变化则 debounce 100ms 后触发 resize。
