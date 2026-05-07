@@ -13,7 +13,25 @@ use crate::error::SshError;
 ///
 /// 后续调用 `open_channel().request_pty(...)` 拿可用的 PTY channel。
 pub struct SshClient {
-    handle: Handle<NoopHandler>,
+    handle: Arc<Handle<NoopHandler>>,
+}
+
+impl Clone for SshClient {
+    fn clone(&self) -> Self {
+        // russh::client::Handle 内部是 Arc，clone 是引用计数克隆，共享底层连接
+        // Arc clone：引用计数 +1，共享底层连接
+        Self {
+            handle: Arc::clone(&self.handle),
+        }
+    }
+}
+
+/// 远端命令执行结果。
+#[derive(Debug)]
+pub struct ExecResult {
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
+    pub exit_code: u32,
 }
 
 impl SshClient {
@@ -88,16 +106,54 @@ impl SshClient {
             }
         }
 
-        Ok(Self { handle })
+        Ok(Self {
+            handle: Arc::new(handle),
+        })
     }
 
     /// 获取底层 russh Handle（仅 channel.rs 内部用）。
-    pub(crate) fn handle(&mut self) -> &mut Handle<NoopHandler> {
-        &mut self.handle
+    pub(crate) fn handle(&self) -> &Handle<NoopHandler> {
+        &self.handle
+    }
+
+    /// 跑一条远端命令并等其完成。封装 channel_open + exec + 收 stdout/stderr/exit-code。
+    /// 用于 tmux list-sessions 等短命令；不适合长跑（用 open_channel + shell）。
+    pub async fn exec_command(&self, command: &str) -> Result<ExecResult, SshError> {
+        use russh::ChannelMsg;
+        let mut channel = self
+            .handle
+            .channel_open_session()
+            .await
+            .map_err(SshError::Protocol)?;
+        channel
+            .exec(true, command)
+            .await
+            .map_err(SshError::Protocol)?;
+
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let mut exit_code: Option<u32> = None;
+
+        while let Some(msg) = channel.wait().await {
+            match msg {
+                ChannelMsg::Data { data } => stdout.extend_from_slice(&data),
+                ChannelMsg::ExtendedData { data, ext: 1 } => stderr.extend_from_slice(&data),
+                ChannelMsg::ExitStatus { exit_status } => exit_code = Some(exit_status),
+                ChannelMsg::Eof => {}
+                ChannelMsg::Close => break,
+                _ => {}
+            }
+        }
+
+        Ok(ExecResult {
+            stdout,
+            stderr,
+            exit_code: exit_code.unwrap_or(255),
+        })
     }
 
     /// 主动关闭连接。可选——drop 时会自动关闭。
-    pub async fn close(self) {
+    pub async fn close(&self) {
         let _ = self
             .handle
             .disconnect(russh::Disconnect::ByApplication, "", "")
