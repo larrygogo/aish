@@ -6,8 +6,8 @@
 
 ## 当前状态
 
-- **总功能数**：4
-- **已完成**：4 (100%)
+- **总功能数**：5
+- **已完成**：5 (100%)
 - **进行中**：0
 - **待开始**：0
 - **最后更新**：2026-05-07
@@ -16,6 +16,7 @@
 
 ## 最近完成（最新在前）
 
+- [2026-05-07] feature #5: connection chip + 鼠标滚轮 scrollback + tab 双击 inline 重命名（commit: 3cebd36）
 - [2026-05-07] feature #4: tab 系统 + 卡片化默认页 + tmux session picker 弹窗（commit: 37e5895）
 - [2026-05-07] feature #3: 配置与活跃连接分离，一个 host 可开多个独立连接（commit: 74b704d）
 - [2026-05-07] feature #2: 放弃 tmux -CC 控制模式，改回 raw attach 让 tmux 自绘原生 UI（commit: ffe2cdf）
@@ -23,12 +24,14 @@
 
 ---
 
-## 下一步任务
+## 下一步任务（M3d 候选，参见 docs/superpowers/plans/2026-05-07-aish-m3c-post-cc-rework.md "下一步"节）
 
 - [ ] housekeeping：用 `git rm` 真正删除已清空的 `views/host_list.rs`（当前是占位文件）
-- [ ] M3c：detach 检测（用户在 tmux 内 prefix+d 后侧栏高亮自动消失）。可选方案：tmux 启动时设 `PROMPT_COMMAND` 或 conf 加 `set-hook -g client-detached`，attach 进 raw shell 时回写特殊标记给 aish 解析。
-- [ ] tab 拖拽重排序、tab 重命名（用户自定义 label）
-- [ ] 终端区上方 connection chip（host label + SSH chip + 关闭/全屏按钮，参考图 7 顶部那条 chip）
+- [ ] collapse 孤儿 connection 入口：默认页加"已脱离 tab 的连接"区，列出没被任何 tab 引用的活跃连接
+- [ ] tab 拖拽重排序（先做 keyboard 版 Ctrl+Shift+PageUp/Down）
+- [ ] session picker 列表加 window 数 / 上次活跃时间
+- [ ] M3d：detach 检测（tmux conf 注入 `set-hook -g client-detached ...`）
+- [ ] 粘贴：Ctrl+Shift+V 写 PTY，考虑 bracketed paste mode
 
 ---
 
@@ -86,4 +89,4 @@
 
 ## 会话历史摘要
 
-- [2026-05-07] 初次会话：① 诊断 + 修复 tmux -CC 客户端尺寸不跟随 GPUI 窗口（feature #1，commit 9927326）；② 用户给参考图希望见到 tmux 原生绿色状态栏，反向重构放弃 -CC 改回 raw attach（feature #2，commit ffe2cdf）；③ 配置与活跃连接分离 —— 引入 ConnectionId、host_list 拆两段、× 按钮断连（feature #3，commit 74b704d）；④ tab 系统 + 卡片化默认页 + tmux session picker 弹窗（feature #4，commit 37e5895）；初始化项目级模板。
+- [2026-05-07] 初次会话：① 诊断 + 修复 tmux -CC 客户端尺寸不跟随 GPUI 窗口（feature #1，commit 9927326）；② 用户给参考图希望见到 tmux 原生绿色状态栏，反向重构放弃 -CC 改回 raw attach（feature #2，commit ffe2cdf）；③ 配置与活跃连接分离 —— 引入 ConnectionId、host_list 拆两段、× 按钮断连（feature #3，commit 74b704d）；④ tab 系统 + 卡片化默认页 + tmux session picker 弹窗（feature #4，commit 37e5895）；⑤ M3c 修订版：connection chip + 鼠标滚轮 + tab 重命名 + 文档归档（feature #5，commit 3cebd36 + plan 修订文档）；初始化项目级模板。

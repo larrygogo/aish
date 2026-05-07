@@ -9,8 +9,8 @@
     "ai": ""
   },
   "stats": {
-    "total": 4,
-    "completed": 4,
+    "total": 5,
+    "completed": 5,
     "in_progress": 0,
     "pending": 0
   },
@@ -88,6 +88,23 @@
       "passes": true,
       "completed_at": "2026-05-07",
       "notes": "commit 37e5895；+895/-365 行；7 个新 tab 测试；workspace 197 全过；session_picker 自动触发依赖事件链"
+    },
+    {
+      "id": 5,
+      "category": "ui",
+      "priority": "medium",
+      "description": "M3c 修订版：connection chip + 鼠标滚轮 scrollback + tab 双击 inline 重命名",
+      "steps": [
+        "views/connection_chip.rs：32px 高 chip，●/label/[SSH]/⊖/×",
+        "RootView 在 connection tab body 包 chip + terminal flex_col",
+        "terminal_view::handle_scroll：ScrollWheelEvent → term.scroll_display(Scroll::Delta(lines*3))",
+        "tab_bar 加 editing_tab/edit_buffer/focus_handle；MouseDownEvent.click_count==2 进 inline edit",
+        "handle_edit_key：Enter commit / Escape cancel / Backspace pop / 字符 append",
+        "docs/superpowers/plans/2026-05-07-aish-m3c-post-cc-rework.md 归档（含原 M3c 已废弃说明 + M3d 候选）"
+      ],
+      "passes": true,
+      "completed_at": "2026-05-07",
+      "notes": "commit 3cebd36；+360/-14 行；workspace 197 全过；遗留：collapse 后的孤儿 connection 没 UI 入口"
     }
   ]
 }
