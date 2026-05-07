@@ -15,11 +15,13 @@ use gpui::{
     KeyDownEvent, SharedString, Window,
 };
 
+use aish_types::HostId;
+
 use crate::bridge::Bridge;
 use crate::persistence;
 use crate::state::{AppState, HostFormDraft, HostFormState, SshEvent};
 
-/// 当前 focus 的 input 字段。
+/// 当前 focus 的 input 字段。auth_kind == KeyFile 走 KeyPath；== Password 走 Password。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FocusField {
     Label,
@@ -27,16 +29,21 @@ enum FocusField {
     Port,
     User,
     KeyPath,
+    Password,
 }
 
 impl FocusField {
-    fn next(self) -> Self {
-        match self {
-            FocusField::Label => FocusField::Host,
-            FocusField::Host => FocusField::Port,
-            FocusField::Port => FocusField::User,
-            FocusField::User => FocusField::KeyPath,
-            FocusField::KeyPath => FocusField::Label,
+    /// 给定当前 auth_kind，跳到下一个有效字段（跳过当前 auth 不需要的）。
+    fn next(self, auth_kind: crate::state::AuthKind) -> Self {
+        use crate::state::AuthKind;
+        match (self, auth_kind) {
+            (FocusField::Label, _) => FocusField::Host,
+            (FocusField::Host, _) => FocusField::Port,
+            (FocusField::Port, _) => FocusField::User,
+            (FocusField::User, AuthKind::KeyFile) => FocusField::KeyPath,
+            (FocusField::User, AuthKind::Password) => FocusField::Password,
+            (FocusField::KeyPath, _) => FocusField::Label,
+            (FocusField::Password, _) => FocusField::Label,
         }
     }
 }
@@ -82,6 +89,7 @@ impl HostFormModal {
                     FocusField::Port => &mut draft.port,
                     FocusField::User => &mut draft.user,
                     FocusField::KeyPath => &mut draft.key_path,
+                    FocusField::Password => &mut draft.password,
                 };
                 target.push(ch);
                 draft.error = None;
@@ -104,6 +112,7 @@ impl HostFormModal {
                     FocusField::Port => &mut draft.port,
                     FocusField::User => &mut draft.user,
                     FocusField::KeyPath => &mut draft.key_path,
+                    FocusField::Password => &mut draft.password,
                 };
                 target.pop();
                 draft.error = None;
@@ -113,7 +122,19 @@ impl HostFormModal {
     }
 
     fn cycle_focus(&mut self, cx: &mut Context<Self>) {
-        self.focus_field = self.focus_field.next();
+        // 取当前 modal 的 draft.auth_kind 决定 next() 跳到哪
+        let auth_kind = self
+            .state
+            .read(cx)
+            .modal
+            .as_ref()
+            .and_then(|m| match m {
+                HostFormState::Adding(d) => Some(d.auth_kind),
+                HostFormState::Editing { draft: d, .. } => Some(d.auth_kind),
+                HostFormState::DeleteConfirm { .. } => None,
+            })
+            .unwrap_or(crate::state::AuthKind::KeyFile);
+        self.focus_field = self.focus_field.next(auth_kind);
         cx.notify();
     }
 
@@ -126,48 +147,25 @@ impl HostFormModal {
 
     /// 保存（添加 / 编辑 / 删除确认）。返回是否需要持久化。
     fn save(&mut self, cx: &mut Context<Self>) {
-        let needs_persist = self.state.update(cx, |state, cx| {
-            let modal = state.modal.take();
-            match modal {
-                Some(HostFormState::DeleteConfirm { id, .. }) => {
+        // 把 modal 取出（同时清空），决定后续动作
+        let action = self.state.update(cx, |state, _cx| state.modal.take());
+
+        let needs_persist = match action {
+            Some(HostFormState::DeleteConfirm { id, .. }) => {
+                self.state.update(cx, |state, cx| {
                     state.remove_host(id);
                     cx.notify();
-                    true
-                }
-                Some(HostFormState::Adding(draft)) => match draft.into_config(None) {
-                    Ok(cfg) => {
-                        state.add_host(cfg);
-                        cx.notify();
-                        true
-                    }
-                    Err(err) => {
-                        let mut new_draft = draft.clone();
-                        new_draft.error = Some(err);
-                        state.modal = Some(HostFormState::Adding(new_draft));
-                        cx.notify();
-                        false
-                    }
-                },
-                Some(HostFormState::Editing { id, draft }) => match draft.into_config(Some(id)) {
-                    Ok(cfg) => {
-                        state.update_host(id, cfg);
-                        cx.notify();
-                        true
-                    }
-                    Err(err) => {
-                        let mut new_draft = draft.clone();
-                        new_draft.error = Some(err);
-                        state.modal = Some(HostFormState::Editing {
-                            id,
-                            draft: new_draft,
-                        });
-                        cx.notify();
-                        false
-                    }
-                },
-                None => false,
+                });
+                // 删 host 同步删 keyring（idempotent，NoEntry 不报错）
+                crate::persistence::delete_secret_for(id);
+                true
             }
-        });
+            Some(HostFormState::Adding(draft)) => self.handle_add_or_edit(None, draft, cx),
+            Some(HostFormState::Editing { id, draft }) => {
+                self.handle_add_or_edit(Some(id), draft, cx)
+            }
+            None => false,
+        };
 
         if needs_persist {
             let hosts = self.state.read(cx).hosts.clone();
@@ -179,13 +177,56 @@ impl HostFormModal {
         }
     }
 
+    /// 处理添加/编辑保存：校验失败重新塞回 modal 并显示红字。返回是否成功（需持久化）。
+    fn handle_add_or_edit(
+        &mut self,
+        id: Option<HostId>,
+        draft: HostFormDraft,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        match draft.into_config(id) {
+            Ok(cfg) => {
+                self.state.update(cx, |state, cx| {
+                    if let Some(id) = id {
+                        state.update_host(id, cfg);
+                    } else {
+                        state.add_host(cfg);
+                    }
+                    cx.notify();
+                });
+                true
+            }
+            Err(err) => {
+                let mut new_draft = draft.clone();
+                new_draft.error = Some(err);
+                self.state.update(cx, |state, cx| {
+                    state.modal = match id {
+                        Some(id) => Some(HostFormState::Editing {
+                            id,
+                            draft: new_draft,
+                        }),
+                        None => Some(HostFormState::Adding(new_draft)),
+                    };
+                    cx.notify();
+                });
+                false
+            }
+        }
+    }
+
     fn handle_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
         let key = event.keystroke.key.as_str();
+        let ctrl = event.keystroke.modifiers.control;
+
         match key {
             "escape" => self.cancel(cx),
             "tab" => self.cycle_focus(cx),
             "enter" => self.save(cx),
             "backspace" => self.backspace(cx),
+            // Ctrl+T: 切换 auth_kind
+            "t" if ctrl => self.toggle_auth_kind(cx),
+            // Ctrl+E: 切换 password_visible
+            "e" if ctrl => self.toggle_password_visible(cx),
             _ => {
                 // 优先使用 key_char（系统 IME / 布局感知字符），退回到 key 本身（长度==1时）
                 if let Some(ch_str) = event.keystroke.key_char.as_deref() {
@@ -199,6 +240,40 @@ impl HostFormModal {
                 }
             }
         }
+    }
+
+    /// 切换 auth_kind（KeyFile ↔ Password）。focus 重置到 Label 避免指向不可见字段。
+    fn toggle_auth_kind(&mut self, cx: &mut Context<Self>) {
+        use crate::state::AuthKind;
+        self.state.update(cx, |state, cx| {
+            if let Some(modal) = &mut state.modal {
+                let draft = match modal {
+                    HostFormState::Adding(d) | HostFormState::Editing { draft: d, .. } => d,
+                    HostFormState::DeleteConfirm { .. } => return,
+                };
+                draft.auth_kind = match draft.auth_kind {
+                    AuthKind::KeyFile => AuthKind::Password,
+                    AuthKind::Password => AuthKind::KeyFile,
+                };
+                draft.error = None;
+                cx.notify();
+            }
+        });
+        self.focus_field = FocusField::Label;
+    }
+
+    /// 切换 password_visible（mask ↔ 明文）。
+    fn toggle_password_visible(&mut self, cx: &mut Context<Self>) {
+        self.state.update(cx, |state, cx| {
+            if let Some(modal) = &mut state.modal {
+                let draft = match modal {
+                    HostFormState::Adding(d) | HostFormState::Editing { draft: d, .. } => d,
+                    HostFormState::DeleteConfirm { .. } => return,
+                };
+                draft.password_visible = !draft.password_visible;
+                cx.notify();
+            }
+        });
     }
 }
 
@@ -301,12 +376,56 @@ fn render_form_body(
             "user",
             &draft.user,
             focus_field == FocusField::User,
-        ))
-        .child(field_row(
+        ));
+
+    // auth radio（当前选中: ● 否则 ○）— M2d 用 Ctrl+T 切换，无 mouse listener
+    let auth_kind = draft.auth_kind;
+    let kf_marker = if auth_kind == crate::state::AuthKind::KeyFile {
+        "● 密钥"
+    } else {
+        "○ 密钥"
+    };
+    let pw_marker = if auth_kind == crate::state::AuthKind::Password {
+        "● 密码"
+    } else {
+        "○ 密码"
+    };
+    col = col.child(
+        div()
+            .flex()
+            .flex_row()
+            .gap_4()
+            .py_1()
+            .child(
+                div()
+                    .px_2()
+                    .text_color(rgb(0xeeeeee))
+                    .text_size(px(13.0))
+                    .child(kf_marker),
+            )
+            .child(
+                div()
+                    .px_2()
+                    .text_color(rgb(0xeeeeee))
+                    .text_size(px(13.0))
+                    .child(pw_marker),
+            ),
+    );
+
+    // 根据 auth_kind 显示 KeyPath 或 Password 字段
+    use crate::state::AuthKind;
+    col = match auth_kind {
+        AuthKind::KeyFile => col.child(field_row(
             "key path",
             &draft.key_path,
             focus_field == FocusField::KeyPath,
-        ));
+        )),
+        AuthKind::Password => col.child(password_field_row(
+            &draft.password,
+            draft.password_visible,
+            focus_field == FocusField::Password,
+        )),
+    };
 
     if let Some(err) = &draft.error {
         col = col.child(
@@ -321,9 +440,65 @@ fn render_form_body(
         div()
             .text_color(rgb(0x888888))
             .text_size(px(11.0))
-            .child("Tab 切换字段，Enter 保存，Esc 取消"),
+            .child("Tab 切换字段，Ctrl+T 切 auth 类型，Ctrl+E 切密码可见，Enter 保存，Esc 取消"),
     )
     .into_any_element()
+}
+
+/// 密码字段行：input(mask/明文) + 👁 toggle 图标。
+/// 编辑模式下 password 为空时显示 placeholder「(unchanged) 输入新密码所换」。
+fn password_field_row(password: &str, visible: bool, focused: bool) -> gpui::AnyElement {
+    let display: SharedString = if password.is_empty() {
+        SharedString::from("(unchanged) 输入新密码所换")
+    } else if visible {
+        SharedString::from(password.to_string())
+    } else {
+        SharedString::from("•".repeat(password.chars().count()))
+    };
+    let border_color = if focused {
+        rgb(0x4a90e2)
+    } else {
+        rgb(0x444444)
+    };
+    let text_color = if password.is_empty() {
+        rgb(0x555555)
+    } else {
+        rgb(0xeeeeee)
+    };
+    let eye = if visible { "👁" } else { "👁‍🗨" };
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .child(
+            div()
+                .w(px(72.0))
+                .text_color(rgb(0xaaaaaa))
+                .text_size(px(13.0))
+                .child("password"),
+        )
+        .child(
+            div()
+                .flex_1()
+                .px_2()
+                .py_1()
+                .bg(rgb(0x1d1d1d))
+                .border_1()
+                .border_color(border_color)
+                .rounded_sm()
+                .text_color(text_color)
+                .text_size(px(13.0))
+                .child(display),
+        )
+        .child(
+            div()
+                .px_2()
+                .text_color(rgb(0xaaaaaa))
+                .text_size(px(14.0))
+                .child(eye),
+        )
+        .into_any_element()
 }
 
 fn field_row(label: &str, value: &str, focused: bool) -> gpui::AnyElement {
