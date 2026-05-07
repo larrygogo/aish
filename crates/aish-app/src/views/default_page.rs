@@ -9,10 +9,11 @@
 use std::sync::Arc;
 
 use aish_types::HostId;
-use gpui::{div, prelude::*, px, rgb, Context, Entity, MouseButton, MouseDownEvent, Window};
+use gpui::{div, prelude::*, rgb, Context, Entity, MouseButton, MouseDownEvent, Window};
 
 use crate::bridge::Bridge;
 use crate::state::{AppState, HostFormDraft, HostFormState, SshEvent, TabContent};
+use crate::theme;
 
 pub struct DefaultPageView {
     state: Entity<AppState>,
@@ -102,10 +103,17 @@ impl Render for DefaultPageView {
         let add_btn = div()
             .px_4()
             .py_2()
-            .text_color(rgb(0xeeeeee))
-            .bg(rgb(0x2a2a2a))
+            .text_size(theme::text_sm())
+            .text_color(rgb(theme::TEXT_PRIMARY))
+            .bg(rgb(theme::BG_ELEVATED))
+            .border_1()
+            .border_color(rgb(theme::BORDER_SUBTLE))
             .rounded_md()
-            .hover(|s| s.bg(rgb(0x3a3a3a)).cursor_pointer())
+            .hover(|s| {
+                s.bg(rgb(theme::BG_HOVER))
+                    .border_color(rgb(theme::BORDER_STRONG))
+                    .cursor_pointer()
+            })
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _ev: &MouseDownEvent, _w, cx| this.handle_add_click(cx)),
@@ -123,29 +131,27 @@ impl Render for DefaultPageView {
 
                 let edit_btn = div()
                     .px_2()
-                    .text_color(rgb(0xaaaaaa))
-                    .hover(|s| s.text_color(rgb(0xffffff)).cursor_pointer())
+                    .text_color(rgb(theme::TEXT_SECONDARY))
+                    .hover(|s| s.text_color(rgb(theme::TEXT_PRIMARY)).cursor_pointer())
                     .on_mouse_down(
                         MouseButton::Left,
-                        cx.listener(move |this, ev: &MouseDownEvent, _w, cx| {
-                            let _ = ev;
+                        cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
                             this.handle_edit_click(id, cx);
                         }),
                     )
-                    .child("✏");
+                    .child("✎");
 
                 let delete_btn = div()
                     .px_2()
-                    .text_color(rgb(0xaaaaaa))
-                    .hover(|s| s.text_color(rgb(0xff6666)).cursor_pointer())
+                    .text_color(rgb(theme::TEXT_SECONDARY))
+                    .hover(|s| s.text_color(rgb(theme::ACCENT_RED)).cursor_pointer())
                     .on_mouse_down(
                         MouseButton::Left,
-                        cx.listener(move |this, ev: &MouseDownEvent, _w, cx| {
-                            let _ = ev;
+                        cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
                             this.handle_delete_click(id, cx);
                         }),
                     )
-                    .child("🗑");
+                    .child("×");
 
                 let actions = div()
                     .flex()
@@ -160,9 +166,9 @@ impl Render for DefaultPageView {
                 let chip = div()
                     .px_2()
                     .py_0p5()
-                    .text_size(px(11.0))
-                    .text_color(rgb(0x4a9eff))
-                    .bg(rgb(0x1f3a5c))
+                    .text_size(theme::text_xs())
+                    .text_color(rgb(theme::ACCENT_BLUE))
+                    .bg(rgb(theme::CHIP_BLUE_BG))
                     .rounded_md()
                     .child("SSH");
 
@@ -170,13 +176,13 @@ impl Render for DefaultPageView {
                     .group("host_card")
                     .px_4()
                     .py_3()
-                    .bg(rgb(0x1e1e1e))
+                    .bg(rgb(theme::BG_ELEVATED))
                     .border_1()
-                    .border_color(rgb(0x2a2a2a))
-                    .rounded_lg()
+                    .border_color(rgb(theme::BORDER_SUBTLE))
+                    .rounded_xl()
                     .hover(|s| {
-                        s.bg(rgb(0x252525))
-                            .border_color(rgb(0x3a3a3a))
+                        s.bg(rgb(theme::BG_HOVER))
+                            .border_color(rgb(theme::BORDER_STRONG))
                             .cursor_pointer()
                     })
                     .on_mouse_down(
@@ -203,16 +209,16 @@ impl Render for DefaultPageView {
                                     .items_center()
                                     .child(
                                         div()
-                                            .text_color(rgb(0xeeeeee))
-                                            .text_size(px(14.0))
+                                            .text_color(rgb(theme::TEXT_PRIMARY))
+                                            .text_size(theme::text_lg())
                                             .child(label),
                                     )
                                     .child(chip),
                             )
                             .child(
                                 div()
-                                    .text_color(rgb(0x888888))
-                                    .text_size(px(11.0))
+                                    .text_color(rgb(theme::TEXT_SECONDARY))
+                                    .text_size(theme::text_sm())
                                     .child(host_text),
                             ),
                     )
@@ -225,8 +231,8 @@ impl Render for DefaultPageView {
                 div()
                     .px_4()
                     .py_8()
-                    .text_color(rgb(0x666666))
-                    .text_size(px(13.0))
+                    .text_color(rgb(theme::TEXT_MUTED))
+                    .text_size(theme::text_sm())
                     .child("还没有保存的连接 — 点上方 + 添加 host 开始"),
             )
         } else {
@@ -235,32 +241,33 @@ impl Render for DefaultPageView {
 
         div()
             .size_full()
-            .bg(rgb(0x141414))
+            .bg(rgb(theme::BG_BASE))
             .flex()
             .flex_col()
             .child(
                 div()
-                    .px_6()
-                    .py_4()
+                    .px_8()
+                    .pt_6()
+                    .pb_3()
                     .flex()
                     .flex_row()
                     .items_center()
                     .justify_between()
                     .child(
                         div()
-                            .text_color(rgb(0xeeeeee))
-                            .text_size(px(18.0))
+                            .text_color(rgb(theme::TEXT_PRIMARY))
+                            .text_size(theme::text_xl())
                             .child("已保存的连接"),
                     )
                     .child(add_btn),
             )
             .child(
                 div()
-                    .px_6()
+                    .px_8()
                     .pb_6()
                     .flex()
                     .flex_col()
-                    .gap_2()
+                    .gap_3()
                     .children(cards)
                     .children(empty_hint),
             )
