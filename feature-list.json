@@ -9,8 +9,8 @@
     "ai": ""
   },
   "stats": {
-    "total": 6,
-    "completed": 6,
+    "total": 7,
+    "completed": 7,
     "in_progress": 0,
     "pending": 0
   },
@@ -120,6 +120,23 @@
       "passes": true,
       "completed_at": "2026-05-07",
       "notes": "commit 链 48dd5da → 679cc1f → 2fd213b → 1e3b1b5；用户验证 raw shell 滚轮 OK + tmux mouse on 后滚轮 OK + 拖选复制 OK"
+    },
+    {
+      "id": 7,
+      "category": "feature",
+      "priority": "high",
+      "description": "tmux mouse on 时鼠标 click / drag / release 也转 SGR 字节给远端",
+      "steps": [
+        "sgr_mouse_button(MouseButton) helper：Left=0 / Middle=1 / Right=2 / Navigate=None",
+        "build_sgr_mouse_bytes(pos, button, modifiers, pressed)：完整 SGR escape；modifiers 加到 button 高位（shift+4/alt+8/ctrl+16）",
+        "handle_mouse_down 加 mode 分流：MOUSE_MODE+SGR_MOUSE 转发并 return，否则本地 selection",
+        "新加 handle_mouse_up：仅 mouse mode 时发 release（'m'）；本地无操作",
+        "handle_mouse_move 加 motion 分流：MOUSE_MOTION/MOUSE_DRAG 模式发 motion（btn+32）；MOUSE_DRAG 仅按住时发；否则本地 update_selection",
+        "div listener 注册左/中/右三键 mouse_down + mouse_up；build_sgr_wheel_bytes 重构复用 build_sgr_mouse_bytes"
+      ],
+      "passes": true,
+      "completed_at": "2026-05-08",
+      "notes": "commit 367d063；用户验证 OK；远端需 set -g mouse on"
     }
   ]
 }

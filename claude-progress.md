@@ -6,16 +6,17 @@
 
 ## 当前状态
 
-- **总功能数**：6
-- **已完成**：6 (100%)
+- **总功能数**：7
+- **已完成**：7 (100%)
 - **进行中**：0
 - **待开始**：0
-- **最后更新**：2026-05-07
+- **最后更新**：2026-05-08
 
 ---
 
 ## 最近完成（最新在前）
 
+- [2026-05-08] feature #7: tmux mouse on 时鼠标 click / drag / release 也转 SGR 给远端（commit 367d063）
 - [2026-05-07] feature #6: 鼠标坐标修正 + display_offset 偏移 + tmux mouse on 时滚轮转 SGR mouse wheel（commits 48dd5da → 679cc1f → 2fd213b → 1e3b1b5）
 - [2026-05-07] feature #5: connection chip + 鼠标滚轮 scrollback + tab 双击 inline 重命名（commit: 3cebd36）
 - [2026-05-07] feature #4: tab 系统 + 卡片化默认页 + tmux session picker 弹窗（commit: 37e5895）
@@ -33,6 +34,8 @@
 - [ ] session picker 列表加 window 数 / 上次活跃时间
 - [ ] M3d：detach 检测（tmux conf 注入 `set-hook -g client-detached ...`）
 - [ ] 粘贴：Ctrl+Shift+V 写 PTY，考虑 bracketed paste mode
+- [ ] mouse legacy encoding（X10/UTF8）回退路径 — 当前仅 SGR_MOUSE 模式生效，老 tmux/vim 默认 SGR 也是开的所以问题不大
+- [ ] aish 启动时自动检测 / 提示远端开 set -g mouse on（避免每次新 host 都要手动配）
 
 ---
 
@@ -43,6 +46,15 @@
 ---
 
 ## 技术决策记录
+
+### 2026-05-08：完整鼠标事件转发（click/drag/release），与 wheel 同款分流
+**背景**：feature #6 只做了 wheel，user 反馈"点击也不行"。tmux 内 click 切 pane / vim 移光标 / Claude Code 选项都需要转发完整 mouse 事件链。
+**决策**：handle_mouse_down/up/move 都按 alacritty Term mode 分流：
+- `mode.intersects(MOUSE_MODE) && mode.contains(SGR_MOUSE)` → 发 SGR escape（press `M` / release `m` / motion `btn+32`）
+- 否则 → 本地 selection（仅 left button）/ scroll
+**统一抽 helper**：`build_sgr_mouse_bytes(position, button, modifiers, pressed)`，wheel 也复用此函数。
+**Modifier 编码**：shift +4 / alt +8 / ctrl +16 加到 button 高位。
+**未实现**：X10/UTF8 旧编码 fallback（现代 tmux/vim 默认开 SGR，没真实需求暂不做）。
 
 ### 2026-05-07：tmux 内滚轮看历史靠"远端 SGR mouse"路径，本地不存 alt screen history
 **背景**：用户反馈 tmux attach 后滚轮无效。诊断发现：tmux 用 alternate screen + cursor positioning 重绘，alacritty Term 不写 scrollback，`history_size = 0`，本地 scroll_display 永远被钳到 0。
@@ -109,3 +121,4 @@
 ## 会话历史摘要
 
 - [2026-05-07] 初次会话：① 诊断 + 修复 tmux -CC 客户端尺寸不跟随 GPUI 窗口（feature #1，commit 9927326）；② 用户给参考图希望见到 tmux 原生绿色状态栏，反向重构放弃 -CC 改回 raw attach（feature #2，commit ffe2cdf）；③ 配置与活跃连接分离 —— 引入 ConnectionId、host_list 拆两段、× 按钮断连（feature #3，commit 74b704d）；④ tab 系统 + 卡片化默认页 + tmux session picker 弹窗（feature #4，commit 37e5895）；⑤ M3c 修订版：connection chip + 鼠标滚轮 + tab 重命名 + 文档归档（feature #5，commit 3cebd36 + plan 修订文档）；⑥ 真机验证暴露三个 bug 串联修：display_offset 渲染偏移 / canvas bounds origin / tmux mouse on 时 SGR wheel 转发（feature #6，commits 48dd5da+679cc1f+2fd213b+1e3b1b5）；初始化项目级模板。
+- [2026-05-08] 续：⑦ 补完 mouse 事件链路 — click/drag/release 都按 SGR encoding 转发给远端（feature #7，commit 367d063），抽出 build_sgr_mouse_bytes 共用 helper，wheel 复用。
