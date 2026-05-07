@@ -9,8 +9,8 @@
     "ai": ""
   },
   "stats": {
-    "total": 2,
-    "completed": 2,
+    "total": 3,
+    "completed": 3,
     "in_progress": 0,
     "pending": 0
   },
@@ -47,6 +47,26 @@
       "passes": true,
       "completed_at": "2026-05-07",
       "notes": "commit ffe2cdf；净删 295 行；workspace 185 测试全过"
+    },
+    {
+      "id": 3,
+      "category": "feature",
+      "priority": "high",
+      "description": "配置与活跃连接分离：一个 host 配置可同时派生 N 个独立连接（每个独立 actor / PTY / Term / tmux 状态）",
+      "steps": [
+        "aish-types: 新增 ConnectionId(Uuid) 类型 + Display + 单测",
+        "state: 新增 Connection { id, host_id, label, opened_at } 元数据",
+        "state: AppState 加 connections / selected_connection 字段；其它 per-runtime map 全部改键为 ConnectionId",
+        "state: 新方法 open_connection（自动 \"label #N\" + 自动选中）/ remove_connection / select_connection",
+        "state: SshEvent 所有 host: HostId 改 conn: ConnectionId",
+        "ssh_actor: spawn_session 签名 + connection_task（重命名 host_session_task）签名加 ConnectionId；keyring 仍按 host_id",
+        "views/host_list: 拆成 \"活跃会话\" + \"已保存的连接\" 两段；活跃项 × 按钮断连；点 host 行 = 启动新连接",
+        "views/terminal_view: selected_connection 替代 selected；last_pty_size cache key 加 conn",
+        "views/tmux_sidebar: 用 selected_connection 索引"
+      ],
+      "passes": true,
+      "completed_at": "2026-05-07",
+      "notes": "commit 74b704d；+553/-269 行；192 测试全过；keyring 仍按 HostId（多连接共享密码）"
     }
   ]
 }
