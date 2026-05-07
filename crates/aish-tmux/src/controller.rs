@@ -6,10 +6,68 @@
 //!   // events: vec![SessionAdded($0), ClientSessionChanged($0)]
 //!   let cmd_bytes = ctrl.build_command(&TmuxCommand::SelectPane { pane: PaneId(3) });
 
+use aish_types::PaneId;
+
 use crate::commands::{build_command, TmuxCommand};
 use crate::events::TmuxEvent;
 use crate::protocol::{parse_line, ParsedEvent};
 use crate::types::SessionTree;
+
+/// 从 tmux layout 字串提取所有 pane id。
+///
+/// layout 例：
+///   - 单 pane: `bb62,80x24,0,0,1`
+///   - 水平/垂直 split: `f3a4,80x24,0,0{40x24,0,0,1,40x24,40,0,2}`
+///   - 垂直 stack: `cd34,80x24,0,0[80x12,0,0,1,80x12,0,12,2]`
+///
+/// 每个 leaf 形如 `WxH,X,Y,ID`。算法：把 `{`/`}`/`[`/`]` 当 `,` 切，
+/// 扫 token 流找连续 `WxH, N, N, N` 4-token 序列，最后 N 即 pane id。
+fn extract_pane_ids(layout: &str) -> Vec<PaneId> {
+    let normalized: String = layout
+        .chars()
+        .map(|c| match c {
+            '{' | '}' | '[' | ']' => ',',
+            other => other,
+        })
+        .collect();
+    let tokens: Vec<&str> = normalized
+        .split(',')
+        .map(|t| t.trim())
+        .filter(|t| !t.is_empty())
+        .collect();
+
+    let mut ids = Vec::new();
+    let mut i = 0;
+    while i + 3 < tokens.len() {
+        if is_wxh(tokens[i])
+            && is_num(tokens[i + 1])
+            && is_num(tokens[i + 2])
+            && is_num(tokens[i + 3])
+        {
+            if let Ok(n) = tokens[i + 3].parse::<u32>() {
+                ids.push(PaneId(n));
+            }
+            i += 4;
+        } else {
+            i += 1;
+        }
+    }
+    ids.sort();
+    ids.dedup();
+    ids
+}
+
+fn is_wxh(s: &str) -> bool {
+    let mut parts = s.split('x');
+    matches!(
+        (parts.next(), parts.next(), parts.next()),
+        (Some(a), Some(b), None) if a.parse::<u32>().is_ok() && b.parse::<u32>().is_ok()
+    )
+}
+
+fn is_num(s: &str) -> bool {
+    !s.is_empty() && s.chars().all(|c| c.is_ascii_digit())
+}
 
 pub struct TmuxController {
     state: SessionTree,
@@ -141,6 +199,35 @@ impl TmuxController {
                 }
             }
             ParsedEvent::LayoutChange { window, layout } => {
+                // attach 现有 session 时 tmux 不会发 %window-add（那只在新建 window 时发），
+                // 但会发 %layout-change。如果 window 还没建，从此处补建并提取 pane ids。
+                let mut newly_added = false;
+                if !self
+                    .state
+                    .sessions
+                    .values()
+                    .any(|s| s.windows.contains_key(&window))
+                {
+                    if let Some(active) = self.state.active_session.clone() {
+                        if self
+                            .state
+                            .add_window(active.clone(), window, String::new())
+                            .is_ok()
+                        {
+                            newly_added = true;
+                            events.push(TmuxEvent::WindowAdded {
+                                session: active,
+                                window,
+                                name: String::new(),
+                            });
+                        }
+                    }
+                }
+                if newly_added {
+                    for pane in extract_pane_ids(&layout) {
+                        let _ = self.state.add_pane(window, pane);
+                    }
+                }
                 if self.state.set_window_layout(&window, layout.clone()) {
                     events.push(TmuxEvent::LayoutChanged { window, layout });
                 }
@@ -283,5 +370,45 @@ mod tests {
         let ctrl = TmuxController::new();
         let bytes = ctrl.build_command(&TmuxCommand::SelectPane { pane: PaneId(5) });
         assert_eq!(bytes, b"select-pane -t %5\n");
+    }
+
+    #[test]
+    fn extract_pane_ids_single_pane() {
+        let ids = super::extract_pane_ids("bb62,278x67,0,0,1");
+        assert_eq!(ids, vec![PaneId(1)]);
+    }
+
+    #[test]
+    fn extract_pane_ids_horizontal_split() {
+        let ids = super::extract_pane_ids("f3a4,80x24,0,0{40x24,0,0,1,40x24,40,0,2}");
+        assert_eq!(ids, vec![PaneId(1), PaneId(2)]);
+    }
+
+    #[test]
+    fn extract_pane_ids_vertical_stack() {
+        let ids = super::extract_pane_ids("cd34,80x24,0,0[80x12,0,0,1,80x12,0,12,2]");
+        assert_eq!(ids, vec![PaneId(1), PaneId(2)]);
+    }
+
+    #[test]
+    fn extract_pane_ids_empty_when_no_match() {
+        let ids = super::extract_pane_ids("garbage-no-numbers");
+        assert!(ids.is_empty());
+    }
+
+    #[test]
+    fn feed_layout_change_auto_creates_window_and_pane() {
+        // attach 现有 session 时 tmux 不发 %window-add，只发 %layout-change。
+        // controller 应当从 layout 自动建 window + pane。
+        let mut ctrl = TmuxController::new();
+        ctrl.feed_bytes(b"%session-changed $0 d\n");
+        let events = ctrl.feed_bytes(b"%layout-change @5 bb62,80x24,0,0,7\n");
+        // 期望 events: WindowAdded + LayoutChanged
+        assert_eq!(events.len(), 2);
+        let tree = ctrl.session_tree();
+        let sess = &tree.sessions[&sid("$0")];
+        assert!(sess.windows.contains_key(&WindowId(5)));
+        let win = &sess.windows[&WindowId(5)];
+        assert!(win.panes.contains_key(&PaneId(7)));
     }
 }

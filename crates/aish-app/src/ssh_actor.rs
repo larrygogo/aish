@@ -277,6 +277,11 @@ pub(crate) async fn host_session_task(
                     mode = ActorMode::TmuxAttached(TmuxController::new());
                     tracing::info!(?host, "actor: switched to TmuxAttached mode");
                     let _ = event_tx.send(SshEvent::TmuxAttached { host }).await;
+                    // tmux attach 现有 session 时不会主动 dump windows/panes 或 pane 内容。
+                    // 写 refresh-client 让 tmux 发 %layout-change（驱动 SessionTree）+ %output（pane 当前内容）。
+                    if let Err(err) = chan.data(b"refresh-client -C 120x40\n").await {
+                        tracing::warn!(?host, "actor: send refresh-client failed: {}", err);
+                    }
                 }
                 Some(SessionCommand::Disconnect) | None => {
                     let _ = event_tx
