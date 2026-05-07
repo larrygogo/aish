@@ -234,7 +234,7 @@ pub(crate) async fn host_session_task(
                             session: sess_id.clone(),
                         })
                         .await;
-                    let new_chan = match session.open_channel().await {
+                    let mut new_chan = match session.open_channel().await {
                         Ok(c) => c,
                         Err(err) => {
                             tracing::error!(?host, "actor: open new channel failed: {}", err);
@@ -247,12 +247,22 @@ pub(crate) async fn host_session_task(
                             continue;
                         }
                     };
+                    // tmux -CC 仍会调 tcgetattr 检查 TTY，没 PTY 会立即报错退出。
+                    if let Err(err) = new_chan.request_pty(120, 40, "xterm-256color").await {
+                        tracing::error!(?host, "actor: request_pty for tmux -CC failed: {}", err);
+                        let _ = event_tx
+                            .send(SshEvent::TmuxQueryFailed {
+                                host,
+                                msg: format!("request_pty: {}", err),
+                            })
+                            .await;
+                        continue;
+                    }
                     let attach_cmd = format!(
                         "tmux -CC attach -t '{}'",
                         sess_id.as_str().replace('\'', r"'\''")
                     );
                     tracing::info!(?host, cmd = attach_cmd.as_str(), "actor: running tmux -CC");
-                    let mut new_chan = new_chan;
                     if let Err(err) = new_chan.run_cmd(true, attach_cmd).await {
                         tracing::error!(?host, "actor: run tmux -CC failed: {}", err);
                         let _ = event_tx
