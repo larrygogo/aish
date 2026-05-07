@@ -35,7 +35,6 @@ pub fn run() {
             while let Some(event) = rx.recv().await {
                 state_for_loop.update(cx, |state, cx| match event {
                     SshEvent::Connected { host: _ } => {
-                        // M2b1: 状态变更通过 host_list 的 ●/○ 显示，不写 pane
                         cx.notify();
                     }
                     SshEvent::PaneOutput { host, bytes } => {
@@ -51,8 +50,57 @@ pub fn run() {
                         state.drop_session(host);
                         cx.notify();
                     }
-                    // M3b 新增事件变体 — Task 4-9 实现时在这里分发处理
-                    _ => {}
+                    SshEvent::TmuxQueryStarted { host } => {
+                        state
+                            .tmux_state
+                            .insert(host, crate::state::TmuxState::NotChecked);
+                        cx.notify();
+                    }
+                    SshEvent::TmuxSessionsListed { host, sessions } => {
+                        state
+                            .tmux_state
+                            .insert(host, crate::state::TmuxState::Detected { sessions });
+                        cx.notify();
+                    }
+                    SshEvent::TmuxQueryFailed { host, msg } => {
+                        state
+                            .tmux_state
+                            .insert(host, crate::state::TmuxState::QueryFailed { msg });
+                        cx.notify();
+                    }
+                    SshEvent::TmuxNoTmux { host } => {
+                        state
+                            .tmux_state
+                            .insert(host, crate::state::TmuxState::NoTmux);
+                        cx.notify();
+                    }
+                    SshEvent::TmuxAttaching { host, session } => {
+                        state
+                            .tmux_state
+                            .insert(host, crate::state::TmuxState::Attaching { session });
+                        cx.notify();
+                    }
+                    SshEvent::TmuxAttached { host } => {
+                        state.tmux_state.insert(
+                            host,
+                            crate::state::TmuxState::Attached {
+                                session_tree: aish_tmux::SessionTree::new(),
+                            },
+                        );
+                        cx.notify();
+                    }
+                    SshEvent::TmuxSessionTreeUpdated { host, tree } => {
+                        state.apply_tmux_session_tree(host, tree);
+                        cx.notify();
+                    }
+                    SshEvent::TmuxPaneOutput { host, pane, bytes } => {
+                        state.apply_tmux_pane_output(host, pane, &bytes);
+                        cx.notify();
+                    }
+                    SshEvent::TmuxDetached { host, reason: _ } => {
+                        state.tmux_state.remove(&host);
+                        cx.notify();
+                    }
                 });
             }
         })
