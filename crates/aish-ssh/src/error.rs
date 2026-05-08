@@ -48,6 +48,9 @@ pub enum SshError {
 
     #[error("io error: {0}")]
     Io(#[source] std::io::Error),
+
+    #[error("sftp error: {0}")]
+    Sftp(String),
 }
 
 impl SshError {
@@ -58,6 +61,7 @@ impl SshError {
                 SshErrorKind::AuthFailed
             }
             Self::Io(_) => SshErrorKind::Io,
+            Self::Sftp(_) => SshErrorKind::Io,
             Self::Protocol(_) => SshErrorKind::Protocol,
         }
     }
@@ -132,5 +136,18 @@ mod tests {
         let s = format!("{}", err);
         assert!(s.contains("auth failed"));
         assert!(s.contains("bad key"));
+    }
+
+    #[test]
+    fn sftp_error_kind_is_io() {
+        let err = SshError::Sftp("timeout".into());
+        assert_eq!(err.kind(), SshErrorKind::Io);
+    }
+
+    #[test]
+    fn sftp_error_display_contains_message() {
+        let err = SshError::Sftp("permission denied".into());
+        assert!(format!("{}", err).contains("sftp error"));
+        assert!(format!("{}", err).contains("permission denied"));
     }
 }
