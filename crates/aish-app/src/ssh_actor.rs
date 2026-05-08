@@ -258,6 +258,37 @@ pub(crate) async fn connection_task(
                         }
                     });
                 }
+                Some(SessionCommand::UploadBatch { images, text }) => {
+                    let session_for_batch = session.clone();
+                    let tx_for_batch = event_tx.clone();
+                    tokio::spawn(async move {
+                        let ts = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis();
+                        let mut paths = Vec::new();
+                        for (i, (bytes, ext)) in images.iter().enumerate() {
+                            let remote_path = format!("/tmp/aish-clip-{}-{}.{}", ts, i, ext);
+                            match session_for_batch.sftp_upload(&remote_path, bytes).await {
+                                Ok(()) => paths.push(remote_path),
+                                Err(e) => {
+                                    let _ = tx_for_batch
+                                        .send(SshEvent::BatchUploadFailed {
+                                            conn,
+                                            paths_ok: paths,
+                                            fail_msg: e.to_string(),
+                                            text,
+                                        })
+                                        .await;
+                                    return;
+                                }
+                            }
+                        }
+                        let _ = tx_for_batch
+                            .send(SshEvent::BatchUploaded { conn, paths, text })
+                            .await;
+                    });
+                }
                 Some(SessionCommand::Disconnect) | None => {
                     let _ = event_tx
                         .send(SshEvent::Disconnected {

@@ -108,6 +108,37 @@ pub fn run() {
                             let _ = sender.try_send(SessionCommand::SendBytes(err.into_bytes()));
                         }
                     }
+                    SshEvent::BatchUploaded { conn, paths, text } => {
+                        if let Some(sender) = state.sessions.get(&conn).cloned() {
+                            let mut parts = paths;
+                            if !text.is_empty() {
+                                parts.push(text);
+                            }
+                            let msg = format!("{}\r", parts.join(" "));
+                            let _ = sender.try_send(SessionCommand::SendBytes(msg.into_bytes()));
+                        }
+                    }
+                    SshEvent::BatchUploadFailed {
+                        conn,
+                        paths_ok,
+                        fail_msg,
+                        text,
+                    } => {
+                        if let Some(sender) = state.sessions.get(&conn).cloned() {
+                            if !paths_ok.is_empty() || !text.is_empty() {
+                                let mut parts = paths_ok;
+                                if !text.is_empty() {
+                                    parts.push(text);
+                                }
+                                let msg = format!("{}\r", parts.join(" "));
+                                let _ =
+                                    sender.try_send(SessionCommand::SendBytes(msg.into_bytes()));
+                            }
+                            let err =
+                                format!("\x1b[31m[aish] 图片上传失败: {}\x1b[0m\r\n", fail_msg);
+                            let _ = sender.try_send(SessionCommand::SendBytes(err.into_bytes()));
+                        }
+                    }
                 });
             }
         })

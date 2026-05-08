@@ -244,25 +244,34 @@ impl TerminalView {
     /// - bracketed mode（vim/zsh/bash 现代交互模式自动启用）：远端识别为字面字符
     /// - 不在 bracketed mode：直接发，多行命令会逐行执行（用户预期）
     fn paste(&mut self, conn: aish_types::ConnectionId, cx: &mut Context<Self>) {
-        if let Ok(mut cb) = arboard::Clipboard::new() {
-            if let Ok(img) = cb.get_image() {
-                match crate::terminal::image::encode_rgba_to_png(
-                    img.width as u32,
-                    img.height as u32,
-                    &img.bytes,
-                ) {
-                    Ok(png) => {
-                        if let Some(sender) = self.state.read(cx).sessions.get(&conn).cloned() {
-                            self.bridge.spawn(async move {
-                                let _ =
-                                    sender.send(SessionCommand::UploadImage { data: png }).await;
-                            });
+        match arboard::Clipboard::new() {
+            Err(e) => tracing::warn!("paste: arboard init failed: {e}"),
+            Ok(mut cb) => {
+                if let Ok(img) = cb.get_image() {
+                    tracing::info!(
+                        w = img.width,
+                        h = img.height,
+                        "paste: got image from clipboard"
+                    );
+                    match crate::terminal::image::encode_rgba_to_png(
+                        img.width as u32,
+                        img.height as u32,
+                        &img.bytes,
+                    ) {
+                        Ok(png) => {
+                            if let Some(sender) = self.state.read(cx).sessions.get(&conn).cloned() {
+                                self.bridge.spawn(async move {
+                                    let _ = sender
+                                        .send(SessionCommand::UploadImage { data: png })
+                                        .await;
+                                });
+                            }
+                            return;
                         }
-                        return;
-                    }
-                    Err(e) => {
-                        tracing::warn!("图片粘贴：PNG 编码失败：{}", e);
-                        return;
+                        Err(e) => {
+                            tracing::warn!("图片粘贴：PNG 编码失败：{}", e);
+                            return;
+                        }
                     }
                 }
             }

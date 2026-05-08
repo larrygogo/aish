@@ -72,6 +72,19 @@ pub enum SshEvent {
         conn: ConnectionId,
         msg: String,
     },
+    /// 批量 SFTP 上传全部成功，paths 是远端绝对路径列表。
+    BatchUploaded {
+        conn: ConnectionId,
+        paths: Vec<String>,
+        text: String,
+    },
+    /// 批量 SFTP 上传在第 N 张时失败，paths_ok 是已成功的路径。
+    BatchUploadFailed {
+        conn: ConnectionId,
+        paths_ok: Vec<String>,
+        fail_msg: String,
+        text: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -107,6 +120,11 @@ pub enum SessionCommand {
     /// 上传本地剪贴板图片（PNG bytes）到远端 /tmp。
     UploadImage {
         data: Vec<u8>,
+    },
+    /// 批量上传图片并追加文字到 PTY。images 是 (原始文件字节, 扩展名不含点) 列表。
+    UploadBatch {
+        images: Vec<(Vec<u8>, String)>,
+        text: String,
     },
 }
 
@@ -1193,6 +1211,64 @@ mod tests {
             SshEvent::ImageUploadFailed { conn: c, msg } => {
                 assert_eq!(c, conn);
                 assert!(msg.contains("permission"));
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn upload_batch_command_carries_images_and_text() {
+        let cmd = SessionCommand::UploadBatch {
+            images: vec![
+                (vec![0u8, 1, 2], "png".into()),
+                (vec![3u8, 4], "jpg".into()),
+            ],
+            text: "describe this".into(),
+        };
+        match cmd {
+            SessionCommand::UploadBatch { images, text } => {
+                assert_eq!(images.len(), 2);
+                assert_eq!(images[0].1, "png");
+                assert_eq!(text, "describe this");
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn batch_uploaded_event_carries_paths_and_text() {
+        use aish_types::ConnectionId;
+        let conn = ConnectionId::new();
+        let event = SshEvent::BatchUploaded {
+            conn,
+            paths: vec!["/tmp/a.png".into(), "/tmp/b.jpg".into()],
+            text: "hello".into(),
+        };
+        match event {
+            SshEvent::BatchUploaded { paths, text, .. } => {
+                assert_eq!(paths.len(), 2);
+                assert_eq!(text, "hello");
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn batch_upload_failed_event_carries_ok_paths_and_msg() {
+        use aish_types::ConnectionId;
+        let conn = ConnectionId::new();
+        let event = SshEvent::BatchUploadFailed {
+            conn,
+            paths_ok: vec!["/tmp/a.png".into()],
+            fail_msg: "permission denied".into(),
+            text: String::new(),
+        };
+        match event {
+            SshEvent::BatchUploadFailed {
+                paths_ok, fail_msg, ..
+            } => {
+                assert_eq!(paths_ok.len(), 1);
+                assert!(fail_msg.contains("permission"));
             }
             _ => panic!("wrong variant"),
         }
