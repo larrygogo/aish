@@ -230,8 +230,33 @@ pub(crate) async fn connection_task(
                         .await;
                 }
                 Some(SessionCommand::UploadImage { data }) => {
-                    tracing::debug!(?conn, len = data.len(), "actor: UploadImage command received (M8 stub)");
-                    // TODO: M8 — 实现 SFTP 上传逻辑
+                    let session_for_sftp = session.clone();
+                    let tx_for_sftp = event_tx.clone();
+                    tokio::spawn(async move {
+                        let ts = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis();
+                        let remote_path = format!("/tmp/aish-clip-{}.png", ts);
+                        match session_for_sftp.sftp_upload(&remote_path, &data).await {
+                            Ok(()) => {
+                                let _ = tx_for_sftp
+                                    .send(SshEvent::ImageUploaded {
+                                        conn,
+                                        path: remote_path,
+                                    })
+                                    .await;
+                            }
+                            Err(e) => {
+                                let _ = tx_for_sftp
+                                    .send(SshEvent::ImageUploadFailed {
+                                        conn,
+                                        msg: e.to_string(),
+                                    })
+                                    .await;
+                            }
+                        }
+                    });
                 }
                 Some(SessionCommand::Disconnect) | None => {
                     let _ = event_tx
