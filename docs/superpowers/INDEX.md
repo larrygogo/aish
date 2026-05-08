@@ -10,13 +10,27 @@
 
 ## 当前状态
 
-- **活跃分支**：`feat/m4a-info-arch-20260508-zj`（M4a 已完成）
-- **下一里程碑**：M4b（Recent 持久化 + Settings 起步）或其他 backlog 条目
-- **质量门禁基线**：fmt + clippy 0 warning + test 201 全过
+- **活跃分支**：`feat/m4b-recent-settings-20260508-zj`（M4b 已完成）
+- **下一里程碑**：backlog 条目或新需求
+- **质量门禁基线**：fmt + clippy 0 warning + test 16 全过
 
 ---
 
 ## Milestones（按时间倒序）
+
+### M4b — Recent 持久化 + Settings 起步（2026-05-08）— ✅ 已完成
+- spec：（无独立 spec，架构设计见 M4a spec）
+- plan：[`plans/2026-05-08-aish-m4b-recent-settings.md`](plans/2026-05-08-aish-m4b-recent-settings.md)
+- 范围：TOML 持久化 / app_state_file / last_connected 字段 + humanize / SettingsView 三段布局（Version / App Info / Legal）/ Inbox icon 换 Nerd Font / 启动加载 last_connected
+- 关键 commits：
+  - M4b-task-1：添加 toml + serde 依赖
+  - M4b-task-2：app_state_file.rs 实现 TOML 读写
+  - M4b-task-3：state.rs 添加 last_connected + humanize
+  - M4b-task-4：SettingsView 三段布局
+  - M4b-task-5：接入 SettingsView，启动加载
+  - M4b-task-6：Home 卡片时间戳 + 写 recent
+  - M4b-task-7：Inbox icon Nerd Font
+  - M4b-task-8：质量门禁 + INDEX 更新
 
 ### M4a — 信息架构 4-tab 化（2026-05-08）— ✅ 已完成
 - spec：[`specs/2026-05-08-aish-m4a-info-arch-design.md`](specs/2026-05-08-aish-m4a-info-arch-design.md)
