@@ -30,6 +30,8 @@ const PTY_RESIZE_DEBOUNCE_MS: u64 = 250;
 struct TerminalImeHandler {
     state: Entity<AppState>,
     bridge: Arc<Bridge>,
+    /// 当前光标的屏幕坐标（窗口逻辑像素），供 WM_IME_STARTCOMPOSITION 定位候选窗口。
+    cursor_bounds: Option<gpui::Bounds<gpui::Pixels>>,
 }
 
 impl InputHandler for TerminalImeHandler {
@@ -107,7 +109,7 @@ impl InputHandler for TerminalImeHandler {
         _window: &mut Window,
         _cx: &mut App,
     ) -> Option<gpui::Bounds<gpui::Pixels>> {
-        None
+        self.cursor_bounds
     }
 
     fn character_index_for_point(
@@ -209,13 +211,11 @@ impl TerminalView {
             return;
         }
 
-        // IME 组合进行中（preedit）：不发字节，等 IME 提交
-        if event.keystroke.is_ime_in_progress() {
-            return;
-        }
-
         // 有 key_char 且无 Ctrl/Alt 修饰：可打印字符将由 WM_CHAR → InputHandler
-        // 路径发送，此处不重复发（避免中文 IME 提交和 ASCII 字符双重发送）
+        // 路径发送，此处不重复发（避免 ASCII/符号字符双重发送）。
+        // IME 组合中的拼音字母 key_char 也是 Some，但 IME 会抑制 WM_CHAR，
+        // 所以不会误发到 PTY，行为正确。Enter/Tab/方向键等 key_char = None，
+        // 不受此判断影响，仍走 encode_key 路径。
         if event.keystroke.key_char.is_some() && !ctrl && !alt {
             return;
         }
@@ -717,6 +717,35 @@ impl Render for TerminalView {
         let state_for_ime = self.state.clone();
         let bridge_for_ime = self.bridge.clone();
 
+        // 计算当前光标的屏幕坐标，用于定位 IME 候选窗口
+        let cursor_bounds_for_ime: Option<gpui::Bounds<gpui::Pixels>> = {
+            let app = self.state.read(cx);
+            let conn = app.current_connection();
+            let term_opt = conn.and_then(|c| app.host_pty_term.get(&c));
+            let canvas_opt = self.canvas_bounds;
+            if let (Some(term), Some(canvas)) = (term_opt, canvas_opt) {
+                let cursor = term.grid().cursor.point;
+                let display_offset = term.grid().display_offset() as i32;
+                let screen_row = cursor.line.0 + display_offset;
+                if screen_row >= 0 {
+                    let (cw, ch) = font::cell_size(cx);
+                    let origin_x = canvas.origin.x + px(8.0);
+                    let origin_y = canvas.origin.y + px(8.0);
+                    Some(gpui::Bounds::new(
+                        gpui::Point::new(
+                            origin_x + cw * cursor.column.0 as f32,
+                            origin_y + ch * screen_row as f32,
+                        ),
+                        gpui::Size::new(cw, ch),
+                    ))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        };
+
         div()
             // 让 div 变 stateful — GPUI 对 stateful 元素的 scroll wheel 事件路由
             // 比 stateless 稳定（mouse_down 用 is_hovered 路径不依赖 stateful，
@@ -802,6 +831,7 @@ impl Render for TerminalView {
                             TerminalImeHandler {
                                 state: state_for_ime,
                                 bridge: bridge_for_ime,
+                                cursor_bounds: cursor_bounds_for_ime,
                             },
                             cx,
                         );
