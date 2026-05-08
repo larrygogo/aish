@@ -175,22 +175,22 @@ impl SshClient {
             .map_err(SshError::Protocol)?;
         let sftp = SftpSession::new(channel.into_stream())
             .await
-            .map_err(|e| SshError::Sftp(e.to_string()))?;
+            .map_err(|e| SshError::Sftp(format!("sftp session init failed: {}", e)))?;
         let mut file = sftp
             .create(remote_path)
             .await
-            .map_err(|e| SshError::Sftp(e.to_string()))?;
+            .map_err(|e| SshError::Sftp(format!("sftp create '{}' failed: {}", remote_path, e)))?;
         use tokio::io::AsyncWriteExt;
         file.write_all(data)
             .await
-            .map_err(|e| SshError::Sftp(e.to_string()))?;
+            .map_err(|e| SshError::Sftp(format!("sftp write failed: {}", e)))?;
         file.flush()
             .await
-            .map_err(|e| SshError::Sftp(e.to_string()))?;
+            .map_err(|e| SshError::Sftp(format!("sftp flush failed: {}", e)))?;
         drop(file);
         sftp.close()
             .await
-            .map_err(|e| SshError::Sftp(e.to_string()))?;
+            .map_err(|e| SshError::Sftp(format!("sftp close failed: {}", e)))?;
         Ok(())
     }
 
