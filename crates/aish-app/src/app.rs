@@ -9,7 +9,7 @@ use gpui::{
 use gpui_platform::application;
 
 use crate::bridge::{Bridge, EventChannel};
-use crate::state::{AppState, SshEvent};
+use crate::state::{AppState, SidebarTab, SshEvent};
 
 pub fn run() {
     let bridge_owner = Arc::new(Bridge::start().expect("tokio runtime 启动失败"));
@@ -101,7 +101,7 @@ pub fn run() {
         let window_options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             titlebar: Some(TitlebarOptions {
-                title: Some(SharedString::from("aish — M2b1")),
+                title: Some(SharedString::from("aish")),
                 ..Default::default()
             }),
             ..Default::default()
@@ -129,13 +129,17 @@ pub fn run() {
     drop(bridge_keep);
 }
 
-/// 根视图。布局：上方 TabBar，下方按当前 tab.content 切换显示 DefaultPage 或 Terminal。
+/// 根视图。布局：左侧 SidebarNav（48px）+ 右侧主区（按 sidebar 分支）。
 /// HostFormModal / SessionPickerView 作为顶层叠加 modal。
 struct RootView {
     state: Entity<AppState>,
+    sidebar_nav: Entity<crate::views::SidebarNavView>,
     tab_bar: Entity<crate::views::TabBarView>,
-    default_page: Entity<crate::views::DefaultPageView>,
+    home: Entity<crate::views::HomeView>,
     terminal: Entity<crate::views::TerminalView>,
+    empty_terminal: Entity<crate::views::EmptyTerminalGuideView>,
+    inbox: Entity<crate::views::ComingSoonView>,
+    settings: Entity<crate::views::ComingSoonView>,
     host_form: Entity<crate::views::HostFormModal>,
     session_picker: Entity<crate::views::SessionPickerView>,
 }
@@ -148,25 +152,37 @@ impl RootView {
         cx: &mut Context<Self>,
     ) -> Self {
         cx.observe(&state, |_this, _state, cx| cx.notify()).detach();
+
+        let sidebar_nav = cx.new(|cx| crate::views::SidebarNavView::new(state.clone(), cx));
         let tab_bar = cx
             .new(|cx| crate::views::TabBarView::new(state.clone(), bridge.clone(), tx.clone(), cx));
-        let default_page = cx.new(|cx| {
-            crate::views::DefaultPageView::new(state.clone(), bridge.clone(), tx.clone(), cx)
-        });
+        let home =
+            cx.new(|cx| crate::views::HomeView::new(state.clone(), bridge.clone(), tx.clone(), cx));
         let terminal = cx.new(|cx| {
             crate::views::TerminalView::new(state.clone(), bridge.clone(), tx.clone(), cx)
         });
+        let empty_terminal =
+            cx.new(|cx| crate::views::EmptyTerminalGuideView::new(state.clone(), cx));
+        let inbox =
+            cx.new(|_cx| crate::views::ComingSoonView::new(crate::views::ComingSoonKind::Inbox));
+        let settings =
+            cx.new(|_cx| crate::views::ComingSoonView::new(crate::views::ComingSoonKind::Settings));
         let host_form = cx.new(|cx| {
             crate::views::HostFormModal::new(state.clone(), bridge.clone(), tx.clone(), cx)
         });
         let session_picker = cx.new(|cx| {
             crate::views::SessionPickerView::new(state.clone(), bridge.clone(), tx.clone(), cx)
         });
+
         Self {
             state,
+            sidebar_nav,
             tab_bar,
-            default_page,
+            home,
             terminal,
+            empty_terminal,
+            inbox,
+            settings,
             host_form,
             session_picker,
         }
@@ -176,29 +192,40 @@ impl RootView {
 impl Render for RootView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let app = self.state.read(cx);
+        let sidebar = app.sidebar;
         let modal_open = app.modal.is_some();
         let picker_open = app.pending_session_picker.is_some();
-        let is_connection_tab = matches!(
-            app.current_tab().map(|t| &t.content),
-            Some(crate::state::TabContent::Connection(_))
-        );
+        let tabs_empty = app.tabs.is_empty();
+        let _ = app;
 
-        // connection tab：terminal 直接占满整个 body（已删 ConnectionChip 横条，
-        // SSH 标识改在 tab 栏标题上呈现）
-        // default tab：显示默认页
-        let body: gpui::AnyElement = if is_connection_tab {
-            self.terminal.clone().into_any_element()
-        } else {
-            self.default_page.clone().into_any_element()
+        // 主区内容：按 sidebar 分支
+        let main_body: gpui::AnyElement = match sidebar {
+            SidebarTab::Home => self.home.clone().into_any_element(),
+            SidebarTab::Terminal => {
+                if tabs_empty {
+                    self.empty_terminal.clone().into_any_element()
+                } else {
+                    div()
+                        .size_full()
+                        .flex()
+                        .flex_col()
+                        .child(self.tab_bar.clone())
+                        .child(div().flex_1().child(self.terminal.clone()))
+                        .into_any_element()
+                }
+            }
+            SidebarTab::Inbox => self.inbox.clone().into_any_element(),
+            SidebarTab::Settings => self.settings.clone().into_any_element(),
         };
 
+        // 外层：sidebar + 主区横排
         let main = div()
             .flex()
-            .flex_col()
+            .flex_row()
             .size_full()
-            .bg(rgb(0x1d1f21))
-            .child(self.tab_bar.clone())
-            .child(div().flex_1().child(body));
+            .bg(rgb(0x000000))
+            .child(self.sidebar_nav.clone())
+            .child(div().flex_1().child(main_body));
 
         let mut root = div().relative().size_full().child(main);
 
