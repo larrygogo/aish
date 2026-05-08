@@ -52,6 +52,7 @@ impl Render for SettingsView {
         let version = env!("CARGO_PKG_VERSION");
 
         div()
+            .id("settings-scroll")
             .size_full()
             .bg(rgb(theme::BG_BASE))
             .overflow_y_scroll()

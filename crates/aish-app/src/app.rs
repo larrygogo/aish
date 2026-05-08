@@ -25,7 +25,13 @@ pub fn run() {
                 Vec::new()
             }
         };
-        let state = cx.new(|_cx| AppState::with_hosts(hosts));
+        let loaded_state = crate::app_state_file::load_app_state();
+        let last_connected = loaded_state.into_last_connected();
+        let state = cx.new(|_cx| {
+            let mut s = AppState::with_hosts(hosts);
+            s.last_connected = last_connected;
+            s
+        });
         let channel = EventChannel::new();
 
         // 接收 SshEvent loop
@@ -139,7 +145,7 @@ struct RootView {
     terminal: Entity<crate::views::TerminalView>,
     empty_terminal: Entity<crate::views::EmptyTerminalGuideView>,
     inbox: Entity<crate::views::ComingSoonView>,
-    settings: Entity<crate::views::ComingSoonView>,
+    settings: Entity<crate::views::SettingsView>,
     host_form: Entity<crate::views::HostFormModal>,
     session_picker: Entity<crate::views::SessionPickerView>,
 }
@@ -165,8 +171,7 @@ impl RootView {
             cx.new(|cx| crate::views::EmptyTerminalGuideView::new(state.clone(), cx));
         let inbox =
             cx.new(|_cx| crate::views::ComingSoonView::new(crate::views::ComingSoonKind::Inbox));
-        let settings =
-            cx.new(|_cx| crate::views::ComingSoonView::new(crate::views::ComingSoonKind::Settings));
+        let settings = cx.new(|_cx| crate::views::SettingsView::new());
         let host_form = cx.new(|cx| {
             crate::views::HostFormModal::new(state.clone(), bridge.clone(), tx.clone(), cx)
         });
