@@ -62,6 +62,16 @@ pub enum SshEvent {
         conn: ConnectionId,
         session: SessionId,
     },
+    /// SFTP 上传成功，path 是远端绝对路径（如 /tmp/aish-clip-123456.png）。
+    ImageUploaded {
+        conn: ConnectionId,
+        path: String,
+    },
+    /// SFTP 上传失败，msg 是错误描述。
+    ImageUploadFailed {
+        conn: ConnectionId,
+        msg: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -93,6 +103,10 @@ pub enum SessionCommand {
     /// user 点了某个 session，actor 关 raw shell -> 开新 channel attach
     AttachTmux {
         session: SessionId,
+    },
+    /// 上传本地剪贴板图片（PNG bytes）到远端 /tmp。
+    UploadImage {
+        data: Vec<u8>,
     },
 }
 
@@ -1137,5 +1151,50 @@ mod tests {
     fn last_connected_field_accessible() {
         let state = AppState::with_hosts(vec![]);
         assert!(state.last_connected.is_empty());
+    }
+
+    #[test]
+    fn upload_image_command_constructible() {
+        let cmd = SessionCommand::UploadImage {
+            data: vec![0u8, 1, 2, 3],
+        };
+        match cmd {
+            SessionCommand::UploadImage { data } => assert_eq!(data.len(), 4),
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn image_uploaded_event_carries_path() {
+        use aish_types::ConnectionId;
+        let conn = ConnectionId::new();
+        let event = SshEvent::ImageUploaded {
+            conn,
+            path: "/tmp/aish-clip-123.png".into(),
+        };
+        match event {
+            SshEvent::ImageUploaded { conn: c, path } => {
+                assert_eq!(c, conn);
+                assert_eq!(path, "/tmp/aish-clip-123.png");
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn image_upload_failed_event_carries_msg() {
+        use aish_types::ConnectionId;
+        let conn = ConnectionId::new();
+        let event = SshEvent::ImageUploadFailed {
+            conn,
+            msg: "permission denied".into(),
+        };
+        match event {
+            SshEvent::ImageUploadFailed { conn: c, msg } => {
+                assert_eq!(c, conn);
+                assert!(msg.contains("permission"));
+            }
+            _ => panic!("wrong variant"),
+        }
     }
 }

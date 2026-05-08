@@ -229,6 +229,10 @@ pub(crate) async fn connection_task(
                         })
                         .await;
                 }
+                Some(SessionCommand::UploadImage { data }) => {
+                    tracing::debug!(?conn, len = data.len(), "actor: UploadImage command received (M8 stub)");
+                    // TODO: M8 — 实现 SFTP 上传逻辑
+                }
                 Some(SessionCommand::Disconnect) | None => {
                     let _ = event_tx
                         .send(SshEvent::Disconnected {

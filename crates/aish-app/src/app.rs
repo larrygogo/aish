@@ -97,6 +97,16 @@ pub fn run() {
                         state.mark_tmux_attached(conn, session);
                         cx.notify();
                     }
+                    SshEvent::ImageUploaded { conn, path } => {
+                        // M8: 图片已上传到远端
+                        tracing::info!(?conn, ?path, "image uploaded successfully");
+                        cx.notify();
+                    }
+                    SshEvent::ImageUploadFailed { conn, msg } => {
+                        // M8: 图片上传失败
+                        tracing::error!(?conn, msg, "image upload failed");
+                        cx.notify();
+                    }
                 });
             }
         })
