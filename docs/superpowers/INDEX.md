@@ -3,18 +3,27 @@
 > 全部里程碑 plan + spec 的索引 + 当前状态 + 下一步候选。
 >
 > 每完成一个 milestone 更新本文件。这是 `claude-progress.md` 的替代品（后者已废弃）。
+>
+> **长期愿景** → [桌面版 Moshi Roadmap](roadmap-moshi-desktop.md)（跨多里程碑活文档）
 
 ---
 
 ## 当前状态
 
-- **活跃分支**：无（main 已合并完所有 feature；本地 main 比 origin 领先若干 commits，待推 origin）
-- **下一里程碑**：未指定，等用户提需求走 brainstorm → spec → plan
+- **活跃分支**：`feat/m4a-info-arch-20260508-zj`（M4a brainstorm 完，spec 落盘，待写 plan + 实现）
+- **下一里程碑**：M4a 信息架构 4-tab 化（桌面版 Moshi 子项目 A 第一刀）
 - **质量门禁基线**：fmt + clippy 0 warning + test 199 全过
 
 ---
 
 ## Milestones（按时间倒序）
+
+### M4a — 信息架构 4-tab 化（2026-05-08）— 🟡 进行中
+- spec：[`specs/2026-05-08-aish-m4a-info-arch-design.md`](specs/2026-05-08-aish-m4a-info-arch-design.md)
+- plan：（待写）
+- 长期上下文：[桌面版 Moshi Roadmap](roadmap-moshi-desktop.md) · 子项目 A
+- 范围：左侧 48px sidebar 4-tab + Home(hosts grid + active sessions + quick action) + Inbox/Settings ComingSoon placeholder + EmptyTerminalGuideView
+- Out-of-scope：Recent 持久化 / Settings 实质内容 / 任何 AI agent 集成 / 键盘快捷键 Ctrl+1..4
 
 ### M3d-resize-iter1 — 拖窗 resize 时序修复（2026-05-08）— ✅
 - spec：[`specs/2026-05-08-aish-tmux-resize-tweaks-design.md`](specs/2026-05-08-aish-tmux-resize-tweaks-design.md)
