@@ -3,6 +3,7 @@
 #![allow(dead_code)]
 
 mod default_page;
+mod home;
 mod host_form;
 mod session_picker;
 mod sidebar_nav;
