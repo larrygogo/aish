@@ -267,6 +267,16 @@ pub struct Connection {
     pub opened_at: SystemTime,
 }
 
+/// 顶层 4-tab 导航当前选中项（M4a 信息架构）。
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum SidebarTab {
+    #[default]
+    Home,
+    Terminal,
+    Inbox,
+    Settings,
+}
+
 /// Tab 内容类型。默认页显示 host 卡片，连接页显示该 connection 的终端。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TabContent {
@@ -300,6 +310,7 @@ pub struct AppState {
     pub pending_session_picker: Option<ConnectionId>,
 
     pub modal: Option<HostFormState>,
+    pub sidebar: SidebarTab,
 
     /// 每连接一个 actor 命令通道。
     pub sessions: HashMap<ConnectionId, mpsc::Sender<SessionCommand>>,
@@ -315,20 +326,32 @@ pub struct AppState {
     pub tmux_state: HashMap<ConnectionId, TmuxState>,
 }
 
+impl Connection {
+    /// 返回自 opened_at 到现在的 humanize 字符串，用于 Active Sessions 显示。
+    pub fn humanize_opened_at(&self) -> String {
+        let secs = self.opened_at.elapsed().unwrap_or_default().as_secs();
+        if secs < 60 {
+            "just now".into()
+        } else if secs < 3600 {
+            format!("{}m ago", secs / 60)
+        } else if secs < 86400 {
+            format!("{}h ago", secs / 3600)
+        } else if secs < 172800 {
+            "yesterday".into()
+        } else {
+            format!("{}d ago", secs / 86400)
+        }
+    }
+}
+
 impl AppState {
     pub fn with_hosts(hosts: Vec<HostConfig>) -> Self {
-        // 启动时自动开一个默认页 tab，避免界面空白。
-        let initial_tab = Tab {
-            id: TabId::new(),
-            content: TabContent::Default,
-            title: "新连接".into(),
-        };
-        let initial_tab_id = initial_tab.id;
         Self {
             hosts,
             connections: HashMap::new(),
-            tabs: vec![initial_tab],
-            selected_tab: Some(initial_tab_id),
+            tabs: vec![],
+            selected_tab: None,
+            sidebar: SidebarTab::Home,
             pending_session_picker: None,
             sessions: HashMap::new(),
             modal: None,
@@ -356,6 +379,7 @@ impl AppState {
     }
 
     /// 新建一个默认页 tab，自动选中并返回 id。
+    #[allow(dead_code)] // Task 7 改完 tab_bar 的 + 按钮后删
     pub fn new_default_tab(&mut self) -> TabId {
         let tab = Tab {
             id: TabId::new(),
@@ -402,9 +426,7 @@ impl AppState {
                 .get(idx)
                 .or_else(|| self.tabs.last())
                 .map(|t| t.id);
-            if self.selected_tab.is_none() {
-                self.new_default_tab();
-            }
+            // tabs 可以为空，sidebar=Terminal 时主区会显示 EmptyTerminalGuideView
         }
         Some(removed.content)
     }
@@ -474,11 +496,14 @@ impl AppState {
         self.host_pty_processor.remove(&id);
         self.host_pty_dimensions.remove(&id);
         self.tmux_state.remove(&id);
-        for t in &mut self.tabs {
-            if t.content == TabContent::Connection(id) {
-                t.content = TabContent::Default;
-                t.title = "新连接".into();
-            }
+        let ids_to_close: Vec<TabId> = self
+            .tabs
+            .iter()
+            .filter(|t| t.content == TabContent::Connection(id))
+            .map(|t| t.id)
+            .collect();
+        for tab_id in ids_to_close {
+            self.close_tab(tab_id);
         }
         // 关掉的连接如果正在弹 picker，也得清
         if self.pending_session_picker == Some(id) {
@@ -679,67 +704,67 @@ mod tests {
     }
 
     #[test]
-    fn remove_connection_resets_referencing_tab_to_default() {
+    fn remove_connection_closes_referencing_tab() {
+        use aish_types::TabId;
         let h = mk_host("a");
         let host_id = h.id;
         let mut state = AppState::with_hosts(vec![h]);
         let conn = state.open_connection(host_id);
-        state.replace_current_tab(TabContent::Connection(conn), "x".into());
+        // 手动 push 一个 Connection tab
+        let tab_id = TabId::new();
+        state.tabs.push(Tab {
+            id: tab_id,
+            content: TabContent::Connection(conn),
+            title: "x".into(),
+        });
+        state.selected_tab = Some(tab_id);
         state.remove_connection(conn);
-        let cur = state.current_tab().unwrap();
-        assert_eq!(cur.content, TabContent::Default);
-        assert_eq!(cur.title, "新连接");
-    }
-
-    #[test]
-    fn with_hosts_creates_initial_default_tab() {
-        let state = AppState::with_hosts(vec![]);
-        assert_eq!(state.tabs.len(), 1);
-        assert!(state.selected_tab.is_some());
-        assert_eq!(state.current_tab().unwrap().content, TabContent::Default);
-    }
-
-    #[test]
-    fn new_default_tab_pushes_and_selects() {
-        let mut state = AppState::with_hosts(vec![]);
-        let n = state.tabs.len();
-        let id = state.new_default_tab();
-        assert_eq!(state.tabs.len(), n + 1);
-        assert_eq!(state.selected_tab, Some(id));
+        // 该 tab 应被关闭
+        assert!(!state.tabs.iter().any(|t| t.id == tab_id));
     }
 
     #[test]
     fn replace_current_tab_swaps_in_place() {
+        use aish_types::TabId;
         let h = mk_host("a");
         let host_id = h.id;
         let mut state = AppState::with_hosts(vec![h]);
         let conn = state.open_connection(host_id);
-        let initial_id = state.selected_tab.unwrap();
+        // 手动 push 一个初始 tab（M4a 起 with_hosts 不自动创建）
+        let initial_tab_id = TabId::new();
+        state.tabs.push(Tab {
+            id: initial_tab_id,
+            content: TabContent::Default,
+            title: "新连接".into(),
+        });
+        state.selected_tab = Some(initial_tab_id);
         state.replace_current_tab(TabContent::Connection(conn), "腾讯云 #1".into());
-        assert_eq!(state.selected_tab, Some(initial_id));
+        assert_eq!(state.selected_tab, Some(initial_tab_id));
         assert_eq!(state.current_tab().unwrap().title, "腾讯云 #1");
         assert_eq!(state.current_connection(), Some(conn));
     }
 
     #[test]
     fn close_tab_picks_neighbor_when_current() {
+        use aish_types::TabId;
         let mut state = AppState::with_hosts(vec![]);
-        let t1 = state.selected_tab.unwrap();
-        let t2 = state.new_default_tab();
-        state.close_tab(t2);
-        assert_eq!(state.selected_tab, Some(t1));
+        // 手动 push 两个 tab
+        let id1 = TabId::new();
+        let id2 = TabId::new();
+        state.tabs.push(Tab {
+            id: id1,
+            content: TabContent::Default,
+            title: "1".into(),
+        });
+        state.tabs.push(Tab {
+            id: id2,
+            content: TabContent::Default,
+            title: "2".into(),
+        });
+        state.selected_tab = Some(id2);
+        state.close_tab(id2);
+        assert_eq!(state.selected_tab, Some(id1));
         assert_eq!(state.tabs.len(), 1);
-    }
-
-    #[test]
-    fn close_last_tab_auto_creates_default() {
-        let mut state = AppState::with_hosts(vec![]);
-        let only = state.selected_tab.unwrap();
-        state.close_tab(only);
-        // 不让窗口空白：自动新建一个
-        assert_eq!(state.tabs.len(), 1);
-        assert!(state.selected_tab.is_some());
-        assert_ne!(state.selected_tab, Some(only));
     }
 
     #[test]
@@ -1031,5 +1056,61 @@ mod tests {
             state.tmux_state.get(&conn),
             Some(TmuxState::NotChecked)
         ));
+    }
+
+    #[test]
+    fn sidebar_default_is_home() {
+        let state = AppState::with_hosts(vec![]);
+        assert_eq!(state.sidebar, SidebarTab::Home);
+    }
+
+    #[test]
+    fn with_hosts_starts_with_empty_tabs() {
+        let state = AppState::with_hosts(vec![]);
+        assert!(state.tabs.is_empty());
+        assert_eq!(state.selected_tab, None);
+    }
+
+    #[test]
+    fn close_tab_allows_empty_tabs() {
+        use aish_types::TabId;
+        let mut state = AppState::with_hosts(vec![]);
+        // 手动 push 一个 tab 再关掉
+        let tab_id = TabId::new();
+        state.tabs.push(Tab {
+            id: tab_id,
+            content: TabContent::Default,
+            title: "test".into(),
+        });
+        state.selected_tab = Some(tab_id);
+        state.close_tab(tab_id);
+        assert!(
+            state.tabs.is_empty(),
+            "tabs should be empty after closing last tab"
+        );
+    }
+
+    #[test]
+    fn humanize_opened_at_just_now() {
+        use std::time::SystemTime;
+        let conn = Connection {
+            id: ConnectionId::new(),
+            host_id: aish_types::HostId::new(),
+            label: "test".into(),
+            opened_at: SystemTime::now(),
+        };
+        assert_eq!(conn.humanize_opened_at(), "just now");
+    }
+
+    #[test]
+    fn humanize_opened_at_minutes() {
+        use std::time::{Duration, SystemTime};
+        let conn = Connection {
+            id: ConnectionId::new(),
+            host_id: aish_types::HostId::new(),
+            label: "test".into(),
+            opened_at: SystemTime::now() - Duration::from_secs(125),
+        };
+        assert_eq!(conn.humanize_opened_at(), "2m ago");
     }
 }
