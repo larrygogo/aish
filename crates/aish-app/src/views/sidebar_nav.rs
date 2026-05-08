@@ -1,8 +1,8 @@
-//! SidebarNav：左侧 48px 纯 icon 4-tab 导航（M4a 信息架构）。
+//! SidebarNav：左侧 48px 纯文字 4-tab 导航（M4a 信息架构）。
 //!
 //! 4 个 tab：Home / Terminal / Inbox / Settings。
-//! 选中态：左侧 2px ACCENT_BLUE 指示条 + 背景 SIDEBAR_NAV_BG_ACTIVE + icon 变白。
-//! icon 暂用 Unicode 占位（⌂ >_ ✉ ⚙），未来换 SVG asset 时只需改本文件。
+//! 选中态：左侧 2px ACCENT_BLUE 指示条 + 背景 SIDEBAR_NAV_BG_ACTIVE + 文字变白。
+//! 标签暂用纯 ASCII 文字占位，未来换 SVG asset 时只需改本文件。
 
 use gpui::{div, prelude::*, px, rgb, Context, Entity, MouseButton, MouseDownEvent, Window};
 
@@ -45,10 +45,10 @@ impl Render for SidebarNavView {
                 .flex_col()
                 .items_center()
                 .justify_center()
-                .py(px(10.0))
+                .py(px(12.0))
                 .cursor_pointer()
                 .text_color(fg)
-                .text_size(px(18.0));
+                .text_size(px(10.0));
 
             if is_active {
                 item = item
@@ -86,16 +86,16 @@ impl Render for SidebarNavView {
             .bg(rgb(theme::SIDEBAR_BG))
             .border_r_1()
             .border_color(rgb(theme::SIDEBAR_BORDER))
-            .child(nav_item(SidebarTab::Home, "⌂", cx))
-            .child(nav_item(SidebarTab::Terminal, ">_", cx))
-            .child(nav_item(SidebarTab::Inbox, "✉", cx))
+            .child(nav_item(SidebarTab::Home, "home", cx))
+            .child(nav_item(SidebarTab::Terminal, "term", cx))
+            .child(nav_item(SidebarTab::Inbox, "inbox", cx))
             .child(
                 div()
                     .flex_1()
                     .flex()
                     .flex_col()
                     .justify_end()
-                    .child(nav_item(SidebarTab::Settings, "⚙", cx)),
+                    .child(nav_item(SidebarTab::Settings, "cfg", cx)),
             )
     }
 }
