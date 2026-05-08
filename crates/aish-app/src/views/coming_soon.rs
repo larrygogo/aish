@@ -2,6 +2,7 @@
 
 use gpui::{div, prelude::*, px, rgb, Context, Window};
 
+use crate::terminal::font::FONT_NAME;
 use crate::theme;
 
 #[derive(Clone, Copy)]
@@ -24,7 +25,7 @@ impl Render for ComingSoonView {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         let (icon, title, description) = match self.kind {
             ComingSoonKind::Inbox => (
-                "✉",
+                "\u{f01c}",
                 "Inbox · Coming soon",
                 "Agent events, tool completions, and approval requests will appear here.",
             ),
@@ -45,6 +46,7 @@ impl Render for ComingSoonView {
             .gap_3()
             .child(
                 div()
+                    .font_family(FONT_NAME)
                     .text_size(px(40.0))
                     .text_color(rgb(theme::TEXT_MUTED))
                     .child(icon),
