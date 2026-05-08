@@ -4,12 +4,16 @@
 //! Hosts grid（host 卡片网格，复用 default_page.rs 原有逻辑）。
 
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use aish_types::{ConnectionId, HostId};
 use gpui::{div, prelude::*, px, rgb, Context, Entity, MouseButton, MouseDownEvent, Window};
 
 use crate::bridge::Bridge;
-use crate::state::{AppState, HostFormDraft, HostFormState, SidebarTab, SshEvent, Tab, TabContent};
+use crate::state::{
+    humanize_last_connected, AppState, HostFormDraft, HostFormState, SidebarTab, SshEvent, Tab,
+    TabContent,
+};
 use crate::theme;
 
 pub struct HomeView {
@@ -54,6 +58,10 @@ impl HomeView {
             s.tabs.push(tab);
             s.selected_tab = Some(s.tabs.last().unwrap().id);
             s.sidebar = SidebarTab::Terminal;
+            s.last_connected.insert(host_id, SystemTime::now());
+            let snapshot =
+                crate::app_state_file::AppStateFile::from_last_connected(&s.last_connected);
+            crate::app_state_file::save_app_state(&snapshot);
             cx.notify();
             (conn, cfg, label)
         });
@@ -288,6 +296,10 @@ impl Render for HomeView {
                 let id = h.id;
                 let label = h.label.clone();
                 let host_text = format!("{}@{}:{}", h.user, h.host, h.port);
+                let last_conn_str: Option<String> = app
+                    .last_connected
+                    .get(&id)
+                    .map(|t| humanize_last_connected(*t));
 
                 // 该 host 的活跃连接数
                 let active_count = app.connections.values().filter(|c| c.host_id == id).count();
@@ -444,7 +456,13 @@ impl Render for HomeView {
                                     .text_color(rgb(theme::TEXT_SECONDARY))
                                     .text_size(theme::text_sm())
                                     .child(host_text),
-                            ),
+                            )
+                            .children(last_conn_str.map(|s| {
+                                div()
+                                    .text_color(rgb(theme::TEXT_MUTED))
+                                    .text_size(px(11.0))
+                                    .child(format!("上次连接 {}", s))
+                            })),
                     )
                     .child(actions)
                     .child(chevron)
