@@ -10,13 +10,26 @@
 
 ## 当前状态
 
-- **活跃分支**：`feat/m4b-recent-settings-20260508-zj`（M4b 已完成）
-- **下一里程碑**：backlog 条目或新需求
-- **质量门禁基线**：fmt + clippy 0 warning + test 16 全过
+- **活跃分支**：`main`（M8 图片粘贴已完成）
+- **下一里程碑**：M6 Activity 实时活动条 或 backlog 条目
+- **质量门禁基线**：fmt + clippy 0 warning + test 92 全过
 
 ---
 
 ## Milestones（按时间倒序）
+
+### M8 — 图片粘贴（Ctrl+Shift+V + SFTP + echo path）（2026-05-08）— ✅ 已完成
+- spec：[`specs/2026-05-08-aish-m8-image-paste-design.md`](specs/2026-05-08-aish-m8-image-paste-design.md)
+- plan：[`plans/2026-05-08-aish-m8-image-paste.md`](plans/2026-05-08-aish-m8-image-paste.md)
+- 范围：Ctrl+Shift+V 检测剪贴板类型 → 图片走 arboard 读取 + PNG 编码 + SshClient::sftp_upload → 远端 /tmp + echo 路径到 PTY；文字走现有 bracketed paste 逻辑
+- 关键 commits：
+  - `19e4fc3` — build: workspace 依赖加 russh-sftp / arboard / image
+  - `96752d7` / `2a95493` / `366d852` — SshError::Sftp + SshClient::sftp_upload
+  - `d589727` — state.rs UploadImage + ImageUploaded/Failed
+  - `8cd880e` — terminal/image.rs encode_rgba_to_png
+  - `fd7caad` — terminal_view paste() 图片检测
+  - `41d4baf` — ssh_actor UploadImage match arm
+  - `dd96d4c` — app.rs 事件处理 + 质量门禁
 
 ### M4b — Recent 持久化 + Settings 起步（2026-05-08）— ✅ 已完成
 - spec：（无独立 spec，架构设计见 M4a spec）
