@@ -211,12 +211,14 @@ impl TerminalView {
             return;
         }
 
-        // 有 key_char 且无 Ctrl/Alt 修饰：可打印字符将由 WM_CHAR → InputHandler
-        // 路径发送，此处不重复发（避免 ASCII/符号字符双重发送）。
-        // IME 组合中的拼音字母 key_char 也是 Some，但 IME 会抑制 WM_CHAR，
-        // 所以不会误发到 PTY，行为正确。Enter/Tab/方向键等 key_char = None，
-        // 不受此判断影响，仍走 encode_key 路径。
-        if event.keystroke.key_char.is_some() && !ctrl && !alt {
+        // 有 key_char 且满足以下任一条件时，交由 WM_CHAR → InputHandler 路径发送：
+        //   a) 无 Ctrl/Alt 修饰（普通可打印字符、IME 拼音字母）
+        //   b) prefer_character_input（AltGr 欧洲键盘，Ctrl+Alt 实为一个字符键）
+        // IME 组合中的字母：key_char = Some，但 IME 抑制 WM_CHAR → 不发到 PTY，正确。
+        // Enter/Tab/方向键等：key_char = None → 不受影响，走 encode_key。
+        let via_input_handler =
+            event.keystroke.key_char.is_some() && (!ctrl && !alt || event.prefer_character_input);
+        if via_input_handler {
             return;
         }
 
