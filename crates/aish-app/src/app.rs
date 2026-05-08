@@ -190,6 +190,7 @@ struct RootView {
     settings: Entity<crate::views::SettingsView>,
     host_form: Entity<crate::views::HostFormModal>,
     session_picker: Entity<crate::views::SessionPickerView>,
+    input_bar: Entity<crate::views::InputBarView>,
 }
 
 impl RootView {
@@ -220,6 +221,8 @@ impl RootView {
         let session_picker = cx.new(|cx| {
             crate::views::SessionPickerView::new(state.clone(), bridge.clone(), tx.clone(), cx)
         });
+        let input_bar =
+            cx.new(|cx| crate::views::InputBarView::new(state.clone(), bridge.clone(), cx));
 
         Self {
             state,
@@ -232,6 +235,7 @@ impl RootView {
             settings,
             host_form,
             session_picker,
+            input_bar,
         }
     }
 }
@@ -258,6 +262,7 @@ impl Render for RootView {
                         .flex_col()
                         .child(self.tab_bar.clone())
                         .child(div().flex_1().child(self.terminal.clone()))
+                        .child(self.input_bar.clone())
                         .into_any_element()
                 }
             }
