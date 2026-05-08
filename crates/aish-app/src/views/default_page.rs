@@ -109,10 +109,10 @@ impl Render for DefaultPageView {
             .border_1()
             .border_color(rgb(theme::BORDER_SUBTLE))
             .rounded_md()
+            .cursor_pointer()
             .hover(|s| {
                 s.bg(rgb(theme::BG_HOVER))
                     .border_color(rgb(theme::BORDER_STRONG))
-                    .cursor_pointer()
             })
             .on_mouse_down(
                 MouseButton::Left,
@@ -190,10 +190,10 @@ impl Render for DefaultPageView {
                     .py_1()
                     .rounded_md()
                     .text_color(rgb(theme::TEXT_SECONDARY))
+                    .cursor_pointer()
                     .hover(|s| {
                         s.text_color(rgb(theme::TEXT_PRIMARY))
                             .bg(rgb(theme::BG_SELECTED))
-                            .cursor_pointer()
                     })
                     .on_mouse_down(
                         MouseButton::Left,
@@ -210,10 +210,10 @@ impl Render for DefaultPageView {
                     .py_1()
                     .rounded_md()
                     .text_color(rgb(theme::TEXT_SECONDARY))
+                    .cursor_pointer()
                     .hover(|s| {
                         s.text_color(rgb(theme::ACCENT_RED))
                             .bg(rgb(theme::BG_SELECTED))
-                            .cursor_pointer()
                     })
                     .on_mouse_down(
                         MouseButton::Left,
@@ -247,7 +247,8 @@ impl Render for DefaultPageView {
                     .py_3p5()
                     .bg(rgb(theme::BG_ELEVATED))
                     .rounded_2xl()
-                    .hover(|s| s.bg(rgb(theme::BG_HOVER)).cursor_pointer())
+                    .cursor_pointer()
+                    .hover(|s| s.bg(rgb(theme::BG_HOVER)))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {

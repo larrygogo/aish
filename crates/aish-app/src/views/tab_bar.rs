@@ -212,7 +212,8 @@ impl Render for TabBarView {
                 let close_btn = div()
                     .px_1p5()
                     .text_color(rgb(theme::TEXT_SECONDARY))
-                    .hover(|s| s.text_color(rgb(theme::ACCENT_RED)).cursor_pointer())
+                    .cursor_pointer()
+                    .hover(|s| s.text_color(rgb(theme::ACCENT_RED)))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
@@ -300,7 +301,8 @@ impl Render for TabBarView {
                     } else {
                         theme::BG_ELEVATED
                     }))
-                    .hover(|s| s.bg(rgb(theme::BG_HOVER)).cursor_pointer())
+                    .cursor_pointer()
+                    .hover(|s| s.bg(rgb(theme::BG_HOVER)))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, ev: &MouseDownEvent, w, cx| {
@@ -324,10 +326,10 @@ impl Render for TabBarView {
             .text_size(theme::text_lg())
             .text_color(rgb(theme::TEXT_SECONDARY))
             .bg(rgb(theme::BG_ELEVATED))
+            .cursor_pointer()
             .hover(|s| {
                 s.bg(rgb(theme::BG_HOVER))
                     .text_color(rgb(theme::TEXT_PRIMARY))
-                    .cursor_pointer()
             })
             .on_mouse_down(
                 MouseButton::Left,
