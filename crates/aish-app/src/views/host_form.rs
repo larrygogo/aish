@@ -429,8 +429,16 @@ impl HostFormModal {
             ));
 
         // 认证方式 segmented control（点击切 auth_kind）
-        let kf_marker = if kf_selected { "● 密钥" } else { "○ 密钥" };
-        let pw_marker = if pw_selected { "● 密码" } else { "○ 密码" };
+        let kf_marker = if kf_selected {
+            "● 密钥"
+        } else {
+            "○ 密钥"
+        };
+        let pw_marker = if pw_selected {
+            "● 密码"
+        } else {
+            "○ 密码"
+        };
         col = col.child(
             div()
                 .flex()
@@ -734,4 +742,3 @@ fn render_delete_body(label: &str) -> gpui::AnyElement {
         )
         .into_any_element()
 }
-
