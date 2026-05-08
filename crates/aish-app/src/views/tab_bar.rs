@@ -216,6 +216,9 @@ impl Render for TabBarView {
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
+                            // 拦住事件不冒泡到外层 tab listener 触发 select_tab
+                            // （目前 select_tab 对已关闭 id 是 noop，但仍规范化）
+                            cx.stop_propagation();
                             this.handle_close(id, cx);
                         }),
                     )

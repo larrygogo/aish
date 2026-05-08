@@ -178,8 +178,11 @@ impl Render for SessionPickerView {
                     .rounded_lg()
                     .flex()
                     .flex_col()
-                    // 阻止点击内部区域穿透到遮罩
-                    .on_mouse_down(MouseButton::Left, |_ev: &MouseDownEvent, _w, _cx| {})
+                    // 阻止点击内部区域穿透到遮罩 handle_skip。GPUI listener
+                    // 默认不阻止冒泡，必须显式调 stop_propagation。
+                    .on_mouse_down(MouseButton::Left, |_ev: &MouseDownEvent, _w, cx| {
+                        cx.stop_propagation();
+                    })
                     .child(header)
                     .child(div().flex_col().children(session_rows).children(empty)),
             )
