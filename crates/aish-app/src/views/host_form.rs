@@ -356,12 +356,24 @@ impl Render for HostFormModal {
             .child(
                 div()
                     // 阻止点击 modal 内部冒泡到遮罩触发 cancel。
+                    //
                     // GPUI 的 mouse listener 默认不阻止冒泡，必须显式调
-                    // cx.stop_propagation()，把 propagate_event 设 false，
-                    // bubble 循环 break，外层遮罩 cancel 不再触发。
-                    .on_mouse_down(MouseButton::Left, |_ev: &MouseDownEvent, _w, cx| {
-                        cx.stop_propagation();
-                    })
+                    // cx.stop_propagation() 才能把 propagate_event 设 false
+                    // 让 bubble 循环 break，外层遮罩 cancel 不再触发。
+                    //
+                    // 但这同时会拦掉 modal 顶层 .track_focus 自动注册的
+                    // mouse_down focus-transfer listener（gpui/elements/div.rs
+                    // ~2213），导致 focus_handle 不会被 transfer 到 modal，
+                    // 键盘事件到不了 on_key_down，"无法输入"。所以这里在
+                    // stop_propagation 之前显式 w.focus(&self.focus_handle)
+                    // 把 focus 强制切到 modal handle。
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _ev: &MouseDownEvent, w, cx| {
+                            w.focus(&this.focus_handle, cx);
+                            cx.stop_propagation();
+                        }),
+                    )
                     .w(px(460.0))
                     .bg(rgb(theme::BG_ELEVATED))
                     .rounded_xl()
@@ -470,7 +482,15 @@ impl HostFormModal {
                         .flex()
                         .items_center()
                         .justify_center()
-                        .hover(|s| s.cursor_pointer())
+                        .cursor_pointer()
+                        // 未选中段 hover 时显示 BG_HOVER；选中段已是 BG_SELECTED 不动 bg
+                        .hover(move |s| {
+                            if kf_selected {
+                                s
+                            } else {
+                                s.bg(rgb(theme::BG_HOVER))
+                            }
+                        })
                         .on_mouse_down(
                             MouseButton::Left,
                             cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
@@ -498,7 +518,14 @@ impl HostFormModal {
                         .flex()
                         .items_center()
                         .justify_center()
-                        .hover(|s| s.cursor_pointer())
+                        .cursor_pointer()
+                        .hover(move |s| {
+                            if pw_selected {
+                                s
+                            } else {
+                                s.bg(rgb(theme::BG_HOVER))
+                            }
+                        })
                         .on_mouse_down(
                             MouseButton::Left,
                             cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
@@ -592,7 +619,8 @@ impl HostFormModal {
                     .rounded_md()
                     .text_color(text_color)
                     .text_size(theme::text_sm())
-                    .hover(|s| s.cursor_pointer())
+                    .cursor_text()
+                    .hover(|s| s.bg(rgb(theme::BG_HOVER)))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
@@ -604,9 +632,14 @@ impl HostFormModal {
             .child(
                 div()
                     .px_2()
+                    .rounded_md()
                     .text_color(rgb(theme::TEXT_SECONDARY))
                     .text_size(theme::text_lg())
-                    .hover(|s| s.cursor_pointer())
+                    .cursor_pointer()
+                    .hover(|s| {
+                        s.text_color(rgb(theme::TEXT_PRIMARY))
+                            .bg(rgb(theme::BG_HOVER))
+                    })
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
@@ -663,7 +696,8 @@ impl HostFormModal {
                         rgb(theme::TEXT_PRIMARY)
                     })
                     .text_size(theme::text_sm())
-                    .hover(|s| s.cursor_pointer())
+                    .cursor_text()
+                    .hover(|s| s.bg(rgb(theme::BG_HOVER)))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
@@ -691,10 +725,10 @@ impl HostFormModal {
                     .text_color(rgb(theme::TEXT_SECONDARY))
                     .text_size(theme::text_sm())
                     .rounded_md()
+                    .cursor_pointer()
                     .hover(|s| {
                         s.bg(rgb(theme::BG_HOVER))
                             .text_color(rgb(theme::TEXT_PRIMARY))
-                            .cursor_pointer()
                     })
                     .on_mouse_down(
                         MouseButton::Left,
@@ -710,7 +744,8 @@ impl HostFormModal {
                     .text_color(rgb(0xffffff))
                     .text_size(theme::text_sm())
                     .rounded_md()
-                    .hover(|s| s.cursor_pointer())
+                    .cursor_pointer()
+                    .hover(|s| s.bg(rgb(theme::ACCENT_BLUE_HOVER)))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|this, _ev: &MouseDownEvent, _w, cx| this.save(cx)),

@@ -96,11 +96,8 @@ impl Render for SessionPickerView {
                     .text_size(px(12.0))
                     .bg(rgb(0x2a2a2a))
                     .rounded_md()
-                    .hover(|s| {
-                        s.bg(rgb(0x3a3a3a))
-                            .text_color(rgb(0xffffff))
-                            .cursor_pointer()
-                    })
+                    .cursor_pointer()
+                    .hover(|s| s.bg(rgb(0x3a3a3a)).text_color(rgb(0xffffff)))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|this, _ev: &MouseDownEvent, _w, cx| this.handle_skip(cx)),
@@ -118,7 +115,8 @@ impl Render for SessionPickerView {
                     .py_3()
                     .border_b_1()
                     .border_color(rgb(0x2a2a2a))
-                    .hover(|st| st.bg(rgb(0x252525)).cursor_pointer())
+                    .cursor_pointer()
+                    .hover(|st| st.bg(rgb(0x252525)))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {

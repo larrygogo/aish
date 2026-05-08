@@ -30,6 +30,8 @@ pub const TEXT_MUTED: u32 = 0x5b5d66;
 
 // ────────── 强调色 ──────────
 pub const ACCENT_BLUE: u32 = 0x4a9eff;
+/// ACCENT_BLUE 按钮（如 Save）hover 时的 bg。比 ACCENT_BLUE 亮一档。
+pub const ACCENT_BLUE_HOVER: u32 = 0x66b3ff;
 pub const ACCENT_GREEN: u32 = 0x4ec9b0;
 pub const ACCENT_RED: u32 = 0xff6b6b;
 pub const ACCENT_YELLOW: u32 = 0xf5c242;
