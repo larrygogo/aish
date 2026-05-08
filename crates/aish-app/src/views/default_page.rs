@@ -198,6 +198,8 @@ impl Render for DefaultPageView {
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
+                            // 拦住事件不冒泡到外层卡片 listener 触发连接
+                            cx.stop_propagation();
                             this.handle_edit_click(id, cx);
                         }),
                     )
@@ -216,6 +218,8 @@ impl Render for DefaultPageView {
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
+                            // 拦住事件不冒泡到外层卡片 listener 触发连接
+                            cx.stop_propagation();
                             this.handle_delete_click(id, cx);
                         }),
                     )

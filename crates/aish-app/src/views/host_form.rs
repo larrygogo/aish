@@ -355,8 +355,13 @@ impl Render for HostFormModal {
             .justify_center()
             .child(
                 div()
-                    // 阻止点击 modal 内部冒泡到遮罩触发 cancel
-                    .on_mouse_down(MouseButton::Left, |_ev: &MouseDownEvent, _w, _cx| {})
+                    // 阻止点击 modal 内部冒泡到遮罩触发 cancel。
+                    // GPUI 的 mouse listener 默认不阻止冒泡，必须显式调
+                    // cx.stop_propagation()，把 propagate_event 设 false，
+                    // bubble 循环 break，外层遮罩 cancel 不再触发。
+                    .on_mouse_down(MouseButton::Left, |_ev: &MouseDownEvent, _w, cx| {
+                        cx.stop_propagation();
+                    })
                     .w(px(460.0))
                     .bg(rgb(theme::BG_ELEVATED))
                     .rounded_xl()
