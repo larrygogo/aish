@@ -8,13 +8,33 @@
 
 ## 当前状态
 
-- **活跃分支**：`fix/tmux-client-size-follow-window-20260507-zj`（积累了 2026-05-07~05-08 的 7 个 feature，待推 origin）
+- **活跃分支**：无（main 已合并完所有 feature；本地 main 比 origin 领先若干 commits，待推 origin）
 - **下一里程碑**：未指定，等用户提需求走 brainstorm → spec → plan
-- **质量门禁基线**：fmt + clippy 0 warning + test 197 全过
+- **质量门禁基线**：fmt + clippy 0 warning + test 199 全过
 
 ---
 
 ## Milestones（按时间倒序）
+
+### M3d-resize-iter1 — 拖窗 resize 时序修复（2026-05-08）— ✅
+- spec：[`specs/2026-05-08-aish-tmux-resize-tweaks-design.md`](specs/2026-05-08-aish-tmux-resize-tweaks-design.md)
+- plan：[`plans/2026-05-08-aish-tmux-resize-tweaks.md`](plans/2026-05-08-aish-tmux-resize-tweaks.md)
+- 实际产出：debounce 100→250ms / 本地 alacritty Term resize 推迟 80ms 到 SIGWINCH 之后 / check_resize 闭包 4 段流水
+- 关键 commits：`04ed0e0` `7c6bbfc`(merge)
+- 决策：5 个候选薄弱点（floor 取整 / shared session / refresh-client / 时序 / debounce）只修了 #4 #5 两条确定有问题的；#1/#2/#3 实测没撞到，留观察
+
+### M3d-ui-iter2 — 删 ConnectionChip 横条（2026-05-08）— ✅
+- spec：[`specs/2026-05-08-aish-remove-connection-chip-design.md`](specs/2026-05-08-aish-remove-connection-chip-design.md)
+- plan：[`plans/2026-05-08-aish-remove-connection-chip.md`](plans/2026-05-08-aish-remove-connection-chip.md)
+- 实际产出：删 ConnectionChipView / [SSH] 蓝胶囊并入 tab 标题 / RootView body 简化（terminal 直接占满）
+- 关键 commits：`86382bf` `76553b6`(fmt) `431b0b4`(merge)
+- 注：原横条上的 ▾ 折叠按钮在 UI 层暂失，恢复入口待 backlog `collapse-orphan-conn` 做完
+
+### M3d-ui-polish — UI 整体美化（2026-05-08）— ✅
+- spec：[`specs/2026-05-08-aish-ui-polish-design.md`](specs/2026-05-08-aish-ui-polish-design.md)
+- plan：[`plans/2026-05-08-aish-ui-polish.md`](plans/2026-05-08-aish-ui-polish.md)
+- 实际产出：抽 `theme.rs` 集中色值 / 字号 / 半径 / 默认页大圆角卡片 / tab 栏 + connection chip + host form 全套 theme 应用
+- 关键 commits：`24904aa` `8d5a227` `c4fc161` `0997e5e` `8097b43`
 
 ### M3c-post-cc-rework（2026-05-07）— ✅ 已完成
 - spec：（无独立 spec，决策记录在 plan 内 + claude-progress.md 的"技术决策"节，已并入归档）
