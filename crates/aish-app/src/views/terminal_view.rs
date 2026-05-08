@@ -1,5 +1,6 @@
 //! 主区终端视图。M2b1 Task 4 — 自绘 alacritty grid + 颜色 + 光标闪烁。
-//! M2b1 Task 5 — PTY 跟随窗口 resize（100ms debounce）。
+//! M2b1 Task 5 — PTY 跟随窗口 resize（250ms debounce + 80ms 远端落地延迟，
+//! 见 PTY_RESIZE_DEBOUNCE_MS / LOCAL_TERM_RESIZE_DELAY_MS）。
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -18,6 +19,17 @@ use crate::terminal::{
     font,
     grid_renderer::{self, paint_grid, GridLayout, GridSnapshot},
 };
+
+/// PTY resize debounce 窗口期。bounds 变化后等 N ms 才发 SIGWINCH，避免拖窗
+/// 时每 100ms 触发一次远端重排（旧值 100ms 偏短，250ms 让拖动稳定后才发一次）。
+const PTY_RESIZE_DEBOUNCE_MS: u64 = 250;
+
+/// 本地 alacritty Term resize 相对于 SIGWINCH 发出的额外延迟。
+/// 用于粗略覆盖 SSH RTT，让远端 tmux 先按新 size 重排再让本地 Term 跟随，
+/// 避免本地按新 size 排版而远端旧字节按旧 size 算 → ANSI 错位 / 字符跳动。
+/// 80ms 适配常见局域网 / 国内云 RTT < 50ms；越洋高延迟仍会留 100ms+ 错位窗口
+/// （后续可加可配置环境变量，本次不做）。
+const LOCAL_TERM_RESIZE_DELAY_MS: u64 = 80;
 
 pub struct TerminalView {
     state: Entity<AppState>,
@@ -465,28 +477,45 @@ impl TerminalView {
         let state = self.state.clone();
         let bridge = self.bridge.clone();
 
-        // 启动 100ms debounce task，存储在 self.pending_resize — drop 即取消
+        // 启动 debounce task，存储在 self.pending_resize — drop 即取消
+        //
+        // 4 段流水：
+        //   1. PTY_RESIZE_DEBOUNCE_MS — 等拖动稳定
+        //   2. SessionCommand::Resize → 远端 PTY SIGWINCH
+        //   3. LOCAL_TERM_RESIZE_DELAY_MS — 等远端 RTT 落地
+        //   4. state.resize_term — 本地 alacritty Term 按新 size 排
+        //
+        // 顺序为何"先远端再本地"：本地 Term 立即按新 size 排会让远端用旧
+        // size 算的 ANSI 在新坐标系里错位（光标定位 / pane 边框等）。让远端
+        // 先按新 size 重排吐字节，本地再切到新 size，可避开错位窗口。
         let task = cx.spawn(async move |_this, cx| {
+            // (1) debounce
             cx.background_executor()
-                .timer(Duration::from_millis(100))
+                .timer(Duration::from_millis(PTY_RESIZE_DEBOUNCE_MS))
                 .await;
 
-            // resize alacritty Term 并通知 UI 重绘；
-            // cx 是 &mut AsyncApp，通过 cx.update 拿 &mut App 来更新 state entity
+            // (2) 先发 SIGWINCH 给远端 PTY
             let sender_opt = cx.update(|app| {
-                state.update(app, |app_state, cx| {
-                    app_state.resize_term(conn, cols, rows);
-                    cx.notify();
-                    app_state.sessions.get(&conn).cloned()
-                })
+                state.update(app, |app_state, _cx| app_state.sessions.get(&conn).cloned())
             });
-
-            // 通知远端 PTY 执行 window_change（SIGWINCH）
             if let Some(sender) = sender_opt {
                 bridge.spawn(async move {
                     let _ = sender.send(SessionCommand::Resize { cols, rows }).await;
                 });
             }
+
+            // (3) 等远端约一个 RTT 让 SIGWINCH 落地、tmux 重排
+            cx.background_executor()
+                .timer(Duration::from_millis(LOCAL_TERM_RESIZE_DELAY_MS))
+                .await;
+
+            // (4) 本地 Term 跟随新 size 并通知 UI 重绘
+            cx.update(|app| {
+                state.update(app, |app_state, cx| {
+                    app_state.resize_term(conn, cols, rows);
+                    cx.notify();
+                })
+            });
         });
         self.pending_resize = Some(task);
     }
