@@ -266,6 +266,9 @@ pub fn encode_key(key: &str, ctrl: bool, _alt: bool) -> Vec<u8> {
         "backspace" => vec![0x7f],
         "tab" => vec![b'\t'],
         "escape" | "esc" => vec![0x1b],
+        // GPUI 空格 keystroke.key 是 "space"（5 字符），不是 " "，单字符
+        // 分支不会匹配，需独立处理。否则空格按下不发字节、远端收不到。
+        "space" => vec![b' '],
 
         // 方向键 (normal mode CSI)
         "up" | "arrowup" => b"\x1b[A".to_vec(),
