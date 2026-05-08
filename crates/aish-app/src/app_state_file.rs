@@ -1,0 +1,176 @@
+#![allow(dead_code)]
+
+use std::collections::HashMap;
+use std::fs;
+use std::io;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
+
+use aish_types::HostId;
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+const APP_DIR_NAME: &str = "aish";
+const APP_STATE_FILE: &str = "app_state.toml";
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct AppStateFile {
+    #[serde(default)]
+    pub recent: HashMap<String, u64>,
+}
+
+pub fn app_state_path() -> Option<PathBuf> {
+    let mut p = dirs::config_dir()?;
+    p.push(APP_DIR_NAME);
+    p.push(APP_STATE_FILE);
+    Some(p)
+}
+
+pub fn load_app_state_from(path: &Path) -> AppStateFile {
+    match fs::read_to_string(path) {
+        Ok(s) => match toml::from_str(&s) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!("app_state.toml parse error: {} — using defaults", e);
+                AppStateFile::default()
+            }
+        },
+        Err(e) if e.kind() == io::ErrorKind::NotFound => AppStateFile::default(),
+        Err(e) => {
+            tracing::warn!("app_state.toml read error: {} — using defaults", e);
+            AppStateFile::default()
+        }
+    }
+}
+
+pub fn save_app_state_to(path: &Path, s: &AppStateFile) {
+    if let Some(parent) = path.parent() {
+        if let Err(e) = fs::create_dir_all(parent) {
+            tracing::warn!("save_app_state: mkdir failed: {}", e);
+            return;
+        }
+    }
+    let content = match toml::to_string(s) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!("save_app_state: serialize failed: {}", e);
+            return;
+        }
+    };
+    let tmp = path.with_extension("toml.tmp");
+    if let Err(e) = fs::write(&tmp, &content) {
+        tracing::warn!("save_app_state: write tmp failed: {}", e);
+        return;
+    }
+    if let Err(e) = fs::rename(&tmp, path) {
+        tracing::warn!("save_app_state: rename failed: {}", e);
+        let _ = fs::remove_file(&tmp);
+    }
+}
+
+pub fn load_app_state() -> AppStateFile {
+    match app_state_path() {
+        Some(p) => load_app_state_from(&p),
+        None => {
+            tracing::warn!("app_state_path: config dir not found");
+            AppStateFile::default()
+        }
+    }
+}
+
+pub fn save_app_state(s: &AppStateFile) {
+    match app_state_path() {
+        Some(p) => save_app_state_to(&p, s),
+        None => tracing::warn!("save_app_state: config dir not found"),
+    }
+}
+
+impl AppStateFile {
+    pub fn into_last_connected(self) -> HashMap<HostId, SystemTime> {
+        self.recent
+            .into_iter()
+            .filter_map(|(k, v)| {
+                let uuid = Uuid::parse_str(&k).ok()?;
+                let time = SystemTime::UNIX_EPOCH + Duration::from_secs(v);
+                Some((HostId(uuid), time))
+            })
+            .collect()
+    }
+
+    pub fn from_last_connected(last_connected: &HashMap<HostId, SystemTime>) -> Self {
+        let recent = last_connected
+            .iter()
+            .filter_map(|(host_id, time)| {
+                let secs = time.duration_since(SystemTime::UNIX_EPOCH).ok()?.as_secs();
+                Some((host_id.0.to_string(), secs))
+            })
+            .collect();
+        Self { recent }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn load_returns_default_when_missing() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("app_state.toml");
+        let loaded = load_app_state_from(&path);
+        assert!(loaded.recent.is_empty());
+    }
+
+    #[test]
+    fn save_then_load_roundtrip() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("app_state.toml");
+        let id = Uuid::new_v4().to_string();
+        let mut state = AppStateFile::default();
+        state.recent.insert(id.clone(), 1715174400u64);
+        save_app_state_to(&path, &state);
+        let loaded = load_app_state_from(&path);
+        assert_eq!(loaded.recent.get(&id), Some(&1715174400u64));
+    }
+
+    #[test]
+    fn load_corrupt_returns_default() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("app_state.toml");
+        fs::write(&path, b"[[[corrupt toml").unwrap();
+        let loaded = load_app_state_from(&path);
+        assert!(loaded.recent.is_empty());
+    }
+
+    #[test]
+    fn save_atomic_no_tmp_remains() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("app_state.toml");
+        let tmp = path.with_extension("toml.tmp");
+        save_app_state_to(&path, &AppStateFile::default());
+        assert!(!tmp.exists(), "tmp file should not remain after rename");
+        assert!(path.exists());
+    }
+
+    #[test]
+    fn into_last_connected_converts_valid_uuid() {
+        let id = HostId(Uuid::new_v4());
+        let secs = 1715174400u64;
+        let mut state = AppStateFile::default();
+        state.recent.insert(id.0.to_string(), secs);
+        let lc = state.into_last_connected();
+        let expected = SystemTime::UNIX_EPOCH + Duration::from_secs(secs);
+        assert_eq!(lc.get(&id), Some(&expected));
+    }
+
+    #[test]
+    fn from_last_connected_snapshot() {
+        let id = HostId(Uuid::new_v4());
+        let t = SystemTime::UNIX_EPOCH + Duration::from_secs(1715174400);
+        let mut lc = HashMap::new();
+        lc.insert(id, t);
+        let state = AppStateFile::from_last_connected(&lc);
+        assert_eq!(state.recent.get(&id.0.to_string()), Some(&1715174400u64));
+    }
+}
