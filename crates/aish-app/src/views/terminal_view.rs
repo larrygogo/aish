@@ -107,6 +107,12 @@ impl TerminalView {
             return;
         }
 
+        // Ctrl+Shift+V：从剪贴板粘贴。bracketed paste mode 自动检测。
+        if ctrl && shift && key.eq_ignore_ascii_case("v") {
+            self.paste(conn, cx);
+            return;
+        }
+
         let sender = match self.state.read(cx).sessions.get(&conn).cloned() {
             Some(s) => s,
             None => return,
@@ -117,6 +123,69 @@ impl TerminalView {
             return;
         }
 
+        self.bridge.spawn(async move {
+            let _ = sender.send(SessionCommand::SendBytes(bytes)).await;
+        });
+    }
+
+    /// Ctrl+Shift+V：从剪贴板读文本 → 行结尾归一 → 按远端 bracketed paste mode
+    /// 决定是否包 \x1b[200~..\x1b[201~ → 透传到远端 PTY。
+    ///
+    /// - 行结尾：\r\n / \n → \r（PTY enter = 0x0d，多行命令逐行执行需要 \r）
+    /// - bracketed mode（vim/zsh/bash 现代交互模式自动启用）：远端识别为字面字符
+    /// - 不在 bracketed mode：直接发，多行命令会逐行执行（用户预期）
+    fn paste(&mut self, conn: aish_types::ConnectionId, cx: &mut Context<Self>) {
+        use alacritty_terminal::term::TermMode;
+
+        let Some(item) = cx.read_from_clipboard() else {
+            return;
+        };
+        let Some(text) = item.text() else {
+            return;
+        };
+        if text.is_empty() {
+            return;
+        }
+
+        // 行结尾归一：\r\n → \r，独立 \n → \r，\r 保留
+        let mut normalized = String::with_capacity(text.len());
+        let mut chars = text.chars().peekable();
+        while let Some(c) = chars.next() {
+            match c {
+                '\r' => {
+                    normalized.push('\r');
+                    // \r\n → 吃掉后面的 \n
+                    if matches!(chars.peek(), Some('\n')) {
+                        chars.next();
+                    }
+                }
+                '\n' => normalized.push('\r'),
+                other => normalized.push(other),
+            }
+        }
+
+        // 检测远端 bracketed paste mode
+        let bracketed = self
+            .state
+            .read(cx)
+            .term_of(conn)
+            .map(|t| t.mode().contains(TermMode::BRACKETED_PASTE))
+            .unwrap_or(false);
+
+        let bytes = if bracketed {
+            let mut out = Vec::with_capacity(normalized.len() + 12);
+            out.extend_from_slice(b"\x1b[200~");
+            out.extend_from_slice(normalized.as_bytes());
+            out.extend_from_slice(b"\x1b[201~");
+            out
+        } else {
+            normalized.into_bytes()
+        };
+
+        let sender = match self.state.read(cx).sessions.get(&conn).cloned() {
+            Some(s) => s,
+            None => return,
+        };
         self.bridge.spawn(async move {
             let _ = sender.send(SessionCommand::SendBytes(bytes)).await;
         });
