@@ -207,6 +207,12 @@ impl Render for TabBarView {
                 let is_selected = selected == Some(id);
                 let is_connection = matches!(t.content, TabContent::Connection(_));
                 let is_editing = editing_tab == Some(id);
+                // connection tab 是否还有活跃 actor（actor 退出后 sessions 里
+                // 没了 → false）。用于绿/灰点 + 标题色的"在线/已断"指示。
+                let is_alive = match t.content {
+                    TabContent::Connection(c) => app.is_session_active(c),
+                    _ => false,
+                };
 
                 // 关闭按钮（始终可见）
                 let close_btn = div()
@@ -225,10 +231,15 @@ impl Render for TabBarView {
                     )
                     .child("×");
 
-                // 连接 tab 用绿点，默认页 tab 不带前缀
+                // 连接 tab：活跃 = 绿点，已断 = 灰点；默认页 tab 不带前缀
                 let prefix: gpui::AnyElement = if is_connection {
+                    let dot_color = if is_alive {
+                        theme::ACCENT_GREEN
+                    } else {
+                        theme::TEXT_MUTED
+                    };
                     div()
-                        .text_color(rgb(theme::ACCENT_GREEN))
+                        .text_color(rgb(dot_color))
                         .text_size(theme::text_xs())
                         .child("●")
                         .into_any_element()
@@ -247,12 +258,16 @@ impl Render for TabBarView {
                         .child(edit_buffer.clone())
                         .into_any_element()
                 } else {
+                    // 已断的 connection tab：标题用 muted 弱化
+                    let title_color = if is_connection && !is_alive {
+                        theme::TEXT_MUTED
+                    } else if is_selected {
+                        theme::TEXT_PRIMARY
+                    } else {
+                        theme::TEXT_SECONDARY
+                    };
                     div()
-                        .text_color(rgb(if is_selected {
-                            theme::TEXT_PRIMARY
-                        } else {
-                            theme::TEXT_SECONDARY
-                        }))
+                        .text_color(rgb(title_color))
                         .child(title)
                         .into_any_element()
                 };
