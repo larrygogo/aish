@@ -33,6 +33,8 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
 toml = { workspace = true }
+arboard = { workspace = true }
+image = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
