@@ -2,7 +2,9 @@
 
 #![allow(dead_code)]
 
+mod coming_soon;
 mod default_page;
+mod empty_terminal;
 mod home;
 mod host_form;
 mod session_picker;
