@@ -10,13 +10,21 @@
 
 ## 当前状态
 
-- **活跃分支**：`main`（M8 图片粘贴已完成）
+- **活跃分支**：`main`（M9 Agent 输入栏已完成）
 - **下一里程碑**：M6 Activity 实时活动条 或 backlog 条目
-- **质量门禁基线**：fmt + clippy 0 warning + test 92 全过
+- **质量门禁基线**：fmt + clippy 0 warning + test 106 全过
 
 ---
 
 ## Milestones（按时间倒序）
+
+### M9 — Agent 输入栏（图片多选 + 文字 + SFTP 批量上传）（2026-05-08）— ✅ 已完成
+- spec：[`specs/2026-05-08-aish-m9-input-bar-design.md`](specs/2026-05-08-aish-m9-input-bar-design.md)
+- plan：[`plans/2026-05-08-aish-m9-input-bar.md`](plans/2026-05-08-aish-m9-input-bar.md)
+- 范围：终端视图下方固定底栏；[+] 按钮 GPUI 系统文件选择器多选图片；缩略图预览 + × 关闭；文字输入（Enter 发送）；Send → 批量 SFTP 上传 → paths + text echo 到 PTY
+- 关键 commits：
+  - `7ac8865` — state.rs UploadBatch + BatchUploaded/Failed + actor + app.rs 事件处理（T1-T3）
+  - `9742fc5` — InputBarView 完整实现 + 集成到 RootView（T4-T5）
 
 ### M8 — 图片粘贴（Ctrl+Shift+V + SFTP + echo path）（2026-05-08）— ✅ 已完成
 - spec：[`specs/2026-05-08-aish-m8-image-paste-design.md`](specs/2026-05-08-aish-m8-image-paste-design.md)
