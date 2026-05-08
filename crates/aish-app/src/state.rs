@@ -310,6 +310,7 @@ pub struct AppState {
     pub pending_session_picker: Option<ConnectionId>,
 
     pub modal: Option<HostFormState>,
+    pub last_connected: HashMap<HostId, SystemTime>,
     pub sidebar: SidebarTab,
 
     /// 每连接一个 actor 命令通道。
@@ -344,6 +345,25 @@ impl Connection {
     }
 }
 
+/// 将历史时间戳转为可读字符串（同 humanize_opened_at 阈值，接受 SystemTime 参数）。
+pub fn humanize_last_connected(last: SystemTime) -> String {
+    let secs = SystemTime::now()
+        .duration_since(last)
+        .unwrap_or_default()
+        .as_secs();
+    if secs < 60 {
+        "just now".into()
+    } else if secs < 3600 {
+        format!("{}m ago", secs / 60)
+    } else if secs < 86400 {
+        format!("{}h ago", secs / 3600)
+    } else if secs < 172800 {
+        "yesterday".into()
+    } else {
+        format!("{}d ago", secs / 86400)
+    }
+}
+
 impl AppState {
     pub fn with_hosts(hosts: Vec<HostConfig>) -> Self {
         Self {
@@ -355,6 +375,7 @@ impl AppState {
             pending_session_picker: None,
             sessions: HashMap::new(),
             modal: None,
+            last_connected: HashMap::new(),
             host_pty_term: HashMap::new(),
             host_pty_processor: HashMap::new(),
             host_pty_dimensions: HashMap::new(),
@@ -1098,5 +1119,23 @@ mod tests {
             opened_at: SystemTime::now() - Duration::from_secs(125),
         };
         assert_eq!(conn.humanize_opened_at(), "2m ago");
+    }
+
+    #[test]
+    fn humanize_last_connected_just_now() {
+        let t = SystemTime::now();
+        assert_eq!(humanize_last_connected(t), "just now");
+    }
+
+    #[test]
+    fn humanize_last_connected_hours() {
+        let t = SystemTime::now() - std::time::Duration::from_secs(7200);
+        assert_eq!(humanize_last_connected(t), "2h ago");
+    }
+
+    #[test]
+    fn last_connected_field_accessible() {
+        let state = AppState::with_hosts(vec![]);
+        assert!(state.last_connected.is_empty());
     }
 }
