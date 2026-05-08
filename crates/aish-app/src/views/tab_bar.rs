@@ -178,8 +178,9 @@ impl TabBarView {
     }
 
     fn handle_new_tab(&mut self, cx: &mut Context<Self>) {
+        // M4a：+ 按钮切回 Home，让用户从 Home 选 host 开始新连接
         self.state.update(cx, |s, cx| {
-            s.new_default_tab();
+            s.sidebar = crate::state::SidebarTab::Home;
             cx.notify();
         });
     }

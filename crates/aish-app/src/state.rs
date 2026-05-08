@@ -378,20 +378,6 @@ impl AppState {
         }
     }
 
-    /// 新建一个默认页 tab，自动选中并返回 id。
-    #[allow(dead_code)] // Task 7 改完 tab_bar 的 + 按钮后删
-    pub fn new_default_tab(&mut self) -> TabId {
-        let tab = Tab {
-            id: TabId::new(),
-            content: TabContent::Default,
-            title: "新连接".into(),
-        };
-        let id = tab.id;
-        self.tabs.push(tab);
-        self.selected_tab = Some(id);
-        id
-    }
-
     pub fn select_tab(&mut self, id: TabId) {
         if self.tabs.iter().any(|t| t.id == id) {
             self.selected_tab = Some(id);
