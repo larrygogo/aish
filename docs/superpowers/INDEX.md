@@ -10,20 +10,28 @@
 
 ## 当前状态
 
-- **活跃分支**：`feat/m4a-info-arch-20260508-zj`（M4a brainstorm 完，spec 落盘，待写 plan + 实现）
-- **下一里程碑**：M4a 信息架构 4-tab 化（桌面版 Moshi 子项目 A 第一刀）
-- **质量门禁基线**：fmt + clippy 0 warning + test 199 全过
+- **活跃分支**：`feat/m4a-info-arch-20260508-zj`（M4a 已完成）
+- **下一里程碑**：M4b（Recent 持久化 + Settings 起步）或其他 backlog 条目
+- **质量门禁基线**：fmt + clippy 0 warning + test 201 全过
 
 ---
 
 ## Milestones（按时间倒序）
 
-### M4a — 信息架构 4-tab 化（2026-05-08）— 🟡 进行中
+### M4a — 信息架构 4-tab 化（2026-05-08）— ✅ 已完成
 - spec：[`specs/2026-05-08-aish-m4a-info-arch-design.md`](specs/2026-05-08-aish-m4a-info-arch-design.md)
-- plan：（待写）
+- plan：[`plans/2026-05-08-aish-m4a-info-arch.md`](plans/2026-05-08-aish-m4a-info-arch.md)
 - 长期上下文：[桌面版 Moshi Roadmap](roadmap-moshi-desktop.md) · 子项目 A
 - 范围：左侧 48px sidebar 4-tab + Home(hosts grid + active sessions + quick action) + Inbox/Settings ComingSoon placeholder + EmptyTerminalGuideView
 - Out-of-scope：Recent 持久化 / Settings 实质内容 / 任何 AI agent 集成 / 键盘快捷键 Ctrl+1..4
+- 关键 commits：
+  - `426b0b6` — feat(state): SidebarTab + sidebar 字段
+  - `84ee15f` — feat(theme): sidebar 常量
+  - `5e6352c` — feat(ui): SidebarNavView
+  - `f354b34` — feat(ui): HomeView
+  - `159ab9a` — feat(ui): EmptyTerminalGuideView + ComingSoonView
+  - `9f19375` — feat(ui): RootView 重构
+  - `973b8d1` — refactor(ui): 删除 DefaultPageView
 
 ### M3d-resize-iter1 — 拖窗 resize 时序修复（2026-05-08）— ✅
 - spec：[`specs/2026-05-08-aish-tmux-resize-tweaks-design.md`](specs/2026-05-08-aish-tmux-resize-tweaks-design.md)

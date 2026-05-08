@@ -7,7 +7,7 @@
 >
 > 重大决策仍走 `docs/adr/00NN-*.md`，本文件只列指针。
 
-**最后更新**：2026-05-08（M4a brainstorm）
+**最后更新**：2026-05-08（M4a 已完成）
 
 ---
 
@@ -35,7 +35,7 @@ aish 当前是桌面端 SSH + tmux 终端 GUI 客户端（GPUI / Windows-first /
 
 | ID | 名称 | 依赖 | 状态 | milestone | 估算 |
 |---|---|---|---|---|---|
-| **A** | 4-tab 信息架构（Sidebar + Home/Terminal/Inbox/Settings） | – | 🟡 进行中 | M4a / M4b | 3-4d |
+| **A** | 4-tab 信息架构（Sidebar + Home/Terminal/Inbox/Settings） | – | ✅ M4a 完成（2026-05-08） | M4a / M4b | 3-4d |
 | **B** | AI agent 会话识别（Claude Code / Codex / Cursor 等） | – | ⏸ 未开始 | M5 | 1-2d |
 | **C** | Activity 实时活动条（agent 当前任务进度） | B | ⏸ 未开始 | M6 | 2-3d |
 | **D** | Inbox 事件中心（agent 工具完成 / 任务完成 / 需要批准） | B, C | ⏸ 未开始 | M7 | 2-3d |
