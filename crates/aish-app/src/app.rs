@@ -9,7 +9,7 @@ use gpui::{
 use gpui_platform::application;
 
 use crate::bridge::{Bridge, EventChannel};
-use crate::state::{AppState, SidebarTab, SshEvent};
+use crate::state::{AppState, SessionCommand, SidebarTab, SshEvent};
 
 pub fn run() {
     let bridge_owner = Arc::new(Bridge::start().expect("tokio runtime 启动失败"));
@@ -98,14 +98,15 @@ pub fn run() {
                         cx.notify();
                     }
                     SshEvent::ImageUploaded { conn, path } => {
-                        // M8: 图片已上传到远端
-                        tracing::info!(?conn, ?path, "image uploaded successfully");
-                        cx.notify();
+                        if let Some(sender) = state.sessions.get(&conn).cloned() {
+                            let _ = sender.try_send(SessionCommand::SendBytes(path.into_bytes()));
+                        }
                     }
                     SshEvent::ImageUploadFailed { conn, msg } => {
-                        // M8: 图片上传失败
-                        tracing::error!(?conn, msg, "image upload failed");
-                        cx.notify();
+                        if let Some(sender) = state.sessions.get(&conn).cloned() {
+                            let err = format!("\x1b[31m[aish] 图片上传失败: {}\x1b[0m\r\n", msg);
+                            let _ = sender.try_send(SessionCommand::SendBytes(err.into_bytes()));
+                        }
                     }
                 });
             }
