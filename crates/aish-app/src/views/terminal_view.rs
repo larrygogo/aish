@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use gpui::{
     canvas, div, prelude::*, px, rgb, App, Bounds, ClipboardItem, Context, Entity, FocusHandle,
-    Focusable, KeyDownEvent, Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    Pixels, Point, ScrollDelta, ScrollWheelEvent, Window,
+    Focusable, InputHandler, KeyDownEvent, Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent,
+    MouseUpEvent, Pixels, Point, ScrollDelta, ScrollWheelEvent, UTF16Selection, Window,
 };
 
 use crate::bridge::Bridge;
@@ -23,6 +23,102 @@ use crate::terminal::{
 /// PTY resize debounce 窗口期。bounds 变化后等 N ms 才发 SIGWINCH，避免拖窗
 /// 时每 100ms 触发一次远端重排（旧值 100ms 偏短，250ms 让拖动稳定后才发一次）。
 const PTY_RESIZE_DEBOUNCE_MS: u64 = 250;
+
+/// IME 输入处理器：把 WM_CHAR / WM_IME_COMPOSITION 提交的文本字节转发给 PTY。
+/// 通过 window.handle_input() 在每帧 paint 阶段注册，让 GPUI 的 Windows 平台层
+/// 能把 IME 结果（中文/日文/韩文等）和普通可打印字符路由到此处。
+struct TerminalImeHandler {
+    state: Entity<AppState>,
+    bridge: Arc<Bridge>,
+}
+
+impl InputHandler for TerminalImeHandler {
+    fn selected_text_range(
+        &mut self,
+        _ignore_disabled_input: bool,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> Option<UTF16Selection> {
+        // 返回有效范围表示接受输入
+        Some(UTF16Selection {
+            range: 0..0,
+            reversed: false,
+        })
+    }
+
+    fn marked_text_range(
+        &mut self,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> Option<std::ops::Range<usize>> {
+        None
+    }
+
+    fn text_for_range(
+        &mut self,
+        _range: std::ops::Range<usize>,
+        _adjusted: &mut Option<std::ops::Range<usize>>,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> Option<String> {
+        None
+    }
+
+    fn replace_text_in_range(
+        &mut self,
+        _replacement_range: Option<std::ops::Range<usize>>,
+        text: &str,
+        _window: &mut Window,
+        cx: &mut App,
+    ) {
+        if text.is_empty() {
+            return;
+        }
+        let conn = match self.state.read(cx).current_connection() {
+            Some(c) => c,
+            None => return,
+        };
+        let sender = match self.state.read(cx).sessions.get(&conn).cloned() {
+            Some(s) => s,
+            None => return,
+        };
+        let bytes = text.as_bytes().to_vec();
+        self.bridge.spawn(async move {
+            let _ = sender.send(SessionCommand::SendBytes(bytes)).await;
+        });
+    }
+
+    fn replace_and_mark_text_in_range(
+        &mut self,
+        _range: Option<std::ops::Range<usize>>,
+        _new_text: &str,
+        _new_selected_range: Option<std::ops::Range<usize>>,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) {
+        // IME preedit（组合阶段）：terminal 没有内联 preedit 区域，暂不处理
+    }
+
+    fn unmark_text(&mut self, _window: &mut Window, _cx: &mut App) {}
+
+    fn bounds_for_range(
+        &mut self,
+        _range: std::ops::Range<usize>,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> Option<gpui::Bounds<gpui::Pixels>> {
+        None
+    }
+
+    fn character_index_for_point(
+        &mut self,
+        _point: gpui::Point<gpui::Pixels>,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> Option<usize> {
+        None
+    }
+}
 
 /// 本地 alacritty Term resize 相对于 SIGWINCH 发出的额外延迟。
 /// 用于粗略覆盖 SSH RTT，让远端 tmux 先按新 size 重排再让本地 Term 跟随，
@@ -110,6 +206,17 @@ impl TerminalView {
         // Ctrl+Shift+V：从剪贴板粘贴。bracketed paste mode 自动检测。
         if ctrl && shift && key.eq_ignore_ascii_case("v") {
             self.paste(conn, cx);
+            return;
+        }
+
+        // IME 组合进行中（preedit）：不发字节，等 IME 提交
+        if event.keystroke.is_ime_in_progress() {
+            return;
+        }
+
+        // 有 key_char 且无 Ctrl/Alt 修饰：可打印字符将由 WM_CHAR → InputHandler
+        // 路径发送，此处不重复发（避免中文 IME 提交和 ASCII 字符双重发送）
+        if event.keystroke.key_char.is_some() && !ctrl && !alt {
             return;
         }
 
@@ -605,6 +712,11 @@ impl Render for TerminalView {
         // 拿当前 view 的弱引用，用于在 on_next_frame 回调中调用 check_resize
         let weak_view = cx.weak_entity();
 
+        // IME 输入处理器所需资源：在 canvas paint 阶段调用 window.handle_input
+        let focus_for_ime = self.focus_handle.clone();
+        let state_for_ime = self.state.clone();
+        let bridge_for_ime = self.bridge.clone();
+
         div()
             // 让 div 变 stateful — GPUI 对 stateful 元素的 scroll wheel 事件路由
             // 比 stateless 稳定（mouse_down 用 is_hovered 路径不依赖 stateful，
@@ -682,6 +794,17 @@ impl Render for TerminalView {
                         if let Some(snapshot) = snapshot {
                             paint_terminal(&snapshot, &cursor_state, bounds, window, cx);
                         }
+                        // 注册 IME 输入处理器：每帧 paint 阶段调用，让 GPUI Windows 平台层
+                        // 把 WM_CHAR / WM_IME_COMPOSITION 路由到 replace_text_in_range，
+                        // 从而支持中文等 IME 输入法输入。
+                        window.handle_input(
+                            &focus_for_ime,
+                            TerminalImeHandler {
+                                state: state_for_ime,
+                                bridge: bridge_for_ime,
+                            },
+                            cx,
+                        );
                     },
                 )
                 .size_full(),
