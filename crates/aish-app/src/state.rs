@@ -15,6 +15,7 @@ use aish_types::{ConnectionId, HostConfig, HostId, RemoteSession, SessionId, Tab
 use alacritty_terminal::event::VoidListener;
 use alacritty_terminal::term::test::TermSize;
 use alacritty_terminal::term::Config as TermConfig;
+use alacritty_terminal::vte::ansi::{Processor as AnsiProcessor, StdSyncHandler};
 use alacritty_terminal::Term;
 use tokio::sync::mpsc;
 
@@ -304,6 +305,10 @@ pub struct AppState {
     pub sessions: HashMap<ConnectionId, mpsc::Sender<SessionCommand>>,
     /// 每连接一个 alacritty Term（保留 scrollback）。
     pub host_pty_term: HashMap<ConnectionId, Term<VoidListener>>,
+    /// 每连接一个 ANSI parser。Processor 是 stateful（VTE parser 跨字节包
+    /// 维护 escape sequence 解析进度），必须 per-conn 持久化。之前每次
+    /// feed_bytes 都 Processor::new()，escape 跨 SSH frame 时会被错解析。
+    pub host_pty_processor: HashMap<ConnectionId, AnsiProcessor<StdSyncHandler>>,
     /// 每连接一个 PTY 尺寸。
     pub host_pty_dimensions: HashMap<ConnectionId, (u16, u16)>,
     /// 每连接一个 tmux 状态（同一 host 的多个连接独立 list-sessions）。
@@ -328,6 +333,7 @@ impl AppState {
             sessions: HashMap::new(),
             modal: None,
             host_pty_term: HashMap::new(),
+            host_pty_processor: HashMap::new(),
             host_pty_dimensions: HashMap::new(),
             tmux_state: HashMap::new(),
         }
@@ -465,6 +471,7 @@ impl AppState {
         self.connections.remove(&id);
         self.sessions.remove(&id);
         self.host_pty_term.remove(&id);
+        self.host_pty_processor.remove(&id);
         self.host_pty_dimensions.remove(&id);
         self.tmux_state.remove(&id);
         for t in &mut self.tabs {
@@ -497,9 +504,9 @@ impl AppState {
             .host_pty_term
             .entry(conn)
             .or_insert_with(|| make_term(cols, rows));
-        let mut processor = alacritty_terminal::vte::ansi::Processor::<
-            alacritty_terminal::vte::ansi::StdSyncHandler,
-        >::new();
+        // Processor 跨 feed_bytes 持久化 — 让 ANSI escape 序列跨 SSH frame
+        // 仍能正确解析（之前每次 new 会让 \x1b[3 / 1m 这种切包被当字面字符）。
+        let processor = self.host_pty_processor.entry(conn).or_default();
         processor.advance(term, bytes);
     }
 
