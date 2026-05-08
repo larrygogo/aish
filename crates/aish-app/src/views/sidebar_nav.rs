@@ -1,12 +1,14 @@
-//! SidebarNav：左侧 48px 纯文字 4-tab 导航（M4a 信息架构）。
+//! SidebarNav：左侧 48px iconfont 4-tab 导航（M4a 信息架构）。
 //!
 //! 4 个 tab：Home / Terminal / Inbox / Settings。
-//! 选中态：左侧 2px ACCENT_BLUE 指示条 + 背景 SIDEBAR_NAV_BG_ACTIVE + 文字变白。
-//! 标签暂用纯 ASCII 文字占位，未来换 SVG asset 时只需改本文件。
+//! 选中态：左侧 2px ACCENT_BLUE 指示条 + 背景 SIDEBAR_NAV_BG_ACTIVE + icon 变白。
+//! icon 使用 Nerd Font（JetBrains Mono Nerd Font 已 bundle）Font Awesome 字形：
+//!   Home \u{f015}  Terminal \u{f120}  Inbox \u{f01c}  Settings \u{f013}
 
 use gpui::{div, prelude::*, px, rgb, Context, Entity, MouseButton, MouseDownEvent, Window};
 
 use crate::state::{AppState, SidebarTab};
+use crate::terminal::font::FONT_NAME;
 use crate::theme;
 
 pub struct SidebarNavView {
@@ -45,10 +47,11 @@ impl Render for SidebarNavView {
                 .flex_col()
                 .items_center()
                 .justify_center()
-                .py(px(12.0))
+                .py(px(14.0))
                 .cursor_pointer()
+                .font_family(FONT_NAME)
                 .text_color(fg)
-                .text_size(px(10.0));
+                .text_size(px(16.0));
 
             if is_active {
                 item = item
@@ -86,16 +89,16 @@ impl Render for SidebarNavView {
             .bg(rgb(theme::SIDEBAR_BG))
             .border_r_1()
             .border_color(rgb(theme::SIDEBAR_BORDER))
-            .child(nav_item(SidebarTab::Home, "home", cx))
-            .child(nav_item(SidebarTab::Terminal, "term", cx))
-            .child(nav_item(SidebarTab::Inbox, "inbox", cx))
+            .child(nav_item(SidebarTab::Home, "\u{f015}", cx))
+            .child(nav_item(SidebarTab::Terminal, "\u{f120}", cx))
+            .child(nav_item(SidebarTab::Inbox, "\u{f01c}", cx))
             .child(
                 div()
                     .flex_1()
                     .flex()
                     .flex_col()
                     .justify_end()
-                    .child(nav_item(SidebarTab::Settings, "cfg", cx)),
+                    .child(nav_item(SidebarTab::Settings, "\u{f013}", cx)),
             )
     }
 }
