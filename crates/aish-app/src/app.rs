@@ -136,7 +136,6 @@ struct RootView {
     tab_bar: Entity<crate::views::TabBarView>,
     default_page: Entity<crate::views::DefaultPageView>,
     terminal: Entity<crate::views::TerminalView>,
-    connection_chip: Entity<crate::views::ConnectionChipView>,
     host_form: Entity<crate::views::HostFormModal>,
     session_picker: Entity<crate::views::SessionPickerView>,
 }
@@ -157,9 +156,6 @@ impl RootView {
         let terminal = cx.new(|cx| {
             crate::views::TerminalView::new(state.clone(), bridge.clone(), tx.clone(), cx)
         });
-        let connection_chip = cx.new(|cx| {
-            crate::views::ConnectionChipView::new(state.clone(), bridge.clone(), tx.clone(), cx)
-        });
         let host_form = cx.new(|cx| {
             crate::views::HostFormModal::new(state.clone(), bridge.clone(), tx.clone(), cx)
         });
@@ -171,7 +167,6 @@ impl RootView {
             tab_bar,
             default_page,
             terminal,
-            connection_chip,
             host_form,
             session_picker,
         }
@@ -188,16 +183,11 @@ impl Render for RootView {
             Some(crate::state::TabContent::Connection(_))
         );
 
-        // connection tab：chip 在上方占固定高度，terminal 占剩余 flex
-        // default tab：直接显示默认页（无 chip）
+        // connection tab：terminal 直接占满整个 body（已删 ConnectionChip 横条，
+        // SSH 标识改在 tab 栏标题上呈现）
+        // default tab：显示默认页
         let body: gpui::AnyElement = if is_connection_tab {
-            div()
-                .size_full()
-                .flex()
-                .flex_col()
-                .child(self.connection_chip.clone())
-                .child(div().flex_1().child(self.terminal.clone()))
-                .into_any_element()
+            self.terminal.clone().into_any_element()
         } else {
             self.default_page.clone().into_any_element()
         };

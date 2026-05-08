@@ -2,7 +2,6 @@
 
 #![allow(dead_code)]
 
-mod connection_chip;
 mod default_page;
 mod host_form;
 mod session_picker;
@@ -12,7 +11,6 @@ mod terminal_view;
 #[allow(dead_code)]
 mod tmux_sidebar;
 
-pub use connection_chip::ConnectionChipView;
 pub use default_page::DefaultPageView;
 pub use host_form::HostFormModal;
 pub use session_picker::SessionPickerView;

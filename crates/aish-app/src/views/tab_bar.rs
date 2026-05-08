@@ -253,6 +253,22 @@ impl Render for TabBarView {
                         .into_any_element()
                 };
 
+                // connection tab 在标题与关闭键之间显示蓝色 [SSH] 胶囊
+                // （从已删除的 ConnectionChip 横条迁移过来，保留连接类型可视化标识）
+                let ssh_chip: gpui::AnyElement = if is_connection {
+                    div()
+                        .px_2p5()
+                        .py_0p5()
+                        .text_size(theme::text_xs())
+                        .text_color(rgb(theme::ACCENT_BLUE))
+                        .bg(rgb(theme::CHIP_BLUE_BG))
+                        .rounded_full()
+                        .child("SSH")
+                        .into_any_element()
+                } else {
+                    div().into_any_element()
+                };
+
                 // 选中态底部 2px 蓝线（用 border_b 实现）
                 let bottom_line: gpui::AnyElement = if is_selected {
                     div()
@@ -290,6 +306,7 @@ impl Render for TabBarView {
                     )
                     .child(prefix)
                     .child(title_el)
+                    .child(ssh_chip)
                     .child(close_btn)
                     .child(bottom_line)
             })
