@@ -7,6 +7,7 @@ members = [
     "crates/aish-sftp",
     "crates/aish-secrets",
     "crates/aish-app",
+    "crates/aish-ui",
 ]
 
 [workspace.package]
@@ -39,6 +40,7 @@ aish-ssh = { path = "crates/aish-ssh" }
 aish-tmux = { path = "crates/aish-tmux" }
 aish-sftp = { path = "crates/aish-sftp" }
 aish-secrets = { path = "crates/aish-secrets" }
+aish-ui = { path = "crates/aish-ui" }
 gpui = { git = "https://github.com/zed-industries/zed", rev = "11f0ca5881ee8c32728244ee5ce3abedc851010f" }
 gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "11f0ca5881ee8c32728244ee5ce3abedc851010f" }
 russh = "0.46"

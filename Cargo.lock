@@ -152,6 +152,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "aish-ui"
+version = "0.1.0"
+dependencies = [
+ "gpui",
+]
+
+[[package]]
 name = "alacritty_terminal"
 version = "0.26.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
