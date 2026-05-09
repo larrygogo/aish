@@ -41,6 +41,11 @@ image = { workspace = true }
 [dev-dependencies]
 tempfile = { workspace = true }
 
+[build-dependencies]
+resvg = "0.47"
+icns  = "0.4"
+ico   = "0.5"
+
 [target.'cfg(windows)'.build-dependencies]
 winresource = "0.1"
 

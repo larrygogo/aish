@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- 背景：#0a0a0c 圆角方块，匹配 SIDEBAR_BG -->
+  <rect width="512" height="512" rx="80" ry="80" fill="#0a0a0c"/>
+
+  <!-- 主符号：像素艺术 ">_"，颜色 #4a9eff = ACCENT_BLUE，纯 rect 无文字 -->
+  <g fill="#4a9eff">
+    <!-- ">" 行0 -->
+    <rect x="128" y="176" width="32" height="32"/>
+    <!-- ">" 行1 -->
+    <rect x="128" y="208" width="32" height="32"/>
+    <rect x="160" y="208" width="32" height="32"/>
+    <!-- ">" 行2（尖端） -->
+    <rect x="128" y="240" width="32" height="32"/>
+    <rect x="160" y="240" width="32" height="32"/>
+    <rect x="192" y="240" width="32" height="32"/>
+    <!-- ">" 行3 -->
+    <rect x="128" y="272" width="32" height="32"/>
+    <rect x="160" y="272" width="32" height="32"/>
+    <!-- ">" 行4 -->
+    <rect x="128" y="304" width="32" height="32"/>
+    <!-- "_" 光标（与行4同 y，间隔 1 格） -->
+    <rect x="256" y="304" width="96" height="32"/>
+  </g>
+
+  <!-- 装饰：右上角 4 节点神经网络（AI 暗示） -->
+  <g stroke="#4a9eff" stroke-width="1.5" stroke-opacity="0.45"
+     fill="#4a9eff" fill-opacity="0.7">
+    <line x1="410" y1="66"  x2="452" y2="94"/>
+    <line x1="410" y1="66"  x2="430" y2="128"/>
+    <line x1="452" y1="94"  x2="430" y2="128"/>
+    <line x1="452" y1="94"  x2="468" y2="138"/>
+    <circle cx="410" cy="66"  r="5.5"/>
+    <circle cx="452" cy="94"  r="5.5"/>
+    <circle cx="430" cy="128" r="5.5"/>
+    <circle cx="468" cy="138" r="5.5"/>
+  </g>
+
+  <!-- 装饰：右下角像素风 SSH 钥匙 -->
+  <g fill="#4a9eff" fill-opacity="0.5">
+    <!-- 钥匙环外框（空心 3×3，中心留空） -->
+    <rect x="388" y="390" width="12" height="12"/>
+    <rect x="400" y="390" width="12" height="12"/>
+    <rect x="412" y="390" width="12" height="12"/>
+    <rect x="388" y="402" width="12" height="12"/>
+    <rect x="412" y="402" width="12" height="12"/>
+    <rect x="388" y="414" width="12" height="12"/>
+    <rect x="400" y="414" width="12" height="12"/>
+    <rect x="412" y="414" width="12" height="12"/>
+    <!-- 钥匙杆 -->
+    <rect x="424" y="402" width="48" height="12"/>
+    <!-- 钥匙齿 -->
+    <rect x="436" y="414" width="12" height="10"/>
+    <rect x="456" y="414" width="12" height="10"/>
+  </g>
+</svg>
