@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use aish_ui::TextInput;
+use aish_ui::{theme, TextInput};
 use gpui::{
     div, img, prelude::*, px, rgb, Context, Entity, ImageSource, ObjectFit, PathPromptOptions,
     SharedString, Window,
@@ -152,6 +152,7 @@ impl InputBarView {
 
 impl Render for InputBarView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = theme(cx);
         let images_row = if self.images.is_empty() {
             None
         } else {
@@ -246,7 +247,7 @@ impl Render for InputBarView {
                     .items_center()
                     .justify_center()
                     .rounded(px(4.0))
-                    .bg(rgb(0x2d2d3f))
+                    .bg(t.colors.secondary)
                     .cursor_pointer()
                     .on_mouse_down(
                         gpui::MouseButton::Left,
@@ -269,7 +270,7 @@ impl Render for InputBarView {
                     .flex()
                     .items_center()
                     .rounded(px(4.0))
-                    .bg(rgb(0x3d59a1))
+                    .bg(t.colors.primary)
                     .cursor_pointer()
                     .on_mouse_down(
                         gpui::MouseButton::Left,
@@ -280,7 +281,7 @@ impl Render for InputBarView {
                     .child(
                         div()
                             .text_size(px(12.0))
-                            .text_color(rgb(0xc0caf5))
+                            .text_color(t.colors.primary_foreground)
                             .child("发送"),
                     ),
             );
@@ -288,8 +289,8 @@ impl Render for InputBarView {
         div()
             .flex_col()
             .border_t_1()
-            .border_color(rgb(0x2d2d3f))
-            .bg(rgb(0x1a1b26))
+            .border_color(t.colors.border)
+            .bg(t.colors.background)
             .children(images_row)
             .child(text_row)
     }
