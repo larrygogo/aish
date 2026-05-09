@@ -2,8 +2,9 @@
 //! 文件由 build.rs 写入 $OUT_DIR，include_bytes! 在编译期嵌入。
 
 /// 128×128 PNG 字节，供 About 页面等场景使用。
-#[allow(dead_code)]
-pub const LOGO_128: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/icons/logo_128.png"));
+pub const LOGO_128: &[u8] = include_bytes!(
+    concat!(env!("OUT_DIR"), "/icons/logo_128.png")
+);
 
 #[cfg(test)]
 mod tests {

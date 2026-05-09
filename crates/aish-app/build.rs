@@ -25,7 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tree = resvg::usvg::Tree::from_str(&svg_data, &opt)?;
 
     // ── 2. 渲染各尺寸 PNG ─────────────────────────────────────────
-    let sizes: &[u32] = &[16, 32, 48, 64, 128, 256, 512, 1024];
+    let sizes: &[u32] = &[16, 32, 64, 128, 256, 512, 1024];
     for &size in sizes {
         render_png(&tree, size, &icons_dir.join(format!("logo_{size}.png")))?;
     }
