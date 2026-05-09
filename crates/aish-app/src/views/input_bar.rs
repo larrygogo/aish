@@ -393,9 +393,6 @@ impl Render for InputBarView {
             .gap(px(6.0))
             .px(px(8.0))
             .py(px(6.0))
-            .on_key_down(cx.listener(|this, event: &KeyDownEvent, _window, cx| {
-                this.handle_key(event, cx);
-            }))
             .child(
                 div()
                     .w(px(28.0))
@@ -449,6 +446,9 @@ impl Render for InputBarView {
             .border_color(rgb(0x2d2d3f))
             .bg(rgb(0x1a1b26))
             .track_focus(&self.focus_handle)
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, _window, cx| {
+                this.handle_key(event, cx);
+            }))
             .children(images_row)
             .child(text_row)
     }
