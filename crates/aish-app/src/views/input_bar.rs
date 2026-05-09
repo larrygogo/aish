@@ -4,8 +4,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use gpui::{
-    div, img, prelude::*, px, rgb, Context, Entity, FocusHandle, Focusable, ImageSource,
-    KeyDownEvent, ObjectFit, PathPromptOptions, SharedString, Window,
+    canvas, div, img, prelude::*, px, rgb, App, Context, Entity, FocusHandle, Focusable,
+    ImageSource, InputHandler, KeyDownEvent, ObjectFit, PathPromptOptions, SharedString,
+    UTF16Selection, Window,
 };
 
 use crate::bridge::Bridge;
@@ -227,6 +228,87 @@ impl InputBarView {
     }
 }
 
+struct InputBarImeHandler {
+    view: gpui::WeakEntity<InputBarView>,
+}
+
+impl InputHandler for InputBarImeHandler {
+    fn selected_text_range(
+        &mut self,
+        _ignore_disabled_input: bool,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> Option<UTF16Selection> {
+        Some(UTF16Selection {
+            range: 0..0,
+            reversed: false,
+        })
+    }
+
+    fn marked_text_range(
+        &mut self,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> Option<std::ops::Range<usize>> {
+        None
+    }
+
+    fn text_for_range(
+        &mut self,
+        _range: std::ops::Range<usize>,
+        _adjusted: &mut Option<std::ops::Range<usize>>,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> Option<String> {
+        None
+    }
+
+    fn replace_text_in_range(
+        &mut self,
+        _range: Option<std::ops::Range<usize>>,
+        text: &str,
+        _window: &mut Window,
+        cx: &mut App,
+    ) {
+        self.view
+            .update(cx, |this, cx| {
+                this.insert_str(text);
+                cx.notify();
+            })
+            .ok();
+    }
+
+    fn replace_and_mark_text_in_range(
+        &mut self,
+        _range: Option<std::ops::Range<usize>>,
+        _new_text: &str,
+        _new_selected_range: Option<std::ops::Range<usize>>,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) {
+    }
+
+    fn unmark_text(&mut self, _window: &mut Window, _cx: &mut App) {}
+
+    fn bounds_for_range(
+        &mut self,
+        _range: std::ops::Range<usize>,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> Option<gpui::Bounds<gpui::Pixels>> {
+        None
+    }
+
+    fn character_index_for_point(
+        &mut self,
+        _point: gpui::Point<gpui::Pixels>,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> Option<usize> {
+        None
+    }
+}
+
 impl Focusable for InputBarView {
     fn focus_handle(&self, _cx: &gpui::App) -> FocusHandle {
         self.focus_handle.clone()
@@ -235,6 +317,9 @@ impl Focusable for InputBarView {
 
 impl Render for InputBarView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let focus_for_ime = self.focus_handle.clone();
+        let weak_view = cx.weak_entity();
+
         let focused = self.focus_handle.is_focused(window);
         let border_color = if focused {
             rgb(0x6c91c2)
@@ -451,6 +536,22 @@ impl Render for InputBarView {
             }))
             .children(images_row)
             .child(text_row)
+            .child(
+                canvas(
+                    |_bounds, _window, _cx| {},
+                    move |_bounds, _, window, cx| {
+                        window.handle_input(
+                            &focus_for_ime,
+                            InputBarImeHandler {
+                                view: weak_view.clone(),
+                            },
+                            cx,
+                        );
+                    },
+                )
+                .w(px(0.0))
+                .h(px(0.0)),
+            )
     }
 }
 
