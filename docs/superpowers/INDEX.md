@@ -21,6 +21,7 @@
 ### M10 — App 图标（跨平台 SVG→PNG/ICO/ICNS + Build 集成）（2026-05-09）— ✅ 已完成
 - spec：[`specs/2026-05-09-aish-m10-icon-design.md`](specs/2026-05-09-aish-m10-icon-design.md)
 - plan：[`plans/2026-05-09-aish-m10-icon.md`](plans/2026-05-09-aish-m10-icon.md)
+- 实现状态：代码已完成并通过质量门禁 (fmt / clippy / test)，文档已补充
 - 范围：SVG 单一真相源（终端像素风 `>_` 设计）→ 8 级 PNG 套装 + Windows ICO (6 尺寸) + macOS ICNS (7 尺寸)；Node.js 生成脚本 (@resvg/resvg-js + png-to-ico + @fiahfy/icns)；Windows build.rs 编译期集成；macOS Info.plist 配置；Linux .desktop 文件
 - 关键任务：
   - T1：SVG 主设计源（已完成，assets/icons/aish.svg）
