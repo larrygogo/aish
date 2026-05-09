@@ -3,6 +3,7 @@
 mod badge;
 mod button;
 mod checkbox;
+mod dialog;
 mod icon_button;
 mod separator;
 mod switch;
@@ -14,6 +15,7 @@ mod tooltip;
 pub use badge::{Badge, BadgeVariant};
 pub use button::{Button, ButtonVariant};
 pub use checkbox::Checkbox;
+pub use dialog::Dialog;
 pub use icon_button::{IconButton, IconButtonSize};
 pub use separator::{Orientation, Separator};
 pub use switch::Switch;
