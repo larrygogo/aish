@@ -4,6 +4,7 @@
 //! T9：struct + 键盘 + IME + render。
 //! T10：cursor blink（600ms 周期，任意操作 reset 相位）。
 
+use std::ops::Range;
 use std::rc::Rc;
 use std::time::Instant;
 
@@ -27,6 +28,8 @@ pub struct TextInput {
     on_submit: Option<SubmitHandler>,
     on_change: Option<ChangeHandler>,
     blink_epoch: Instant,
+    selection_anchor: Option<usize>,      // 拖选起始 byte offset
+    last_click: Option<(Instant, usize)>, // 双击检测
 }
 
 impl TextInput {
@@ -39,6 +42,8 @@ impl TextInput {
             on_submit: None,
             on_change: None,
             blink_epoch: Instant::now(),
+            selection_anchor: None,
+            last_click: None,
         };
         this.start_blink_timer(cx);
         this
@@ -107,9 +112,106 @@ impl TextInput {
         .detach();
     }
 
+    // -------- selection helpers --------
+
+    /// 当前选区（normalize 后），无选区时 None。anchor == cursor 时也返回 None。
+    pub(crate) fn selection_range(&self) -> Option<Range<usize>> {
+        self.selection_anchor.and_then(|a| {
+            if a != self.cursor {
+                Some(if a < self.cursor {
+                    a..self.cursor
+                } else {
+                    self.cursor..a
+                })
+            } else {
+                None
+            }
+        })
+    }
+
+    /// 删除当前选区文本（如有），返回是否删除过。
+    pub(crate) fn delete_selection(&mut self) -> bool {
+        if let Some(range) = self.selection_range() {
+            self.text.drain(range.clone());
+            self.cursor = range.start;
+            self.selection_anchor = None;
+            self.reset_blink();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// 全选（Ctrl+A）。
+    pub(crate) fn select_all(&mut self) {
+        if !self.text.is_empty() {
+            self.selection_anchor = Some(0);
+            self.cursor = self.text.len();
+            self.reset_blink();
+        }
+    }
+
+    /// 清选区。
+    pub(crate) fn clear_selection(&mut self) {
+        self.selection_anchor = None;
+    }
+
+    /// 选中 cursor 周围的 word（双击触发）。word = 连续非空白字符。
+    pub(crate) fn select_word_at_cursor(&mut self) {
+        let len = self.text.len();
+        if len == 0 {
+            return;
+        }
+        let bytes = self.text.as_bytes();
+        let is_space = |b: u8| b == b' ' || b == b'\t' || b == b'\n' || b == b'\r';
+
+        let mut start = self.cursor.min(len);
+        // start 在空白上时往前推到非空白
+        while start > 0 && is_space(bytes[start.saturating_sub(1)]) {
+            start -= 1;
+        }
+        while start > 0 && !is_space(bytes[start - 1]) {
+            start -= 1;
+        }
+
+        let mut end = self.cursor.min(len);
+        while end < len && !is_space(bytes[end]) {
+            end += 1;
+        }
+
+        if start < end {
+            self.selection_anchor = Some(start);
+            self.cursor = end;
+            self.reset_blink();
+        }
+    }
+
+    /// 鼠标点击：M11 简化版只移到末尾 + 双击检测。
+    fn handle_mouse_down_at(&mut self, byte_offset: usize, cx: &mut Context<Self>) {
+        let now = Instant::now();
+        let is_double = self
+            .last_click
+            .as_ref()
+            .map(|(t, b)| now.duration_since(*t).as_millis() < 500 && *b == byte_offset)
+            .unwrap_or(false);
+
+        if is_double {
+            self.cursor = byte_offset;
+            self.select_word_at_cursor();
+            self.last_click = None;
+        } else {
+            self.cursor = byte_offset;
+            self.selection_anchor = Some(byte_offset);
+            self.last_click = Some((now, byte_offset));
+        }
+        self.reset_blink();
+        cx.notify();
+    }
+
     // -------- 状态机 --------
 
     pub(crate) fn cursor_left(&mut self) {
+        self.clear_selection();
         if self.cursor > 0 {
             self.cursor = self.text[..self.cursor]
                 .char_indices()
@@ -121,6 +223,7 @@ impl TextInput {
     }
 
     pub(crate) fn cursor_right(&mut self) {
+        self.clear_selection();
         if self.cursor < self.text.len() {
             self.cursor = self.text[self.cursor..]
                 .char_indices()
@@ -132,6 +235,9 @@ impl TextInput {
     }
 
     pub(crate) fn backspace(&mut self) {
+        if self.delete_selection() {
+            return;
+        }
         if self.cursor > 0 {
             let prev = self.text[..self.cursor]
                 .char_indices()
@@ -145,6 +251,9 @@ impl TextInput {
     }
 
     pub(crate) fn delete_forward(&mut self) {
+        if self.delete_selection() {
+            return;
+        }
         if self.cursor < self.text.len() {
             self.text.remove(self.cursor);
             self.reset_blink();
@@ -152,6 +261,7 @@ impl TextInput {
     }
 
     pub(crate) fn insert_str(&mut self, s: &str) {
+        self.delete_selection();
         self.text.insert_str(self.cursor, s);
         self.cursor += s.len();
         self.reset_blink();
@@ -190,17 +300,27 @@ impl TextInput {
                 cx.notify();
             }
             "home" => {
+                self.clear_selection();
                 self.cursor = 0;
                 self.reset_blink();
                 cx.notify();
             }
             "end" => {
+                self.clear_selection();
                 self.cursor = self.text.len();
                 self.reset_blink();
                 cx.notify();
             }
             "enter" if !event.keystroke.modifiers.shift => {
                 self.fire_submit(window, cx);
+            }
+            "a" if event.keystroke.modifiers.control => {
+                self.select_all();
+                cx.notify();
+            }
+            "escape" => {
+                self.clear_selection();
+                cx.notify();
             }
             _ => {
                 if let Some(ch) = &event.keystroke.key_char {
@@ -324,6 +444,7 @@ impl Render for TextInput {
         let cursor_left = self.text[..self.cursor].to_string();
         let cursor_right = self.text[self.cursor..].to_string();
         let placeholder_visible = self.text.is_empty();
+        let selection = self.selection_range();
 
         div()
             .relative()
@@ -345,6 +466,8 @@ impl Render for TextInput {
                 MouseButton::Left,
                 cx.listener(|this, _, window, cx| {
                     this.focus_handle.focus(window, cx);
+                    let pos = this.text.len(); // M11 简化：点击 = 移到末尾
+                    this.handle_mouse_down_at(pos, cx);
                 }),
             )
             .child(if placeholder_visible {
@@ -352,6 +475,19 @@ impl Render for TextInput {
                     .text_size(t.font_size.sm)
                     .text_color(t.colors.muted_foreground)
                     .child(self.placeholder.clone())
+                    .into_any_element()
+            } else if let Some(sel) = selection {
+                let before = self.text[..sel.start].to_string();
+                let middle = self.text[sel.start..sel.end].to_string();
+                let after = self.text[sel.end..].to_string();
+                div()
+                    .flex()
+                    .flex_row()
+                    .text_size(t.font_size.sm)
+                    .text_color(t.colors.foreground)
+                    .child(div().child(before))
+                    .child(div().bg(t.colors.accent).child(middle))
+                    .child(div().child(after))
                     .into_any_element()
             } else {
                 div()
@@ -522,5 +658,105 @@ mod tests {
     #[test]
     fn blink_period_constant() {
         assert_eq!(super::BLINK_PERIOD_MS, 600);
+    }
+
+    #[test]
+    fn selection_range_normalizes_anchor_before_cursor() {
+        let anchor = 2;
+        let cursor = 5;
+        let range = if anchor < cursor {
+            anchor..cursor
+        } else {
+            cursor..anchor
+        };
+        assert_eq!(range, 2..5);
+    }
+
+    #[test]
+    fn selection_range_normalizes_anchor_after_cursor() {
+        let anchor = 7;
+        let cursor = 3;
+        let range = if anchor < cursor {
+            anchor..cursor
+        } else {
+            cursor..anchor
+        };
+        assert_eq!(range, 3..7);
+    }
+
+    #[test]
+    fn delete_selection_drains_range_resets_cursor() {
+        let mut text = String::from("hello world");
+        let range: std::ops::Range<usize> = 5..11;
+        text.drain(range.clone());
+        let cursor = range.start;
+        assert_eq!(text, "hello");
+        assert_eq!(cursor, 5);
+    }
+
+    #[test]
+    fn select_word_finds_word_around_cursor() {
+        let text = "hello world rust";
+        let bytes = text.as_bytes();
+        let is_space = |b: u8| b == b' ' || b == b'\t' || b == b'\n' || b == b'\r';
+
+        let cursor = 8; // 在 "world" 中间
+        let mut start = cursor;
+        while start > 0 && !is_space(bytes[start - 1]) {
+            start -= 1;
+        }
+        let mut end = cursor;
+        while end < text.len() && !is_space(bytes[end]) {
+            end += 1;
+        }
+        assert_eq!(&text[start..end], "world");
+    }
+
+    #[test]
+    fn select_word_at_text_start() {
+        let text = "hello world";
+        let bytes = text.as_bytes();
+        let is_space = |b: u8| b == b' ' || b == b'\t';
+
+        let cursor = 0;
+        let mut start = cursor;
+        while start > 0 && !is_space(bytes[start - 1]) {
+            start -= 1;
+        }
+        let mut end = cursor;
+        while end < text.len() && !is_space(bytes[end]) {
+            end += 1;
+        }
+        assert_eq!(&text[start..end], "hello");
+    }
+
+    #[test]
+    fn selection_range_returns_none_when_anchor_equals_cursor() {
+        // anchor == cursor 时（鼠标单击末尾），应返回 None，否则 render 进有选区分支导致 cursor blink 消失
+        let anchor = Some(5usize);
+        let cursor = 5usize;
+        let range: Option<std::ops::Range<usize>> = anchor.and_then(|a| {
+            if a != cursor {
+                Some(if a < cursor { a..cursor } else { cursor..a })
+            } else {
+                None
+            }
+        });
+        assert_eq!(range, None);
+    }
+
+    #[test]
+    fn selection_range_returns_some_when_anchor_differs_from_cursor() {
+        // anchor != cursor 时应返回正确的正向 range
+        let anchor = Some(2usize);
+        let cursor = 5usize;
+        let range: Option<std::ops::Range<usize>> = anchor.and_then(|a| {
+            if a != cursor {
+                Some(if a < cursor { a..cursor } else { cursor..a })
+            } else {
+                None
+            }
+        });
+        assert_eq!(range, Some(2..5));
     }
 }
