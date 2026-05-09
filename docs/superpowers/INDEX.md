@@ -10,13 +10,37 @@
 
 ## 当前状态
 
-- **活跃分支**：`main`（M10 App 图标已完成）
-- **下一里程碑**：M6 Activity 实时活动条 或 backlog 条目
-- **质量门禁基线**：fmt + clippy 0 warning + test 106 全过
+- **活跃分支**：`main`（M11 aish-ui 起步套件已完成；M10 App 图标也已合并）
+- **下一里程碑**：M12 — 表单与导航（Card / Tabs / Dialog / Select / Checkbox / RadioGroup / Switch）
+- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui 51 + aish-app 101 + 其他 crate) 全过
 
 ---
 
 ## Milestones（按时间倒序）
+
+### M11 — aish-ui 起步套件（2026-05-09）— ✅ 已完成
+- 父 spec：[`specs/2026-05-09-aish-ui-architecture-design.md`](specs/2026-05-09-aish-ui-architecture-design.md)
+- spec：[`specs/2026-05-09-aish-m11-ui-starter-design.md`](specs/2026-05-09-aish-m11-ui-starter-design.md)
+- plan：[`plans/2026-05-09-aish-m11-ui-starter.md`](plans/2026-05-09-aish-m11-ui-starter.md)
+- 范围：新建 aish-ui 独立 crate（依赖仅 gpui）+ Theme/Token 系统（21 ColorTokens + Radius/Spacing/FontSize scale + Theme::dark）+ 15 个 Lucide SVG icon + AssetSource 实现 + 7 个组件（Button/IconButton/Badge/Separator/Tooltip/TextInput/Toast）+ aish-app 接入：注册 Theme global / ToastHandle global / AssetSource，InputBarView 文本部分迁到 TextInput
+- 关键 commits：
+  - `4f025cc` — T1 crate 骨架 + workspace 注册
+  - `90de327` — T2 Theme/Token + dark + light stub（amend 修 hex_a 死代码）
+  - `405c27b` — T3 Icon 系统（15 SVG + AssetSource，amend 修 IconName::ALL 常量）
+  - `2a75c62` — T4 Separator
+  - `429747f` — T5 Badge
+  - `5290bfd` — T6 Button
+  - `0496cac` — T7 IconButton
+  - `e3685e0` — T8 Tooltip
+  - `81e12b6` — T9 TextInput 基础
+  - `3f65fed` — T10 TextInput cursor blink
+  - `cad165a` — T11 TextInput selection（amend 修 selection_range 空 range bug）
+  - `ea5ee69` — T12 TextInput 复制粘贴（amend 修 IME on_change + compute_copy_payload 抽取）
+  - `8ea5322` — T13 Toast 三层（amend 修 Warning fg_color）
+  - `fd4a57c` — T14 aish-app 接入 Theme/ToastHandle/AssetSource
+  - `7b84e8d` — T15 InputBarView 文本部分切到 aish_ui::TextInput
+- 测试：aish-ui crate 51 tests + aish-app 101 tests + 其他 crate 不变（合计 268 全过）
+- 已知边界：M11 简化版 mouse click 不解析 x 坐标（点击 = 末尾），cursor_at_pixel 留 M12+
 
 ### M10 — App 图标（跨平台 SVG→PNG/ICO/ICNS + Build 集成）（2026-05-09）— ✅ 已完成
 - spec：[`specs/2026-05-09-aish-m10-icon-design.md`](specs/2026-05-09-aish-m10-icon-design.md)
