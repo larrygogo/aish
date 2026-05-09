@@ -1,3 +1,5 @@
 //! 组件实现。
 
-// 后续 task 填充
+mod separator;
+
+pub use separator::{Orientation, Separator};

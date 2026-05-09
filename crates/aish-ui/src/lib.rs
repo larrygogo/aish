@@ -9,5 +9,6 @@ pub mod icons;
 pub mod prelude;
 pub mod theme;
 
+pub use components::*;
 pub use icons::{icon, AishUiAssets, IconName};
 pub use theme::{theme, Theme};
