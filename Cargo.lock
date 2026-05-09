@@ -71,6 +71,7 @@ dependencies = [
  "aish-ssh",
  "aish-tmux",
  "aish-types",
+ "aish-ui",
  "alacritty_terminal",
  "anyhow",
  "arboard",
@@ -155,7 +156,9 @@ dependencies = [
 name = "aish-ui"
 version = "0.1.0"
 dependencies = [
+ "arboard",
  "gpui",
+ "tracing",
 ]
 
 [[package]]

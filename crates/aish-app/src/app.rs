@@ -16,117 +16,113 @@ pub fn run() {
     // 保留一个引用用于 run 结束后 drop（确保 runtime 在所有窗口关闭后 shutdown）
     let bridge_keep = bridge_owner.clone();
 
-    application().run(move |cx: &mut App| {
-        crate::terminal::font::register_bundled_font(cx);
-        let hosts = match crate::persistence::load_hosts() {
-            Ok(h) => h,
-            Err(e) => {
-                tracing::error!("load hosts.json failed: {} — starting with empty list", e);
-                Vec::new()
-            }
-        };
-        let loaded_state = crate::app_state_file::load_app_state();
-        let last_connected = loaded_state.into_last_connected();
-        let state = cx.new(|_cx| {
-            let mut s = AppState::with_hosts(hosts);
-            s.last_connected = last_connected;
-            s
-        });
-        let channel = EventChannel::new();
+    application()
+        .with_assets(aish_ui::AishUiAssets)
+        .run(move |cx: &mut App| {
+            // 注册 aish-ui Theme global（必须在创建任何 view / 调用 theme(cx) 之前）
+            cx.set_global(aish_ui::Theme::dark());
 
-        // 接收 SshEvent loop
-        let state_for_loop = state.clone();
-        let mut rx = channel.rx;
-        cx.spawn(async move |cx| {
-            while let Some(event) = rx.recv().await {
-                state_for_loop.update(cx, |state, cx| match event {
-                    SshEvent::Connected { conn: _ } => {
-                        cx.notify();
-                    }
-                    SshEvent::PaneOutput { conn, bytes } => {
-                        state.feed_bytes(conn, &bytes);
-                        cx.notify();
-                    }
-                    SshEvent::Disconnected { conn, reason: _ } => {
-                        state.drop_session(conn);
-                        cx.notify();
-                    }
-                    SshEvent::Error { conn, kind: _, msg } => {
-                        tracing::error!(?conn, msg, "SSH error");
-                        state.drop_session(conn);
-                        cx.notify();
-                    }
-                    SshEvent::TmuxQueryStarted { conn } => {
-                        state
-                            .tmux_state
-                            .insert(conn, crate::state::TmuxState::NotChecked);
-                        cx.notify();
-                    }
-                    SshEvent::TmuxSessionsListed { conn, sessions } => {
-                        // 进入 Detected 状态时清空 attached 标记 —— 重新查询时
-                        // 上次 attach 的 session 可能已经不存在或被改名。
-                        let has_sessions = !sessions.is_empty();
-                        state.tmux_state.insert(
-                            conn,
-                            crate::state::TmuxState::Detected {
-                                sessions,
-                                attached: None,
-                            },
-                        );
-                        // 远端有 tmux session 且当前 tab 正是该 connection
-                        // → 弹 picker 让用户选 attach 哪个（或跳过进 raw shell）。
-                        if has_sessions && state.current_connection() == Some(conn) {
-                            state.pending_session_picker = Some(conn);
+            // 创建 ToastManager Entity 并注册 ToastHandle global
+            let toast_manager = cx.new(aish_ui::ToastManager::new);
+            cx.set_global(aish_ui::ToastHandle(toast_manager.clone()));
+
+            crate::terminal::font::register_bundled_font(cx);
+            let hosts = match crate::persistence::load_hosts() {
+                Ok(h) => h,
+                Err(e) => {
+                    tracing::error!("load hosts.json failed: {} — starting with empty list", e);
+                    Vec::new()
+                }
+            };
+            let loaded_state = crate::app_state_file::load_app_state();
+            let last_connected = loaded_state.into_last_connected();
+            let state = cx.new(|_cx| {
+                let mut s = AppState::with_hosts(hosts);
+                s.last_connected = last_connected;
+                s
+            });
+            let channel = EventChannel::new();
+
+            // 接收 SshEvent loop
+            let state_for_loop = state.clone();
+            let mut rx = channel.rx;
+            cx.spawn(async move |cx| {
+                while let Some(event) = rx.recv().await {
+                    state_for_loop.update(cx, |state, cx| match event {
+                        SshEvent::Connected { conn: _ } => {
+                            cx.notify();
                         }
-                        cx.notify();
-                    }
-                    SshEvent::TmuxQueryFailed { conn, msg } => {
-                        state
-                            .tmux_state
-                            .insert(conn, crate::state::TmuxState::QueryFailed { msg });
-                        cx.notify();
-                    }
-                    SshEvent::TmuxNoTmux { conn } => {
-                        state
-                            .tmux_state
-                            .insert(conn, crate::state::TmuxState::NoTmux);
-                        cx.notify();
-                    }
-                    SshEvent::TmuxAttached { conn, session } => {
-                        // raw attach 已派发到 PTY；标记 sidebar 高亮当前 session。
-                        state.mark_tmux_attached(conn, session);
-                        cx.notify();
-                    }
-                    SshEvent::ImageUploaded { conn, path } => {
-                        if let Some(sender) = state.sessions.get(&conn).cloned() {
-                            let _ = sender.try_send(SessionCommand::SendBytes(path.into_bytes()));
+                        SshEvent::PaneOutput { conn, bytes } => {
+                            state.feed_bytes(conn, &bytes);
+                            cx.notify();
                         }
-                    }
-                    SshEvent::ImageUploadFailed { conn, msg } => {
-                        if let Some(sender) = state.sessions.get(&conn).cloned() {
-                            let err = format!("\x1b[31m[aish] 图片上传失败: {}\x1b[0m\r\n", msg);
-                            let _ = sender.try_send(SessionCommand::SendBytes(err.into_bytes()));
+                        SshEvent::Disconnected { conn, reason: _ } => {
+                            state.drop_session(conn);
+                            cx.notify();
                         }
-                    }
-                    SshEvent::BatchUploaded { conn, paths, text } => {
-                        if let Some(sender) = state.sessions.get(&conn).cloned() {
-                            let mut parts = paths;
-                            if !text.is_empty() {
-                                parts.push(text);
+                        SshEvent::Error { conn, kind: _, msg } => {
+                            tracing::error!(?conn, msg, "SSH error");
+                            state.drop_session(conn);
+                            cx.notify();
+                        }
+                        SshEvent::TmuxQueryStarted { conn } => {
+                            state
+                                .tmux_state
+                                .insert(conn, crate::state::TmuxState::NotChecked);
+                            cx.notify();
+                        }
+                        SshEvent::TmuxSessionsListed { conn, sessions } => {
+                            // 进入 Detected 状态时清空 attached 标记 —— 重新查询时
+                            // 上次 attach 的 session 可能已经不存在或被改名。
+                            let has_sessions = !sessions.is_empty();
+                            state.tmux_state.insert(
+                                conn,
+                                crate::state::TmuxState::Detected {
+                                    sessions,
+                                    attached: None,
+                                },
+                            );
+                            // 远端有 tmux session 且当前 tab 正是该 connection
+                            // → 弹 picker 让用户选 attach 哪个（或跳过进 raw shell）。
+                            if has_sessions && state.current_connection() == Some(conn) {
+                                state.pending_session_picker = Some(conn);
                             }
-                            let msg = format!("{}\r", parts.join(" "));
-                            let _ = sender.try_send(SessionCommand::SendBytes(msg.into_bytes()));
+                            cx.notify();
                         }
-                    }
-                    SshEvent::BatchUploadFailed {
-                        conn,
-                        paths_ok,
-                        fail_msg,
-                        text,
-                    } => {
-                        if let Some(sender) = state.sessions.get(&conn).cloned() {
-                            if !paths_ok.is_empty() || !text.is_empty() {
-                                let mut parts = paths_ok;
+                        SshEvent::TmuxQueryFailed { conn, msg } => {
+                            state
+                                .tmux_state
+                                .insert(conn, crate::state::TmuxState::QueryFailed { msg });
+                            cx.notify();
+                        }
+                        SshEvent::TmuxNoTmux { conn } => {
+                            state
+                                .tmux_state
+                                .insert(conn, crate::state::TmuxState::NoTmux);
+                            cx.notify();
+                        }
+                        SshEvent::TmuxAttached { conn, session } => {
+                            // raw attach 已派发到 PTY；标记 sidebar 高亮当前 session。
+                            state.mark_tmux_attached(conn, session);
+                            cx.notify();
+                        }
+                        SshEvent::ImageUploaded { conn, path } => {
+                            if let Some(sender) = state.sessions.get(&conn).cloned() {
+                                let _ =
+                                    sender.try_send(SessionCommand::SendBytes(path.into_bytes()));
+                            }
+                        }
+                        SshEvent::ImageUploadFailed { conn, msg } => {
+                            if let Some(sender) = state.sessions.get(&conn).cloned() {
+                                let err =
+                                    format!("\x1b[31m[aish] 图片上传失败: {}\x1b[0m\r\n", msg);
+                                let _ =
+                                    sender.try_send(SessionCommand::SendBytes(err.into_bytes()));
+                            }
+                        }
+                        SshEvent::BatchUploaded { conn, paths, text } => {
+                            if let Some(sender) = state.sessions.get(&conn).cloned() {
+                                let mut parts = paths;
                                 if !text.is_empty() {
                                     parts.push(text);
                                 }
@@ -134,46 +130,64 @@ pub fn run() {
                                 let _ =
                                     sender.try_send(SessionCommand::SendBytes(msg.into_bytes()));
                             }
-                            let err =
-                                format!("\x1b[31m[aish] 图片上传失败: {}\x1b[0m\r\n", fail_msg);
-                            let _ = sender.try_send(SessionCommand::SendBytes(err.into_bytes()));
                         }
-                    }
-                });
-            }
-        })
-        .detach();
-
-        // 开窗口
-        let bounds = Bounds::centered(None, size(px(1200.0), px(800.0)), cx);
-        let window_options = WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(bounds)),
-            titlebar: Some(TitlebarOptions {
-                title: Some(SharedString::from("aish")),
-                ..Default::default()
-            }),
-            app_id: Some("aish".to_string()), // Linux WM_CLASS，与 .desktop 匹配
-            ..Default::default()
-        };
-
-        let bridge_for_window = bridge_owner.clone();
-        let tx_for_window = channel.tx.clone();
-        let state_for_window = state.clone();
-
-        cx.open_window(window_options, move |_window, cx| {
-            cx.new(|cx| {
-                RootView::new(
-                    state_for_window.clone(),
-                    bridge_for_window.clone(),
-                    tx_for_window.clone(),
-                    cx,
-                )
+                        SshEvent::BatchUploadFailed {
+                            conn,
+                            paths_ok,
+                            fail_msg,
+                            text,
+                        } => {
+                            if let Some(sender) = state.sessions.get(&conn).cloned() {
+                                if !paths_ok.is_empty() || !text.is_empty() {
+                                    let mut parts = paths_ok;
+                                    if !text.is_empty() {
+                                        parts.push(text);
+                                    }
+                                    let msg = format!("{}\r", parts.join(" "));
+                                    let _ = sender
+                                        .try_send(SessionCommand::SendBytes(msg.into_bytes()));
+                                }
+                                let err =
+                                    format!("\x1b[31m[aish] 图片上传失败: {}\x1b[0m\r\n", fail_msg);
+                                let _ =
+                                    sender.try_send(SessionCommand::SendBytes(err.into_bytes()));
+                            }
+                        }
+                    });
+                }
             })
-        })
-        .expect("主窗口应能打开");
+            .detach();
 
-        cx.activate(true);
-    });
+            // 开窗口
+            let bounds = Bounds::centered(None, size(px(1200.0), px(800.0)), cx);
+            let window_options = WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                titlebar: Some(TitlebarOptions {
+                    title: Some(SharedString::from("aish")),
+                    ..Default::default()
+                }),
+                app_id: Some("aish".to_string()), // Linux WM_CLASS，与 .desktop 匹配
+                ..Default::default()
+            };
+
+            let bridge_for_window = bridge_owner.clone();
+            let tx_for_window = channel.tx.clone();
+            let state_for_window = state.clone();
+
+            cx.open_window(window_options, move |_window, cx| {
+                cx.new(|cx| {
+                    RootView::new(
+                        state_for_window.clone(),
+                        bridge_for_window.clone(),
+                        tx_for_window.clone(),
+                        cx,
+                    )
+                })
+            })
+            .expect("主窗口应能打开");
+
+            cx.activate(true);
+        });
 
     drop(bridge_keep);
 }
@@ -192,6 +206,7 @@ struct RootView {
     host_form: Entity<crate::views::HostFormModal>,
     session_picker: Entity<crate::views::SessionPickerView>,
     input_bar: Entity<crate::views::InputBarView>,
+    toast_manager: Entity<aish_ui::ToastManager>,
 }
 
 impl RootView {
@@ -225,6 +240,8 @@ impl RootView {
         let input_bar =
             cx.new(|cx| crate::views::InputBarView::new(state.clone(), bridge.clone(), cx));
 
+        let toast_manager = cx.global::<aish_ui::ToastHandle>().0.clone();
+
         Self {
             state,
             sidebar_nav,
@@ -237,6 +254,7 @@ impl RootView {
             host_form,
             session_picker,
             input_bar,
+            toast_manager,
         }
     }
 }
@@ -288,6 +306,9 @@ impl Render for RootView {
         if modal_open {
             root = root.child(self.host_form.clone());
         }
+
+        // Toast 总是叠在最顶层
+        root = root.child(self.toast_manager.clone());
 
         root
     }

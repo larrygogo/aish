@@ -19,6 +19,7 @@ path = "src/main.rs"
 aish-types = { workspace = true }
 aish-ssh = { workspace = true }
 aish-tmux = { workspace = true }
+aish-ui = { workspace = true }
 bytes = { workspace = true }
 aish-sftp = { workspace = true }
 aish-secrets = { workspace = true }
