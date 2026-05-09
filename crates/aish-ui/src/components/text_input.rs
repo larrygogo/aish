@@ -8,6 +8,7 @@ use std::ops::Range;
 use std::rc::Rc;
 use std::time::Instant;
 
+use arboard::Clipboard;
 use gpui::{
     canvas, div, prelude::*, px, App, Bounds, Context, FocusHandle, Focusable, InputHandler,
     KeyDownEvent, MouseButton, Pixels, SharedString, UTF16Selection, Window,
@@ -279,6 +280,50 @@ impl TextInput {
         }
     }
 
+    /// 计算复制 payload（纯函数，便于测试）。
+    /// 无选区返回全文，有选区返回选区文本。
+    pub(crate) fn build_copy_payload(&self) -> String {
+        compute_copy_payload(&self.text, self.selection_range())
+    }
+
+    /// 复制文本到系统 clipboard。
+    ///
+    /// **返回值语义**：
+    /// - 文本为空 → false（不初始化 Clipboard）
+    /// - Clipboard 初始化失败 → false（log warn）
+    /// - set_text 失败 → false（log warn）
+    /// - 成功 → true
+    ///
+    /// 调用方（cut）无法区分这三种 false，全都不删 selection。
+    pub(crate) fn copy(&self) -> bool {
+        let payload = self.build_copy_payload();
+        if payload.is_empty() {
+            return false;
+        }
+        match Clipboard::new() {
+            Ok(mut cb) => match cb.set_text(payload) {
+                Ok(_) => true,
+                Err(e) => {
+                    tracing::warn!("text_input: clipboard set_text 失败: {}", e);
+                    false
+                }
+            },
+            Err(e) => {
+                tracing::warn!("text_input: clipboard 初始化失败: {}", e);
+                false
+            }
+        }
+    }
+
+    /// 剪切：copy 之后删 selection。
+    pub(crate) fn cut(&mut self) -> bool {
+        if !self.copy() {
+            return false;
+        }
+        self.delete_selection();
+        true
+    }
+
     fn handle_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         match event.keystroke.key.as_str() {
             "backspace" => {
@@ -318,6 +363,15 @@ impl TextInput {
                 self.select_all();
                 cx.notify();
             }
+            "c" if event.keystroke.modifiers.control => {
+                self.copy();
+            }
+            "x" if event.keystroke.modifiers.control => {
+                if self.cut() {
+                    cx.notify();
+                    self.fire_change(window, cx);
+                }
+            }
             "escape" => {
                 self.clear_selection();
                 cx.notify();
@@ -332,6 +386,18 @@ impl TextInput {
                 }
             }
         }
+    }
+}
+
+/// 计算复制 payload 的纯函数（无需 GPUI context，便于单元测试）。
+/// 无选区返回全文，有选区返回选区文本。
+pub(crate) fn compute_copy_payload(
+    text: &str,
+    selection: Option<std::ops::Range<usize>>,
+) -> String {
+    match selection {
+        Some(r) => text[r].to_string(),
+        None => text.to_string(),
     }
 }
 
@@ -383,15 +449,16 @@ impl InputHandler for TextInputImeHandler {
         &mut self,
         _range: Option<std::ops::Range<usize>>,
         text: &str,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut App,
     ) {
-        self.view
-            .update(cx, |this, cx| {
-                this.insert_str(text);
-                cx.notify();
-            })
-            .ok();
+        if let Ok((Some(h), new_text)) = self.view.update(cx, |this, cx| {
+            this.insert_str(text);
+            cx.notify();
+            (this.on_change.clone(), this.text.clone())
+        }) {
+            h(&new_text, window, cx);
+        }
     }
 
     fn replace_and_mark_text_in_range(
@@ -758,5 +825,23 @@ mod tests {
             }
         });
         assert_eq!(range, Some(2..5));
+    }
+
+    #[test]
+    fn compute_copy_payload_no_selection_returns_full_text() {
+        let payload = super::compute_copy_payload("hello", None);
+        assert_eq!(payload, "hello");
+    }
+
+    #[test]
+    fn compute_copy_payload_with_selection_returns_range() {
+        let payload = super::compute_copy_payload("hello world", Some(0..5));
+        assert_eq!(payload, "hello");
+    }
+
+    #[test]
+    fn compute_copy_payload_empty_text_returns_empty() {
+        let payload = super::compute_copy_payload("", None);
+        assert!(payload.is_empty());
     }
 }
