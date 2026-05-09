@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>
+  <string>aish</string>
+  <key>CFBundleDisplayName</key>
+  <string>aish</string>
+  <key>CFBundleIdentifier</key>
+  <string>com.larrygogo.aish</string>
+  <key>CFBundleVersion</key>
+  <string>0.1.0</string>
+  <key>CFBundleShortVersionString</key>
+  <string>0.1.0</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleExecutable</key>
+  <string>aish</string>
+
+  <!-- 图标：引用 Resources/aish.icns -->
+  <key>CFBundleIconFile</key>
+  <string>aish</string>
+  <key>CFBundleIconName</key>
+  <string>aish</string>
+
+  <key>LSMinimumSystemVersion</key>
+  <string>13.0</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+  <key>NSHumanReadableCopyright</key>
+  <string>Copyright (c) 2026 larry. All rights reserved.</string>
+</dict>
+</plist>

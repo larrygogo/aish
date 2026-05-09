@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=aish
+Comment=AI Shell - SSH Terminal with AI
+Exec=aish
+Icon=aish
+Terminal=false
+Categories=System;TerminalEmulator;Network;
+Keywords=ssh;terminal;ai;shell;
+StartupWMClass=aish
