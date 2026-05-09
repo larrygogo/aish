@@ -152,6 +152,7 @@ pub fn run() {
                 title: Some(SharedString::from("aish")),
                 ..Default::default()
             }),
+            app_id: Some("aish".to_string()), // Linux WM_CLASS，与 .desktop 匹配
             ..Default::default()
         };
 

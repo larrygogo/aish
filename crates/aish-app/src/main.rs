@@ -3,6 +3,7 @@
 mod app;
 mod app_state_file;
 mod bridge;
+mod logo;
 mod persistence;
 mod ssh_actor;
 mod state;
