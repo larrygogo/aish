@@ -229,6 +229,66 @@ pub(crate) async fn connection_task(
                         })
                         .await;
                 }
+                Some(SessionCommand::UploadImage { data }) => {
+                    let session_for_sftp = session.clone();
+                    let tx_for_sftp = event_tx.clone();
+                    tokio::spawn(async move {
+                        let ts = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis();
+                        let remote_path = format!("/tmp/aish-clip-{}.png", ts);
+                        match session_for_sftp.sftp_upload(&remote_path, &data).await {
+                            Ok(()) => {
+                                let _ = tx_for_sftp
+                                    .send(SshEvent::ImageUploaded {
+                                        conn,
+                                        path: remote_path,
+                                    })
+                                    .await;
+                            }
+                            Err(e) => {
+                                let _ = tx_for_sftp
+                                    .send(SshEvent::ImageUploadFailed {
+                                        conn,
+                                        msg: e.to_string(),
+                                    })
+                                    .await;
+                            }
+                        }
+                    });
+                }
+                Some(SessionCommand::UploadBatch { images, text }) => {
+                    let session_for_batch = session.clone();
+                    let tx_for_batch = event_tx.clone();
+                    tokio::spawn(async move {
+                        let ts = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis();
+                        let mut paths = Vec::new();
+                        for (i, (bytes, ext)) in images.iter().enumerate() {
+                            let remote_path = format!("/tmp/aish-clip-{}-{}.{}", ts, i, ext);
+                            match session_for_batch.sftp_upload(&remote_path, bytes).await {
+                                Ok(()) => paths.push(remote_path),
+                                Err(e) => {
+                                    let _ = tx_for_batch
+                                        .send(SshEvent::BatchUploadFailed {
+                                            conn,
+                                            paths_ok: paths,
+                                            fail_msg: e.to_string(),
+                                            text,
+                                        })
+                                        .await;
+                                    return;
+                                }
+                            }
+                        }
+                        let _ = tx_for_batch
+                            .send(SshEvent::BatchUploaded { conn, paths, text })
+                            .await;
+                    });
+                }
                 Some(SessionCommand::Disconnect) | None => {
                     let _ = event_tx
                         .send(SshEvent::Disconnected {
@@ -244,16 +304,17 @@ pub(crate) async fn connection_task(
     // session drop → russh close
 }
 
-/// 简易键盘事件 → 字节流编码（M2a 范围）。
+/// 键盘事件 → PTY 字节流编码。
 ///
-/// 支持：普通字符 / Enter / Backspace / Tab / Esc / Ctrl+A-Z。
-/// 不支持：方向键 / Home / End / F1-12 / Alt+ — M2b alacritty_terminal 接管。
-pub fn encode_key(key: &str, ctrl: bool, _alt: bool) -> Vec<u8> {
+/// Alt 修饰：在基础序列前加 ESC（\x1b），实现标准终端 Meta 键行为。
+/// 例：Alt+F → \x1bf（bash readline forward-word）。
+pub fn encode_key(key: &str, ctrl: bool, alt: bool) -> Vec<u8> {
     if ctrl {
         if let Some(c) = key.chars().next() {
             let upper = c.to_ascii_uppercase();
             if upper.is_ascii_uppercase() {
                 let byte = (upper as u8) - 0x40;
+                // Alt+Ctrl+key：极少见，仅发 Ctrl 序列（不加 ESC 前缀）
                 return vec![byte];
             }
         }
@@ -261,7 +322,7 @@ pub fn encode_key(key: &str, ctrl: bool, _alt: bool) -> Vec<u8> {
     }
 
     // 用 lowercased key 匹配特殊键名（GPUI 可能给 "Up" / "ArrowUp" / "up"）
-    match key.to_lowercase().as_str() {
+    let base: Vec<u8> = match key.to_lowercase().as_str() {
         "enter" => vec![b'\r'],
         "backspace" => vec![0x7f],
         "tab" => vec![b'\t'],
@@ -288,6 +349,20 @@ pub fn encode_key(key: &str, ctrl: bool, _alt: bool) -> Vec<u8> {
         s if s.len() == 1 => key.as_bytes().to_vec(),
 
         _ => Vec::new(),
+    };
+
+    if base.is_empty() {
+        return Vec::new();
+    }
+
+    // Alt：在基础序列前加 ESC 前缀（标准 Meta 键编码）
+    if alt {
+        let mut out = Vec::with_capacity(base.len() + 1);
+        out.push(0x1b);
+        out.extend_from_slice(&base);
+        out
+    } else {
+        base
     }
 }
 

@@ -40,6 +40,24 @@ pub const ACCENT_YELLOW: u32 = 0xf5c242;
 pub const CHIP_BLUE_BG: u32 = 0x1f3a5c;
 pub const CHIP_GREEN_BG: u32 = 0x16382f;
 
+// ────────── Sidebar 4-tab（M4a 信息架构）──────────
+/// 左侧 48px sidebar 背景（比 BG_BASE 再深一档）。
+pub const SIDEBAR_BG: u32 = 0x0a0a0c;
+/// sidebar 右边框。
+pub const SIDEBAR_BORDER: u32 = 0x1f1f23;
+/// active tab 左侧 2px 指示条颜色（= ACCENT_BLUE）。
+pub const SIDEBAR_ACTIVE_BAR: u32 = ACCENT_BLUE;
+/// sidebar nav icon 默认色（暗灰）。
+pub const SIDEBAR_NAV_FG_DEFAULT: u32 = 0x6b6b73;
+/// sidebar nav icon hover 色。
+pub const SIDEBAR_NAV_FG_HOVER: u32 = 0x9a9aa3;
+/// sidebar nav icon active 色（白）。
+pub const SIDEBAR_NAV_FG_ACTIVE: u32 = 0xffffff;
+/// sidebar nav active 背景（微亮底）。
+pub const SIDEBAR_NAV_BG_ACTIVE: u32 = 0x15151a;
+/// sidebar 宽度像素值。
+pub const SIDEBAR_WIDTH: f32 = 48.0;
+
 // ────────── Avatar 调色板（host 首字母图标背景轮换用） ──────────
 pub const AVATAR_PALETTE: &[u32] = &[
     0x6366f1, // indigo

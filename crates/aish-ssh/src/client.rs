@@ -8,6 +8,7 @@ use russh::client::{Config, Handle, Handler};
 use russh::keys::key::PublicKey;
 
 use crate::error::SshError;
+use russh_sftp::client::SftpSession;
 
 /// SshClient 持有一个建立好的 SSH 连接（已 handshake + auth 完成）。
 ///
@@ -158,6 +159,39 @@ impl SshClient {
             .handle
             .disconnect(russh::Disconnect::ByApplication, "", "")
             .await;
+    }
+
+    /// 通过 SFTP 把 `data`（PNG bytes）写到远端 `remote_path`。
+    /// 内部 fork 一条独立 SFTP channel，与主 PTY channel 不冲突。
+    pub async fn sftp_upload(&self, remote_path: &str, data: &[u8]) -> Result<(), SshError> {
+        let channel = self
+            .handle
+            .channel_open_session()
+            .await
+            .map_err(SshError::Protocol)?;
+        channel
+            .request_subsystem(true, "sftp")
+            .await
+            .map_err(SshError::Protocol)?;
+        let sftp = SftpSession::new(channel.into_stream())
+            .await
+            .map_err(|e| SshError::Sftp(format!("sftp session init failed: {}", e)))?;
+        let mut file = sftp
+            .create(remote_path)
+            .await
+            .map_err(|e| SshError::Sftp(format!("sftp create '{}' failed: {}", remote_path, e)))?;
+        use tokio::io::AsyncWriteExt;
+        file.write_all(data)
+            .await
+            .map_err(|e| SshError::Sftp(format!("sftp write failed: {}", e)))?;
+        file.flush()
+            .await
+            .map_err(|e| SshError::Sftp(format!("sftp flush failed: {}", e)))?;
+        drop(file);
+        sftp.close()
+            .await
+            .map_err(|e| SshError::Sftp(format!("sftp close failed: {}", e)))?;
+        Ok(())
     }
 
     /// 打开一个新的 SSH session channel。

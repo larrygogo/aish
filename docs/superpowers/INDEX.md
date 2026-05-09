@@ -3,18 +3,91 @@
 > 全部里程碑 plan + spec 的索引 + 当前状态 + 下一步候选。
 >
 > 每完成一个 milestone 更新本文件。这是 `claude-progress.md` 的替代品（后者已废弃）。
+>
+> **长期愿景** → [桌面版 Moshi Roadmap](roadmap-moshi-desktop.md)（跨多里程碑活文档）
 
 ---
 
 ## 当前状态
 
-- **活跃分支**：无（main 已合并完所有 feature；本地 main 比 origin 领先若干 commits，待推 origin）
-- **下一里程碑**：未指定，等用户提需求走 brainstorm → spec → plan
-- **质量门禁基线**：fmt + clippy 0 warning + test 199 全过
+- **活跃分支**：`main`（M10 App 图标已完成）
+- **下一里程碑**：M6 Activity 实时活动条 或 backlog 条目
+- **质量门禁基线**：fmt + clippy 0 warning + test 106 全过
 
 ---
 
 ## Milestones（按时间倒序）
+
+### M10 — App 图标（跨平台 SVG→PNG/ICO/ICNS + Build 集成）（2026-05-09）— ✅ 已完成
+- spec：[`specs/2026-05-09-aish-m10-icon-design.md`](specs/2026-05-09-aish-m10-icon-design.md)
+- plan：[`plans/2026-05-09-aish-m10-icon.md`](plans/2026-05-09-aish-m10-icon.md)
+- 实现状态：代码已完成并通过质量门禁 (fmt / clippy / test)，文档已补充
+- 范围：SVG 单一真相源（终端像素风 `>_` 设计）→ 8 级 PNG 套装 + Windows ICO (6 尺寸) + macOS ICNS (7 尺寸)；Node.js 生成脚本 (@resvg/resvg-js + png-to-ico + @fiahfy/icns)；Windows build.rs 编译期集成；macOS Info.plist 配置；Linux .desktop 文件
+- 关键任务：
+  - T1：SVG 主设计源（已完成，assets/icons/aish.svg）
+  - T2：Bun 生成脚本（已完成，scripts/gen-icons.js）
+  - T3：运行脚本生成 PNG/ICO/ICNS（✅）
+  - T4：Windows build.rs 集成（✅）
+  - T5：macOS Info.plist（✅）
+  - T6：Linux desktop 文件（✅）
+  - T7：INDEX.md 更新（✅）
+- 产出文件：
+  - `assets/icons/aish-{16,32,48,64,128,256,512,1024}.png`
+  - `assets/aish.ico`
+  - `assets/aish.icns`
+  - `crates/aish-app/build.rs`
+  - `packaging/macos/Info.plist`
+  - `packaging/linux/aish.desktop`
+
+### M9 — Agent 输入栏（图片多选 + 文字 + SFTP 批量上传）（2026-05-08）— ✅ 已完成
+- spec：[`specs/2026-05-08-aish-m9-input-bar-design.md`](specs/2026-05-08-aish-m9-input-bar-design.md)
+- plan：[`plans/2026-05-08-aish-m9-input-bar.md`](plans/2026-05-08-aish-m9-input-bar.md)
+- 范围：终端视图下方固定底栏；[+] 按钮 GPUI 系统文件选择器多选图片；缩略图预览 + × 关闭；文字输入（Enter 发送）；Send → 批量 SFTP 上传 → paths + text echo 到 PTY
+- 关键 commits：
+  - `7ac8865` — state.rs UploadBatch + BatchUploaded/Failed + actor + app.rs 事件处理（T1-T3）
+  - `9742fc5` — InputBarView 完整实现 + 集成到 RootView（T4-T5）
+
+### M8 — 图片粘贴（Ctrl+Shift+V + SFTP + echo path）（2026-05-08）— ✅ 已完成
+- spec：[`specs/2026-05-08-aish-m8-image-paste-design.md`](specs/2026-05-08-aish-m8-image-paste-design.md)
+- plan：[`plans/2026-05-08-aish-m8-image-paste.md`](plans/2026-05-08-aish-m8-image-paste.md)
+- 范围：Ctrl+Shift+V 检测剪贴板类型 → 图片走 arboard 读取 + PNG 编码 + SshClient::sftp_upload → 远端 /tmp + echo 路径到 PTY；文字走现有 bracketed paste 逻辑
+- 关键 commits：
+  - `19e4fc3` — build: workspace 依赖加 russh-sftp / arboard / image
+  - `96752d7` / `2a95493` / `366d852` — SshError::Sftp + SshClient::sftp_upload
+  - `d589727` — state.rs UploadImage + ImageUploaded/Failed
+  - `8cd880e` — terminal/image.rs encode_rgba_to_png
+  - `fd7caad` — terminal_view paste() 图片检测
+  - `41d4baf` — ssh_actor UploadImage match arm
+  - `dd96d4c` — app.rs 事件处理 + 质量门禁
+
+### M4b — Recent 持久化 + Settings 起步（2026-05-08）— ✅ 已完成
+- spec：（无独立 spec，架构设计见 M4a spec）
+- plan：[`plans/2026-05-08-aish-m4b-recent-settings.md`](plans/2026-05-08-aish-m4b-recent-settings.md)
+- 范围：TOML 持久化 / app_state_file / last_connected 字段 + humanize / SettingsView 三段布局（Version / App Info / Legal）/ Inbox icon 换 Nerd Font / 启动加载 last_connected
+- 关键 commits：
+  - M4b-task-1：添加 toml + serde 依赖
+  - M4b-task-2：app_state_file.rs 实现 TOML 读写
+  - M4b-task-3：state.rs 添加 last_connected + humanize
+  - M4b-task-4：SettingsView 三段布局
+  - M4b-task-5：接入 SettingsView，启动加载
+  - M4b-task-6：Home 卡片时间戳 + 写 recent
+  - M4b-task-7：Inbox icon Nerd Font
+  - M4b-task-8：质量门禁 + INDEX 更新
+
+### M4a — 信息架构 4-tab 化（2026-05-08）— ✅ 已完成
+- spec：[`specs/2026-05-08-aish-m4a-info-arch-design.md`](specs/2026-05-08-aish-m4a-info-arch-design.md)
+- plan：[`plans/2026-05-08-aish-m4a-info-arch.md`](plans/2026-05-08-aish-m4a-info-arch.md)
+- 长期上下文：[桌面版 Moshi Roadmap](roadmap-moshi-desktop.md) · 子项目 A
+- 范围：左侧 48px sidebar 4-tab + Home(hosts grid + active sessions + quick action) + Inbox/Settings ComingSoon placeholder + EmptyTerminalGuideView
+- Out-of-scope：Recent 持久化 / Settings 实质内容 / 任何 AI agent 集成 / 键盘快捷键 Ctrl+1..4
+- 关键 commits：
+  - `426b0b6` — feat(state): SidebarTab + sidebar 字段
+  - `84ee15f` — feat(theme): sidebar 常量
+  - `5e6352c` — feat(ui): SidebarNavView
+  - `f354b34` — feat(ui): HomeView
+  - `159ab9a` — feat(ui): EmptyTerminalGuideView + ComingSoonView
+  - `9f19375` — feat(ui): RootView 重构
+  - `973b8d1` — refactor(ui): 删除 DefaultPageView
 
 ### M3d-resize-iter1 — 拖窗 resize 时序修复（2026-05-08）— ✅
 - spec：[`specs/2026-05-08-aish-tmux-resize-tweaks-design.md`](specs/2026-05-08-aish-tmux-resize-tweaks-design.md)

@@ -1,7 +1,9 @@
 //! aish 主入口。M2a 起接入真 SSH。
 
 mod app;
+mod app_state_file;
 mod bridge;
+mod logo;
 mod persistence;
 mod ssh_actor;
 mod state;

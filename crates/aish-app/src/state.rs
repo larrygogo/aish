@@ -62,6 +62,29 @@ pub enum SshEvent {
         conn: ConnectionId,
         session: SessionId,
     },
+    /// SFTP 上传成功，path 是远端绝对路径（如 /tmp/aish-clip-123456.png）。
+    ImageUploaded {
+        conn: ConnectionId,
+        path: String,
+    },
+    /// SFTP 上传失败，msg 是错误描述。
+    ImageUploadFailed {
+        conn: ConnectionId,
+        msg: String,
+    },
+    /// 批量 SFTP 上传全部成功，paths 是远端绝对路径列表。
+    BatchUploaded {
+        conn: ConnectionId,
+        paths: Vec<String>,
+        text: String,
+    },
+    /// 批量 SFTP 上传在第 N 张时失败，paths_ok 是已成功的路径。
+    BatchUploadFailed {
+        conn: ConnectionId,
+        paths_ok: Vec<String>,
+        fail_msg: String,
+        text: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -93,6 +116,15 @@ pub enum SessionCommand {
     /// user 点了某个 session，actor 关 raw shell -> 开新 channel attach
     AttachTmux {
         session: SessionId,
+    },
+    /// 上传本地剪贴板图片（PNG bytes）到远端 /tmp。
+    UploadImage {
+        data: Vec<u8>,
+    },
+    /// 批量上传图片并追加文字到 PTY。images 是 (原始文件字节, 扩展名不含点) 列表。
+    UploadBatch {
+        images: Vec<(Vec<u8>, String)>,
+        text: String,
     },
 }
 
@@ -267,6 +299,16 @@ pub struct Connection {
     pub opened_at: SystemTime,
 }
 
+/// 顶层 4-tab 导航当前选中项（M4a 信息架构）。
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum SidebarTab {
+    #[default]
+    Home,
+    Terminal,
+    Inbox,
+    Settings,
+}
+
 /// Tab 内容类型。默认页显示 host 卡片，连接页显示该 connection 的终端。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TabContent {
@@ -300,6 +342,8 @@ pub struct AppState {
     pub pending_session_picker: Option<ConnectionId>,
 
     pub modal: Option<HostFormState>,
+    pub last_connected: HashMap<HostId, SystemTime>,
+    pub sidebar: SidebarTab,
 
     /// 每连接一个 actor 命令通道。
     pub sessions: HashMap<ConnectionId, mpsc::Sender<SessionCommand>>,
@@ -315,23 +359,55 @@ pub struct AppState {
     pub tmux_state: HashMap<ConnectionId, TmuxState>,
 }
 
+impl Connection {
+    /// 返回自 opened_at 到现在的 humanize 字符串，用于 Active Sessions 显示。
+    pub fn humanize_opened_at(&self) -> String {
+        let secs = self.opened_at.elapsed().unwrap_or_default().as_secs();
+        if secs < 60 {
+            "just now".into()
+        } else if secs < 3600 {
+            format!("{}m ago", secs / 60)
+        } else if secs < 86400 {
+            format!("{}h ago", secs / 3600)
+        } else if secs < 172800 {
+            "yesterday".into()
+        } else {
+            format!("{}d ago", secs / 86400)
+        }
+    }
+}
+
+/// 将历史时间戳转为可读字符串（同 humanize_opened_at 阈值，接受 SystemTime 参数）。
+pub fn humanize_last_connected(last: SystemTime) -> String {
+    let secs = SystemTime::now()
+        .duration_since(last)
+        .unwrap_or_default()
+        .as_secs();
+    if secs < 60 {
+        "just now".into()
+    } else if secs < 3600 {
+        format!("{}m ago", secs / 60)
+    } else if secs < 86400 {
+        format!("{}h ago", secs / 3600)
+    } else if secs < 172800 {
+        "yesterday".into()
+    } else {
+        format!("{}d ago", secs / 86400)
+    }
+}
+
 impl AppState {
     pub fn with_hosts(hosts: Vec<HostConfig>) -> Self {
-        // 启动时自动开一个默认页 tab，避免界面空白。
-        let initial_tab = Tab {
-            id: TabId::new(),
-            content: TabContent::Default,
-            title: "新连接".into(),
-        };
-        let initial_tab_id = initial_tab.id;
         Self {
             hosts,
             connections: HashMap::new(),
-            tabs: vec![initial_tab],
-            selected_tab: Some(initial_tab_id),
+            tabs: vec![],
+            selected_tab: None,
+            sidebar: SidebarTab::Home,
             pending_session_picker: None,
             sessions: HashMap::new(),
             modal: None,
+            last_connected: HashMap::new(),
             host_pty_term: HashMap::new(),
             host_pty_processor: HashMap::new(),
             host_pty_dimensions: HashMap::new(),
@@ -353,19 +429,6 @@ impl AppState {
             TabContent::Connection(c) => Some(c),
             TabContent::Default => None,
         }
-    }
-
-    /// 新建一个默认页 tab，自动选中并返回 id。
-    pub fn new_default_tab(&mut self) -> TabId {
-        let tab = Tab {
-            id: TabId::new(),
-            content: TabContent::Default,
-            title: "新连接".into(),
-        };
-        let id = tab.id;
-        self.tabs.push(tab);
-        self.selected_tab = Some(id);
-        id
     }
 
     pub fn select_tab(&mut self, id: TabId) {
@@ -402,9 +465,7 @@ impl AppState {
                 .get(idx)
                 .or_else(|| self.tabs.last())
                 .map(|t| t.id);
-            if self.selected_tab.is_none() {
-                self.new_default_tab();
-            }
+            // tabs 可以为空，sidebar=Terminal 时主区会显示 EmptyTerminalGuideView
         }
         Some(removed.content)
     }
@@ -474,11 +535,14 @@ impl AppState {
         self.host_pty_processor.remove(&id);
         self.host_pty_dimensions.remove(&id);
         self.tmux_state.remove(&id);
-        for t in &mut self.tabs {
-            if t.content == TabContent::Connection(id) {
-                t.content = TabContent::Default;
-                t.title = "新连接".into();
-            }
+        let ids_to_close: Vec<TabId> = self
+            .tabs
+            .iter()
+            .filter(|t| t.content == TabContent::Connection(id))
+            .map(|t| t.id)
+            .collect();
+        for tab_id in ids_to_close {
+            self.close_tab(tab_id);
         }
         // 关掉的连接如果正在弹 picker，也得清
         if self.pending_session_picker == Some(id) {
@@ -679,67 +743,67 @@ mod tests {
     }
 
     #[test]
-    fn remove_connection_resets_referencing_tab_to_default() {
+    fn remove_connection_closes_referencing_tab() {
+        use aish_types::TabId;
         let h = mk_host("a");
         let host_id = h.id;
         let mut state = AppState::with_hosts(vec![h]);
         let conn = state.open_connection(host_id);
-        state.replace_current_tab(TabContent::Connection(conn), "x".into());
+        // 手动 push 一个 Connection tab
+        let tab_id = TabId::new();
+        state.tabs.push(Tab {
+            id: tab_id,
+            content: TabContent::Connection(conn),
+            title: "x".into(),
+        });
+        state.selected_tab = Some(tab_id);
         state.remove_connection(conn);
-        let cur = state.current_tab().unwrap();
-        assert_eq!(cur.content, TabContent::Default);
-        assert_eq!(cur.title, "新连接");
-    }
-
-    #[test]
-    fn with_hosts_creates_initial_default_tab() {
-        let state = AppState::with_hosts(vec![]);
-        assert_eq!(state.tabs.len(), 1);
-        assert!(state.selected_tab.is_some());
-        assert_eq!(state.current_tab().unwrap().content, TabContent::Default);
-    }
-
-    #[test]
-    fn new_default_tab_pushes_and_selects() {
-        let mut state = AppState::with_hosts(vec![]);
-        let n = state.tabs.len();
-        let id = state.new_default_tab();
-        assert_eq!(state.tabs.len(), n + 1);
-        assert_eq!(state.selected_tab, Some(id));
+        // 该 tab 应被关闭
+        assert!(!state.tabs.iter().any(|t| t.id == tab_id));
     }
 
     #[test]
     fn replace_current_tab_swaps_in_place() {
+        use aish_types::TabId;
         let h = mk_host("a");
         let host_id = h.id;
         let mut state = AppState::with_hosts(vec![h]);
         let conn = state.open_connection(host_id);
-        let initial_id = state.selected_tab.unwrap();
+        // 手动 push 一个初始 tab（M4a 起 with_hosts 不自动创建）
+        let initial_tab_id = TabId::new();
+        state.tabs.push(Tab {
+            id: initial_tab_id,
+            content: TabContent::Default,
+            title: "新连接".into(),
+        });
+        state.selected_tab = Some(initial_tab_id);
         state.replace_current_tab(TabContent::Connection(conn), "腾讯云 #1".into());
-        assert_eq!(state.selected_tab, Some(initial_id));
+        assert_eq!(state.selected_tab, Some(initial_tab_id));
         assert_eq!(state.current_tab().unwrap().title, "腾讯云 #1");
         assert_eq!(state.current_connection(), Some(conn));
     }
 
     #[test]
     fn close_tab_picks_neighbor_when_current() {
+        use aish_types::TabId;
         let mut state = AppState::with_hosts(vec![]);
-        let t1 = state.selected_tab.unwrap();
-        let t2 = state.new_default_tab();
-        state.close_tab(t2);
-        assert_eq!(state.selected_tab, Some(t1));
+        // 手动 push 两个 tab
+        let id1 = TabId::new();
+        let id2 = TabId::new();
+        state.tabs.push(Tab {
+            id: id1,
+            content: TabContent::Default,
+            title: "1".into(),
+        });
+        state.tabs.push(Tab {
+            id: id2,
+            content: TabContent::Default,
+            title: "2".into(),
+        });
+        state.selected_tab = Some(id2);
+        state.close_tab(id2);
+        assert_eq!(state.selected_tab, Some(id1));
         assert_eq!(state.tabs.len(), 1);
-    }
-
-    #[test]
-    fn close_last_tab_auto_creates_default() {
-        let mut state = AppState::with_hosts(vec![]);
-        let only = state.selected_tab.unwrap();
-        state.close_tab(only);
-        // 不让窗口空白：自动新建一个
-        assert_eq!(state.tabs.len(), 1);
-        assert!(state.selected_tab.is_some());
-        assert_ne!(state.selected_tab, Some(only));
     }
 
     #[test]
@@ -1031,5 +1095,182 @@ mod tests {
             state.tmux_state.get(&conn),
             Some(TmuxState::NotChecked)
         ));
+    }
+
+    #[test]
+    fn sidebar_default_is_home() {
+        let state = AppState::with_hosts(vec![]);
+        assert_eq!(state.sidebar, SidebarTab::Home);
+    }
+
+    #[test]
+    fn with_hosts_starts_with_empty_tabs() {
+        let state = AppState::with_hosts(vec![]);
+        assert!(state.tabs.is_empty());
+        assert_eq!(state.selected_tab, None);
+    }
+
+    #[test]
+    fn close_tab_allows_empty_tabs() {
+        use aish_types::TabId;
+        let mut state = AppState::with_hosts(vec![]);
+        // 手动 push 一个 tab 再关掉
+        let tab_id = TabId::new();
+        state.tabs.push(Tab {
+            id: tab_id,
+            content: TabContent::Default,
+            title: "test".into(),
+        });
+        state.selected_tab = Some(tab_id);
+        state.close_tab(tab_id);
+        assert!(
+            state.tabs.is_empty(),
+            "tabs should be empty after closing last tab"
+        );
+    }
+
+    #[test]
+    fn humanize_opened_at_just_now() {
+        use std::time::SystemTime;
+        let conn = Connection {
+            id: ConnectionId::new(),
+            host_id: aish_types::HostId::new(),
+            label: "test".into(),
+            opened_at: SystemTime::now(),
+        };
+        assert_eq!(conn.humanize_opened_at(), "just now");
+    }
+
+    #[test]
+    fn humanize_opened_at_minutes() {
+        use std::time::{Duration, SystemTime};
+        let conn = Connection {
+            id: ConnectionId::new(),
+            host_id: aish_types::HostId::new(),
+            label: "test".into(),
+            opened_at: SystemTime::now() - Duration::from_secs(125),
+        };
+        assert_eq!(conn.humanize_opened_at(), "2m ago");
+    }
+
+    #[test]
+    fn humanize_last_connected_just_now() {
+        let t = SystemTime::now();
+        assert_eq!(humanize_last_connected(t), "just now");
+    }
+
+    #[test]
+    fn humanize_last_connected_hours() {
+        let t = SystemTime::now() - std::time::Duration::from_secs(7200);
+        assert_eq!(humanize_last_connected(t), "2h ago");
+    }
+
+    #[test]
+    fn last_connected_field_accessible() {
+        let state = AppState::with_hosts(vec![]);
+        assert!(state.last_connected.is_empty());
+    }
+
+    #[test]
+    fn upload_image_command_constructible() {
+        let cmd = SessionCommand::UploadImage {
+            data: vec![0u8, 1, 2, 3],
+        };
+        match cmd {
+            SessionCommand::UploadImage { data } => assert_eq!(data.len(), 4),
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn image_uploaded_event_carries_path() {
+        use aish_types::ConnectionId;
+        let conn = ConnectionId::new();
+        let event = SshEvent::ImageUploaded {
+            conn,
+            path: "/tmp/aish-clip-123.png".into(),
+        };
+        match event {
+            SshEvent::ImageUploaded { conn: c, path } => {
+                assert_eq!(c, conn);
+                assert_eq!(path, "/tmp/aish-clip-123.png");
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn image_upload_failed_event_carries_msg() {
+        use aish_types::ConnectionId;
+        let conn = ConnectionId::new();
+        let event = SshEvent::ImageUploadFailed {
+            conn,
+            msg: "permission denied".into(),
+        };
+        match event {
+            SshEvent::ImageUploadFailed { conn: c, msg } => {
+                assert_eq!(c, conn);
+                assert!(msg.contains("permission"));
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn upload_batch_command_carries_images_and_text() {
+        let cmd = SessionCommand::UploadBatch {
+            images: vec![
+                (vec![0u8, 1, 2], "png".into()),
+                (vec![3u8, 4], "jpg".into()),
+            ],
+            text: "describe this".into(),
+        };
+        match cmd {
+            SessionCommand::UploadBatch { images, text } => {
+                assert_eq!(images.len(), 2);
+                assert_eq!(images[0].1, "png");
+                assert_eq!(text, "describe this");
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn batch_uploaded_event_carries_paths_and_text() {
+        use aish_types::ConnectionId;
+        let conn = ConnectionId::new();
+        let event = SshEvent::BatchUploaded {
+            conn,
+            paths: vec!["/tmp/a.png".into(), "/tmp/b.jpg".into()],
+            text: "hello".into(),
+        };
+        match event {
+            SshEvent::BatchUploaded { paths, text, .. } => {
+                assert_eq!(paths.len(), 2);
+                assert_eq!(text, "hello");
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn batch_upload_failed_event_carries_ok_paths_and_msg() {
+        use aish_types::ConnectionId;
+        let conn = ConnectionId::new();
+        let event = SshEvent::BatchUploadFailed {
+            conn,
+            paths_ok: vec!["/tmp/a.png".into()],
+            fail_msg: "permission denied".into(),
+            text: String::new(),
+        };
+        match event {
+            SshEvent::BatchUploadFailed {
+                paths_ok, fail_msg, ..
+            } => {
+                assert_eq!(paths_ok.len(), 1);
+                assert!(fail_msg.contains("permission"));
+            }
+            _ => panic!("wrong variant"),
+        }
     }
 }

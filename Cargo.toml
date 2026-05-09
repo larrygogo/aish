@@ -31,6 +31,7 @@ serde_json = "1.0"
 uuid = { version = "1.10", features = ["v4", "serde"] }
 dirs = "5.0"
 tempfile = "3.10"
+toml = "0.8"
 
 # 本地 crate
 aish-types = { path = "crates/aish-types" }
@@ -43,6 +44,9 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "11f0ca58
 russh = "0.46"
 russh-keys = "0.46"
 alacritty_terminal = "0.26"
+russh-sftp = "2.1"
+arboard = "3.4"
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [profile.release]
 opt-level = 3

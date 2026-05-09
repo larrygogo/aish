@@ -12,4 +12,5 @@ pub mod colors;
 pub mod cursor;
 pub mod font;
 pub mod grid_renderer;
+pub mod image;
 pub mod selection;
