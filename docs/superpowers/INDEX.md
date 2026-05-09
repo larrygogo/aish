@@ -10,13 +10,33 @@
 
 ## 当前状态
 
-- **活跃分支**：`main`（M9 Agent 输入栏已完成）
+- **活跃分支**：`main`（M10 App 图标已完成）
 - **下一里程碑**：M6 Activity 实时活动条 或 backlog 条目
 - **质量门禁基线**：fmt + clippy 0 warning + test 106 全过
 
 ---
 
 ## Milestones（按时间倒序）
+
+### M10 — App 图标（跨平台 SVG→PNG/ICO/ICNS + Build 集成）（2026-05-09）— ✅ 已完成
+- spec：[`specs/2026-05-09-aish-m10-icon-design.md`](specs/2026-05-09-aish-m10-icon-design.md)
+- plan：[`plans/2026-05-09-aish-m10-icon.md`](plans/2026-05-09-aish-m10-icon.md)
+- 范围：SVG 单一真相源（终端像素风 `>_` 设计）→ 8 级 PNG 套装 + Windows ICO (6 尺寸) + macOS ICNS (7 尺寸)；Node.js 生成脚本 (@resvg/resvg-js + png-to-ico + @fiahfy/icns)；Windows build.rs 编译期集成；macOS Info.plist 配置；Linux .desktop 文件
+- 关键任务：
+  - T1：SVG 主设计源（已完成，assets/icons/aish.svg）
+  - T2：Bun 生成脚本（已完成，scripts/gen-icons.js）
+  - T3：运行脚本生成 PNG/ICO/ICNS（✅）
+  - T4：Windows build.rs 集成（✅）
+  - T5：macOS Info.plist（✅）
+  - T6：Linux desktop 文件（✅）
+  - T7：INDEX.md 更新（✅）
+- 产出文件：
+  - `assets/icons/aish-{16,32,48,64,128,256,512,1024}.png`
+  - `assets/aish.ico`
+  - `assets/aish.icns`
+  - `crates/aish-app/build.rs`
+  - `packaging/macos/Info.plist`
+  - `packaging/linux/aish.desktop`
 
 ### M9 — Agent 输入栏（图片多选 + 文字 + SFTP 批量上传）（2026-05-08）— ✅ 已完成
 - spec：[`specs/2026-05-08-aish-m9-input-bar-design.md`](specs/2026-05-08-aish-m9-input-bar-design.md)
