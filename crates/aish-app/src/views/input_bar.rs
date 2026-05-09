@@ -448,6 +448,7 @@ impl Render for InputBarView {
             .border_t_1()
             .border_color(rgb(0x2d2d3f))
             .bg(rgb(0x1a1b26))
+            .track_focus(&self.focus_handle)
             .children(images_row)
             .child(text_row)
     }
