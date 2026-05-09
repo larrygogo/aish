@@ -9,6 +9,8 @@ rust-version.workspace = true
 description = "aish 主应用（GPUI 在 M1 接入）"
 include = ["src/**/*", "assets/**/*", "Cargo.toml"]
 
+build = "build.rs"
+
 [[bin]]
 name = "aish"
 path = "src/main.rs"
@@ -38,3 +40,15 @@ image = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
+[package.metadata.bundle]
+name              = "aish"
+identifier        = "com.larrygogo.aish"
+version           = "0.1.0"
+copyright         = "Copyright © 2026 larry. MIT License."
+category          = "Developer Tool"
+short_description = "AI-powered SSH client"
+icon              = ["crates/aish-app/assets/logo.svg"]
