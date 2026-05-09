@@ -14,7 +14,6 @@ use crate::state::{
     humanize_last_connected, AppState, HostFormDraft, HostFormState, SidebarTab, SshEvent, Tab,
     TabContent,
 };
-use crate::theme;
 
 pub struct HomeView {
     state: Entity<AppState>,
@@ -138,22 +137,22 @@ impl HomeView {
 impl Render for HomeView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let app = self.state.read(cx);
+        let theme = aish_ui::theme(cx);
+        let colors = theme.colors;
+        let font_size = theme.font_size;
 
         // ───── Quick Actions 顶部栏 ─────
         let add_btn = div()
             .px_4()
             .py_2()
-            .text_size(theme::text_sm())
-            .text_color(rgb(theme::TEXT_PRIMARY))
-            .bg(rgb(theme::BG_ELEVATED))
+            .text_size(font_size.sm)
+            .text_color(colors.foreground)
+            .bg(colors.card)
             .border_1()
-            .border_color(rgb(theme::BORDER_SUBTLE))
+            .border_color(colors.border)
             .rounded_md()
             .cursor_pointer()
-            .hover(|s| {
-                s.bg(rgb(theme::BG_HOVER))
-                    .border_color(rgb(theme::BORDER_STRONG))
-            })
+            .hover(|s| s.bg(colors.accent).border_color(colors.ring))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _ev: &MouseDownEvent, _w, cx| this.handle_add_click(cx)),
@@ -170,8 +169,8 @@ impl Render for HomeView {
             .justify_between()
             .child(
                 div()
-                    .text_color(rgb(theme::TEXT_PRIMARY))
-                    .text_size(theme::text_xl())
+                    .text_color(colors.foreground)
+                    .text_size(font_size.xl)
                     .child("Home"),
             )
             .child(add_btn);
@@ -196,9 +195,9 @@ impl Render for HomeView {
                 .map(|(conn_id, label, time_str, is_active)| {
                     // 左侧状态圆点
                     let dot_color = if is_active {
-                        rgb(theme::ACCENT_GREEN)
+                        colors.success
                     } else {
-                        rgb(theme::TEXT_MUTED)
+                        colors.muted_foreground
                     };
                     let dot = div()
                         .w(px(8.0))
@@ -216,14 +215,14 @@ impl Render for HomeView {
                         .gap_2()
                         .child(
                             div()
-                                .text_color(rgb(theme::TEXT_PRIMARY))
-                                .text_size(theme::text_sm())
+                                .text_color(colors.foreground)
+                                .text_size(font_size.sm)
                                 .child(label),
                         )
                         .child(
                             div()
-                                .text_color(rgb(theme::TEXT_MUTED))
-                                .text_size(theme::text_xs())
+                                .text_color(colors.muted_foreground)
+                                .text_size(font_size.xs)
                                 .child(format!("· {}", time_str)),
                         );
 
@@ -231,12 +230,12 @@ impl Render for HomeView {
                     let open_btn = div()
                         .px_3()
                         .py_1()
-                        .text_size(theme::text_xs())
-                        .text_color(rgb(theme::ACCENT_BLUE))
-                        .bg(rgb(theme::CHIP_BLUE_BG))
+                        .text_size(font_size.xs)
+                        .text_color(colors.primary)
+                        .bg(colors.secondary)
                         .rounded_md()
                         .cursor_pointer()
-                        .hover(|s| s.bg(rgb(theme::BG_SELECTED)))
+                        .hover(|s| s.bg(colors.accent))
                         .on_mouse_down(
                             MouseButton::Left,
                             cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
@@ -256,7 +255,7 @@ impl Render for HomeView {
                         .gap_3()
                         .rounded_lg()
                         .cursor_pointer()
-                        .hover(|s| s.bg(rgb(theme::BG_ELEVATED)))
+                        .hover(|s| s.bg(colors.card))
                         .on_mouse_down(
                             MouseButton::Left,
                             cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
@@ -279,8 +278,8 @@ impl Render for HomeView {
                     .child(
                         div()
                             .pb_2()
-                            .text_color(rgb(theme::TEXT_MUTED))
-                            .text_size(theme::text_xs())
+                            .text_color(colors.muted_foreground)
+                            .text_size(font_size.xs)
                             .child("ACTIVE SESSIONS"),
                     )
                     .children(rows)
@@ -311,7 +310,7 @@ impl Render for HomeView {
                     .unwrap_or('?')
                     .to_uppercase()
                     .to_string();
-                let avatar_bg = theme::avatar_color_for(&label);
+                let avatar_bg = crate::avatar::avatar_color_for(&label);
                 let avatar = div()
                     .w(px(40.0))
                     .h(px(40.0))
@@ -320,17 +319,17 @@ impl Render for HomeView {
                     .justify_center()
                     .bg(rgb(avatar_bg))
                     .rounded_xl()
-                    .text_color(rgb(0xffffff))
-                    .text_size(theme::text_lg())
+                    .text_color(colors.primary_foreground)
+                    .text_size(font_size.lg)
                     .child(initial);
 
                 // ───── SSH chip ─────
                 let chip = div()
                     .px_2p5()
                     .py_0p5()
-                    .text_size(theme::text_xs())
-                    .text_color(rgb(theme::ACCENT_BLUE))
-                    .bg(rgb(theme::CHIP_BLUE_BG))
+                    .text_size(font_size.xs)
+                    .text_color(colors.primary)
+                    .bg(colors.secondary)
                     .rounded_full()
                     .child("SSH");
 
@@ -344,11 +343,11 @@ impl Render for HomeView {
                             .gap_1()
                             .px_2p5()
                             .py_0p5()
-                            .text_size(theme::text_xs())
-                            .text_color(rgb(theme::ACCENT_GREEN))
-                            .bg(rgb(theme::CHIP_GREEN_BG))
+                            .text_size(font_size.xs)
+                            .text_color(colors.success)
+                            .bg(colors.muted)
                             .rounded_full()
-                            .child(div().text_color(rgb(theme::ACCENT_GREEN)).child("●"))
+                            .child(div().text_color(colors.success).child("●"))
                             .child(format!("{} 活跃", active_count))
                             .into_any_element(),
                     )
@@ -361,12 +360,9 @@ impl Render for HomeView {
                     .px_2()
                     .py_1()
                     .rounded_md()
-                    .text_color(rgb(theme::TEXT_SECONDARY))
+                    .text_color(colors.secondary_foreground)
                     .cursor_pointer()
-                    .hover(|s| {
-                        s.text_color(rgb(theme::TEXT_PRIMARY))
-                            .bg(rgb(theme::BG_SELECTED))
-                    })
+                    .hover(|s| s.text_color(colors.foreground).bg(colors.accent))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
@@ -380,12 +376,9 @@ impl Render for HomeView {
                     .px_2()
                     .py_1()
                     .rounded_md()
-                    .text_color(rgb(theme::TEXT_SECONDARY))
+                    .text_color(colors.secondary_foreground)
                     .cursor_pointer()
-                    .hover(|s| {
-                        s.text_color(rgb(theme::ACCENT_RED))
-                            .bg(rgb(theme::BG_SELECTED))
-                    })
+                    .hover(|s| s.text_color(colors.destructive).bg(colors.accent))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
@@ -406,8 +399,8 @@ impl Render for HomeView {
 
                 // ───── 右侧 chevron ─────
                 let chevron = div()
-                    .text_color(rgb(theme::TEXT_MUTED))
-                    .text_size(theme::text_lg())
+                    .text_color(colors.muted_foreground)
+                    .text_size(font_size.lg)
                     .child("›");
 
                 // ───── 整个卡片 ─────
@@ -415,10 +408,10 @@ impl Render for HomeView {
                     .group("host_card")
                     .px_4()
                     .py_3p5()
-                    .bg(rgb(theme::BG_ELEVATED))
+                    .bg(colors.card)
                     .rounded_2xl()
                     .cursor_pointer()
-                    .hover(|s| s.bg(rgb(theme::BG_HOVER)))
+                    .hover(|s| s.bg(colors.accent))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
@@ -444,8 +437,8 @@ impl Render for HomeView {
                                     .items_center()
                                     .child(
                                         div()
-                                            .text_color(rgb(theme::TEXT_PRIMARY))
-                                            .text_size(theme::text_lg())
+                                            .text_color(colors.foreground)
+                                            .text_size(font_size.lg)
                                             .child(label),
                                     )
                                     .child(chip)
@@ -453,13 +446,13 @@ impl Render for HomeView {
                             )
                             .child(
                                 div()
-                                    .text_color(rgb(theme::TEXT_SECONDARY))
-                                    .text_size(theme::text_sm())
+                                    .text_color(colors.secondary_foreground)
+                                    .text_size(font_size.sm)
                                     .child(host_text),
                             )
                             .children(last_conn_str.map(|s| {
                                 div()
-                                    .text_color(rgb(theme::TEXT_MUTED))
+                                    .text_color(colors.muted_foreground)
                                     .text_size(px(11.0))
                                     .child(format!("上次连接 {}", s))
                             })),
@@ -474,8 +467,8 @@ impl Render for HomeView {
                 div()
                     .px_4()
                     .py_8()
-                    .text_color(rgb(theme::TEXT_MUTED))
-                    .text_size(theme::text_sm())
+                    .text_color(colors.muted_foreground)
+                    .text_size(font_size.sm)
                     .child("还没有保存的连接 — 点上方 + 添加 host 开始"),
             )
         } else {
@@ -484,13 +477,13 @@ impl Render for HomeView {
 
         let hosts_section_label = div()
             .pb_2()
-            .text_color(rgb(theme::TEXT_MUTED))
-            .text_size(theme::text_xs())
+            .text_color(colors.muted_foreground)
+            .text_size(font_size.xs)
             .child("HOSTS");
 
         div()
             .size_full()
-            .bg(rgb(theme::BG_BASE))
+            .bg(colors.background)
             .flex()
             .flex_col()
             .child(header)

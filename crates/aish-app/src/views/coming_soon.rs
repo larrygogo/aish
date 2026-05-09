@@ -1,9 +1,8 @@
 //! ComingSoonView：Inbox / Settings tab 占位页（M4a）。
 
-use gpui::{div, prelude::*, px, rgb, Context, Window};
+use gpui::{div, prelude::*, px, Context, Window};
 
 use crate::terminal::font::FONT_NAME;
-use crate::theme;
 
 #[derive(Clone, Copy)]
 pub enum ComingSoonKind {
@@ -22,7 +21,11 @@ impl ComingSoonView {
 }
 
 impl Render for ComingSoonView {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = aish_ui::theme(cx);
+        let colors = theme.colors;
+        let font_size = theme.font_size;
+
         let (icon, title, description) = match self.kind {
             ComingSoonKind::Inbox => (
                 "\u{f01c}",
@@ -38,7 +41,7 @@ impl Render for ComingSoonView {
 
         div()
             .size_full()
-            .bg(rgb(theme::BG_BASE))
+            .bg(colors.background)
             .flex()
             .flex_col()
             .items_center()
@@ -48,26 +51,26 @@ impl Render for ComingSoonView {
                 div()
                     .font_family(FONT_NAME)
                     .text_size(px(40.0))
-                    .text_color(rgb(theme::TEXT_MUTED))
+                    .text_color(colors.muted_foreground)
                     .child(icon),
             )
             .child(
                 div()
-                    .text_size(px(20.0))
-                    .text_color(rgb(theme::TEXT_PRIMARY))
+                    .text_size(font_size.xl)
+                    .text_color(colors.foreground)
                     .child(title),
             )
             .child(
                 div()
                     .max_w(px(360.0))
                     .text_size(px(14.0))
-                    .text_color(rgb(theme::TEXT_SECONDARY))
+                    .text_color(colors.secondary_foreground)
                     .child(description),
             )
             .child(
                 div()
-                    .text_size(px(11.0))
-                    .text_color(rgb(theme::TEXT_MUTED))
+                    .text_size(font_size.xs)
+                    .text_color(colors.muted_foreground)
                     .child("See roadmap-moshi-desktop.md for the full plan."),
             )
     }

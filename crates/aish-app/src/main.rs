@@ -2,13 +2,13 @@
 
 mod app;
 mod app_state_file;
+mod avatar;
 mod bridge;
 mod logo;
 mod persistence;
 mod ssh_actor;
 mod state;
 mod terminal;
-mod theme;
 mod views;
 
 use tracing_subscriber::{fmt, EnvFilter};

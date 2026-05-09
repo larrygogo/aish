@@ -11,16 +11,23 @@
 use std::sync::Arc;
 
 use gpui::{
-    div, hsla, prelude::*, px, rgb, App, Context, Entity, FocusHandle, Focusable, KeyDownEvent,
+    div, hsla, prelude::*, px, App, Context, Entity, FocusHandle, Focusable, KeyDownEvent,
     MouseButton, MouseDownEvent, SharedString, Window,
 };
 
 use aish_types::HostId;
+use aish_ui::theme::{ColorTokens, FontSize};
 
 use crate::bridge::Bridge;
 use crate::persistence;
 use crate::state::{AppState, HostFormDraft, HostFormState, SshEvent};
-use crate::theme;
+
+/// 本地 helper：把 colors + font_size 打包，减少 render helper 参数个数。
+#[derive(Clone, Copy)]
+struct Styles {
+    colors: ColorTokens,
+    font_size: FontSize,
+}
 
 /// 当前 focus 的 input 字段。auth_kind == KeyFile 走 KeyPath；== Password 走 Password。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -324,10 +331,20 @@ impl Render for HostFormModal {
             return div().into_any_element();
         };
 
+        let theme = aish_ui::theme(cx);
+        let styles = Styles {
+            colors: theme.colors,
+            font_size: theme.font_size,
+        };
+
         let body: gpui::AnyElement = match kind {
-            ("add", Some(draft), _) => self.render_form_body("添加 Host", draft, focus_field, cx),
-            ("edit", Some(draft), _) => self.render_form_body("编辑 Host", draft, focus_field, cx),
-            ("delete", _, Some(label)) => render_delete_body(label),
+            ("add", Some(draft), _) => {
+                self.render_form_body("添加 Host", draft, focus_field, styles, cx)
+            }
+            ("edit", Some(draft), _) => {
+                self.render_form_body("编辑 Host", draft, focus_field, styles, cx)
+            }
+            ("delete", _, Some(label)) => render_delete_body(label, styles),
             _ => return div().into_any_element(),
         };
 
@@ -375,17 +392,17 @@ impl Render for HostFormModal {
                         }),
                     )
                     .w(px(460.0))
-                    .bg(rgb(theme::BG_ELEVATED))
+                    .bg(styles.colors.card)
                     .rounded_xl()
                     .border_1()
-                    .border_color(rgb(theme::BORDER_SUBTLE))
+                    .border_color(styles.colors.border)
                     .px_6()
                     .py_5()
                     .flex()
                     .flex_col()
                     .gap_4()
                     .child(body)
-                    .child(self.render_buttons(primary_text, cx)),
+                    .child(self.render_buttons(primary_text, styles, cx)),
             )
             .into_any_element()
     }
@@ -397,10 +414,13 @@ impl HostFormModal {
         title: &str,
         draft: &HostFormDraft,
         focus_field: FocusField,
+        st: Styles,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
         use crate::state::AuthKind;
 
+        let colors = st.colors;
+        let font_size = st.font_size;
         let title_str = title.to_string();
         let auth_kind = draft.auth_kind;
         let kf_selected = auth_kind == AuthKind::KeyFile;
@@ -412,8 +432,8 @@ impl HostFormModal {
             .gap_3()
             .child(
                 div()
-                    .text_color(rgb(theme::TEXT_PRIMARY))
-                    .text_size(theme::text_xl())
+                    .text_color(colors.foreground)
+                    .text_size(font_size.xl)
                     .child(title_str),
             )
             .child(self.field_row(
@@ -421,6 +441,7 @@ impl HostFormModal {
                 &draft.label,
                 focus_field == FocusField::Label,
                 FocusField::Label,
+                st,
                 cx,
             ))
             .child(self.field_row(
@@ -428,6 +449,7 @@ impl HostFormModal {
                 &draft.host,
                 focus_field == FocusField::Host,
                 FocusField::Host,
+                st,
                 cx,
             ))
             .child(self.field_row(
@@ -435,6 +457,7 @@ impl HostFormModal {
                 &draft.port,
                 focus_field == FocusField::Port,
                 FocusField::Port,
+                st,
                 cx,
             ))
             .child(self.field_row(
@@ -442,6 +465,7 @@ impl HostFormModal {
                 &draft.user,
                 focus_field == FocusField::User,
                 FocusField::User,
+                st,
                 cx,
             ));
 
@@ -460,35 +484,35 @@ impl HostFormModal {
             div()
                 .flex()
                 .flex_row()
-                .bg(rgb(theme::BG_BASE))
+                .bg(colors.background)
                 .rounded_md()
                 .p_0p5()
                 .child(
                     div()
                         .flex_1()
                         .py_1p5()
-                        .text_color(rgb(if kf_selected {
-                            theme::TEXT_PRIMARY
+                        .text_color(if kf_selected {
+                            colors.foreground
                         } else {
-                            theme::TEXT_SECONDARY
-                        }))
-                        .bg(rgb(if kf_selected {
-                            theme::BG_SELECTED
+                            colors.secondary_foreground
+                        })
+                        .bg(if kf_selected {
+                            colors.accent
                         } else {
-                            theme::BG_BASE
-                        }))
-                        .text_size(theme::text_sm())
+                            colors.background
+                        })
+                        .text_size(font_size.sm)
                         .rounded_md()
                         .flex()
                         .items_center()
                         .justify_center()
                         .cursor_pointer()
-                        // 未选中段 hover 时显示 BG_HOVER；选中段已是 BG_SELECTED 不动 bg
+                        // 未选中段 hover 时显示 accent；选中段已是 accent 不动 bg
                         .hover(move |s| {
                             if kf_selected {
                                 s
                             } else {
-                                s.bg(rgb(theme::BG_HOVER))
+                                s.bg(colors.accent)
                             }
                         })
                         .on_mouse_down(
@@ -503,29 +527,23 @@ impl HostFormModal {
                     div()
                         .flex_1()
                         .py_1p5()
-                        .text_color(rgb(if pw_selected {
-                            theme::TEXT_PRIMARY
+                        .text_color(if pw_selected {
+                            colors.foreground
                         } else {
-                            theme::TEXT_SECONDARY
-                        }))
-                        .bg(rgb(if pw_selected {
-                            theme::BG_SELECTED
+                            colors.secondary_foreground
+                        })
+                        .bg(if pw_selected {
+                            colors.accent
                         } else {
-                            theme::BG_BASE
-                        }))
-                        .text_size(theme::text_sm())
+                            colors.background
+                        })
+                        .text_size(font_size.sm)
                         .rounded_md()
                         .flex()
                         .items_center()
                         .justify_center()
                         .cursor_pointer()
-                        .hover(move |s| {
-                            if pw_selected {
-                                s
-                            } else {
-                                s.bg(rgb(theme::BG_HOVER))
-                            }
-                        })
+                        .hover(move |s| if pw_selected { s } else { s.bg(colors.accent) })
                         .on_mouse_down(
                             MouseButton::Left,
                             cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
@@ -542,12 +560,14 @@ impl HostFormModal {
                 &draft.key_path,
                 focus_field == FocusField::KeyPath,
                 FocusField::KeyPath,
+                st,
                 cx,
             )),
             AuthKind::Password => col.child(self.password_field_row(
                 &draft.password,
                 draft.password_visible,
                 focus_field == FocusField::Password,
+                st,
                 cx,
             )),
         };
@@ -555,16 +575,16 @@ impl HostFormModal {
         if let Some(err) = &draft.error {
             col = col.child(
                 div()
-                    .text_color(rgb(theme::ACCENT_RED))
-                    .text_size(theme::text_sm())
+                    .text_color(colors.destructive)
+                    .text_size(font_size.sm)
                     .child(err.clone()),
             );
         }
 
         col.child(
             div()
-                .text_color(rgb(theme::TEXT_MUTED))
-                .text_size(theme::text_xs())
+                .text_color(colors.muted_foreground)
+                .text_size(font_size.xs)
                 .child("Tab 切换字段 · Ctrl+T 切 auth · Ctrl+E 切密码可见 · Enter 保存 · Esc 取消"),
         )
         .into_any_element()
@@ -576,8 +596,11 @@ impl HostFormModal {
         password: &str,
         visible: bool,
         focused: bool,
+        st: Styles,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
+        let colors = st.colors;
+        let font_size = st.font_size;
         let display: SharedString = if password.is_empty() {
             SharedString::from("(unchanged) 输入新密码所换")
         } else if visible {
@@ -585,15 +608,11 @@ impl HostFormModal {
         } else {
             SharedString::from("•".repeat(password.chars().count()))
         };
-        let border_color = if focused {
-            rgb(theme::ACCENT_BLUE)
-        } else {
-            rgb(theme::BORDER_SUBTLE)
-        };
+        let border_color = if focused { colors.ring } else { colors.border };
         let text_color = if password.is_empty() {
-            rgb(theme::TEXT_MUTED)
+            colors.muted_foreground
         } else {
-            rgb(theme::TEXT_PRIMARY)
+            colors.foreground
         };
         let eye = if visible { "👁" } else { "👁‍🗨" };
         div()
@@ -604,8 +623,8 @@ impl HostFormModal {
             .child(
                 div()
                     .w(px(80.0))
-                    .text_color(rgb(theme::TEXT_SECONDARY))
-                    .text_size(theme::text_sm())
+                    .text_color(colors.secondary_foreground)
+                    .text_size(font_size.sm)
                     .child("password"),
             )
             .child(
@@ -613,14 +632,14 @@ impl HostFormModal {
                     .flex_1()
                     .px_3()
                     .py_2()
-                    .bg(rgb(theme::BG_BASE))
+                    .bg(colors.background)
                     .border_1()
                     .border_color(border_color)
                     .rounded_md()
                     .text_color(text_color)
-                    .text_size(theme::text_sm())
+                    .text_size(font_size.sm)
                     .cursor_text()
-                    .hover(|s| s.bg(rgb(theme::BG_HOVER)))
+                    .hover(|s| s.bg(colors.accent))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
@@ -633,13 +652,10 @@ impl HostFormModal {
                 div()
                     .px_2()
                     .rounded_md()
-                    .text_color(rgb(theme::TEXT_SECONDARY))
-                    .text_size(theme::text_lg())
+                    .text_color(colors.secondary_foreground)
+                    .text_size(font_size.lg)
                     .cursor_pointer()
-                    .hover(|s| {
-                        s.text_color(rgb(theme::TEXT_PRIMARY))
-                            .bg(rgb(theme::BG_HOVER))
-                    })
+                    .hover(|s| s.text_color(colors.foreground).bg(colors.accent))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
@@ -657,18 +673,17 @@ impl HostFormModal {
         value: &str,
         focused: bool,
         target_field: FocusField,
+        st: Styles,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
+        let colors = st.colors;
+        let font_size = st.font_size;
         let display: SharedString = if value.is_empty() {
             SharedString::from("(空)")
         } else {
             SharedString::from(value.to_string())
         };
-        let border_color = if focused {
-            rgb(theme::ACCENT_BLUE)
-        } else {
-            rgb(theme::BORDER_SUBTLE)
-        };
+        let border_color = if focused { colors.ring } else { colors.border };
         div()
             .flex()
             .flex_row()
@@ -677,8 +692,8 @@ impl HostFormModal {
             .child(
                 div()
                     .w(px(80.0))
-                    .text_color(rgb(theme::TEXT_SECONDARY))
-                    .text_size(theme::text_sm())
+                    .text_color(colors.secondary_foreground)
+                    .text_size(font_size.sm)
                     .child(label.to_string()),
             )
             .child(
@@ -686,18 +701,18 @@ impl HostFormModal {
                     .flex_1()
                     .px_3()
                     .py_2()
-                    .bg(rgb(theme::BG_BASE))
+                    .bg(colors.background)
                     .border_1()
                     .border_color(border_color)
                     .rounded_md()
                     .text_color(if value.is_empty() {
-                        rgb(theme::TEXT_MUTED)
+                        colors.muted_foreground
                     } else {
-                        rgb(theme::TEXT_PRIMARY)
+                        colors.foreground
                     })
-                    .text_size(theme::text_sm())
+                    .text_size(font_size.sm)
                     .cursor_text()
-                    .hover(|s| s.bg(rgb(theme::BG_HOVER)))
+                    .hover(|s| s.bg(colors.accent))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
@@ -709,7 +724,14 @@ impl HostFormModal {
             .into_any_element()
     }
 
-    fn render_buttons(&self, primary_text: &str, cx: &mut Context<Self>) -> gpui::AnyElement {
+    fn render_buttons(
+        &self,
+        primary_text: &str,
+        st: Styles,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        let colors = st.colors;
+        let font_size = st.font_size;
         div()
             .flex()
             .flex_row()
@@ -719,17 +741,14 @@ impl HostFormModal {
                 div()
                     .px_4()
                     .py_2()
-                    .bg(rgb(theme::BG_BASE))
+                    .bg(colors.background)
                     .border_1()
-                    .border_color(rgb(theme::BORDER_SUBTLE))
-                    .text_color(rgb(theme::TEXT_SECONDARY))
-                    .text_size(theme::text_sm())
+                    .border_color(colors.border)
+                    .text_color(colors.secondary_foreground)
+                    .text_size(font_size.sm)
                     .rounded_md()
                     .cursor_pointer()
-                    .hover(|s| {
-                        s.bg(rgb(theme::BG_HOVER))
-                            .text_color(rgb(theme::TEXT_PRIMARY))
-                    })
+                    .hover(|s| s.bg(colors.accent).text_color(colors.foreground))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|this, _ev: &MouseDownEvent, _w, cx| this.cancel(cx)),
@@ -740,12 +759,12 @@ impl HostFormModal {
                 div()
                     .px_4()
                     .py_2()
-                    .bg(rgb(theme::ACCENT_BLUE))
-                    .text_color(rgb(0xffffff))
-                    .text_size(theme::text_sm())
+                    .bg(colors.primary)
+                    .text_color(colors.primary_foreground)
+                    .text_size(font_size.sm)
                     .rounded_md()
                     .cursor_pointer()
-                    .hover(|s| s.bg(rgb(theme::ACCENT_BLUE_HOVER)))
+                    .hover(|s| s.bg(colors.accent))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|this, _ev: &MouseDownEvent, _w, cx| this.save(cx)),
@@ -756,7 +775,9 @@ impl HostFormModal {
     }
 }
 
-fn render_delete_body(label: &str) -> gpui::AnyElement {
+fn render_delete_body(label: &str, st: Styles) -> gpui::AnyElement {
+    let colors = st.colors;
+    let font_size = st.font_size;
     let label_str = format!("将永久删除 host：{}", label);
     div()
         .flex()
@@ -764,20 +785,20 @@ fn render_delete_body(label: &str) -> gpui::AnyElement {
         .gap_3()
         .child(
             div()
-                .text_color(rgb(theme::ACCENT_RED))
-                .text_size(theme::text_xl())
+                .text_color(colors.destructive)
+                .text_size(font_size.xl)
                 .child("确认删除？"),
         )
         .child(
             div()
-                .text_color(rgb(theme::TEXT_PRIMARY))
-                .text_size(theme::text_sm())
+                .text_color(colors.foreground)
+                .text_size(font_size.sm)
                 .child(label_str),
         )
         .child(
             div()
-                .text_color(rgb(theme::TEXT_MUTED))
-                .text_size(theme::text_xs())
+                .text_color(colors.muted_foreground)
+                .text_size(font_size.xs)
                 .child("Enter 确认删除 · Esc 取消"),
         )
         .into_any_element()

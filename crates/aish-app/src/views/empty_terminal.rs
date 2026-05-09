@@ -1,9 +1,8 @@
 //! EmptyTerminalGuideView：sidebar=Terminal 且无任何会话时的引导页（M4a）。
 
-use gpui::{div, prelude::*, px, rgb, Context, Entity, MouseButton, MouseDownEvent, Window};
+use gpui::{div, prelude::*, px, Context, Entity, MouseButton, MouseDownEvent, Window};
 
 use crate::state::{AppState, SidebarTab};
-use crate::theme;
 
 pub struct EmptyTerminalGuideView {
     state: Entity<AppState>,
@@ -18,15 +17,19 @@ impl EmptyTerminalGuideView {
 
 impl Render for EmptyTerminalGuideView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = aish_ui::theme(cx);
+        let colors = theme.colors;
+        let font_size = theme.font_size;
+
         let go_home_btn = div()
             .px_6()
             .py_2()
             .text_size(px(14.0))
-            .text_color(rgb(0xffffff))
-            .bg(rgb(theme::ACCENT_BLUE))
+            .text_color(colors.primary_foreground)
+            .bg(colors.primary)
             .rounded_md()
             .cursor_pointer()
-            .hover(|s| s.bg(rgb(theme::ACCENT_BLUE_HOVER)))
+            .hover(|s| s.bg(colors.accent))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
@@ -40,7 +43,7 @@ impl Render for EmptyTerminalGuideView {
 
         div()
             .size_full()
-            .bg(rgb(theme::BG_BASE))
+            .bg(colors.background)
             .flex()
             .flex_col()
             .items_center()
@@ -49,19 +52,19 @@ impl Render for EmptyTerminalGuideView {
             .child(
                 div()
                     .text_size(px(40.0))
-                    .text_color(rgb(theme::TEXT_MUTED))
+                    .text_color(colors.muted_foreground)
                     .child(">_"),
             )
             .child(
                 div()
-                    .text_size(px(20.0))
-                    .text_color(rgb(theme::TEXT_PRIMARY))
+                    .text_size(font_size.xl)
+                    .text_color(colors.foreground)
                     .child("No active sessions yet"),
             )
             .child(
                 div()
                     .text_size(px(14.0))
-                    .text_color(rgb(theme::TEXT_SECONDARY))
+                    .text_color(colors.secondary_foreground)
                     .child("Pick a host from Home to get started."),
             )
             .child(go_home_btn)
