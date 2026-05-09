@@ -56,4 +56,4 @@ version           = "0.1.0"
 copyright         = "Copyright © 2026 larry. MIT License."
 category          = "Developer Tool"
 short_description = "AI-powered SSH client"
-icon              = ["crates/aish-app/assets/logo.svg"]
+icon              = ["assets/icons/aish.svg"]

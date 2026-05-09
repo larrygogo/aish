@@ -1,6 +1,6 @@
 //! aish-app 构建脚本。
 //!
-//! 将 `assets/logo.svg`（纯几何无文字）渲染为各尺寸 PNG，
+//! 将 `assets/icons/aish.svg`（像素风终端 `>_` 图标）渲染为各尺寸 PNG，
 //! 再组装为 macOS ICNS 和 Windows ICO，全部写入 `$OUT_DIR/icons/`。
 //!
 //! 同时在 Windows 平台嵌入 ICO 到 EXE 资源。
@@ -9,7 +9,13 @@ use std::path::PathBuf;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")?;
-    let svg_path = PathBuf::from(&manifest_dir).join("assets/logo.svg");
+    // 单一 SVG 真相来源：repo 根 assets/icons/aish.svg
+    let svg_path = PathBuf::from(&manifest_dir)
+        .join("..")
+        .join("..")
+        .join("assets")
+        .join("icons")
+        .join("aish.svg");
 
     println!("cargo:rerun-if-changed={}", svg_path.display());
 
@@ -18,16 +24,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(&icons_dir)?;
 
     // ── 1. 解析 SVG ──────────────────────────────────────────────
-    // ★ 修正①：from_str 只接受 2 个参数（0.44+ API）
-    //   fontdb 已内嵌于 Options，SVG 无 <text> 时默认空库足够
     let svg_data = std::fs::read_to_string(&svg_path)?;
     let opt = resvg::usvg::Options::default();
     let tree = resvg::usvg::Tree::from_str(&svg_data, &opt)?;
 
     // ── 2. 渲染各尺寸 PNG ─────────────────────────────────────────
-    let sizes: &[u32] = &[16, 32, 64, 128, 256, 512, 1024];
+    // 包含 48px（Windows ICO 标准尺寸）
+    let sizes: &[u32] = &[16, 32, 48, 64, 128, 256, 512, 1024];
     for &size in sizes {
-        render_png(&tree, size, &icons_dir.join(format!("logo_{size}.png")))?;
+        render_png(&tree, size, &icons_dir.join(format!("aish-{size}.png")))?;
     }
 
     // ── 3. 生成 macOS ICNS ────────────────────────────────────────
@@ -74,10 +79,7 @@ fn render_png(
 
     pixmap.save_png(out)?;
 
-    // 用 std::fs::metadata 验证，不使用 image crate
-    // 16×16 PNG 可能只有 ~300B，阈值按尺寸分级
     let file_len = std::fs::metadata(out)?.len();
-    // 注：小尺寸 PNG（如 16×16）约 300B，仅验证文件有效存在
     assert!(file_len > 0, "渲染产物文件为空或无效：{}", out.display());
 
     Ok(())
@@ -86,7 +88,6 @@ fn render_png(
 fn build_icns(icons_dir: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
     let mut family = icns::IconFamily::new();
 
-    // ★ 修正②：全部使用 RGBA32，保留圆角透明区域
     let icns_sizes: &[(u32, icns::IconType)] = &[
         (16, icns::IconType::RGBA32_16x16),
         (32, icns::IconType::RGBA32_32x32),
@@ -98,7 +99,7 @@ fn build_icns(icons_dir: &std::path::Path) -> Result<(), Box<dyn std::error::Err
     ];
 
     for &(size, icon_type) in icns_sizes {
-        let png_path = icons_dir.join(format!("logo_{size}.png"));
+        let png_path = icons_dir.join(format!("aish-{size}.png"));
         if png_path.exists() {
             let png_data = std::fs::read(&png_path)?;
             let image = icns::Image::read_png(std::io::Cursor::new(png_data))?;
@@ -115,7 +116,7 @@ fn build_ico(icons_dir: &std::path::Path) -> Result<(), Box<dyn std::error::Erro
     let mut icon_dir = ico::IconDir::new(ico::ResourceType::Icon);
 
     for &size in &[16u32, 32, 48, 64, 128, 256] {
-        let png_path = icons_dir.join(format!("logo_{size}.png"));
+        let png_path = icons_dir.join(format!("aish-{size}.png"));
         if png_path.exists() {
             let file = std::fs::File::open(&png_path)?;
             let image = ico::IconImage::read_png(file)?;
