@@ -1,9 +1,11 @@
 //! TextInput — 单行文本输入框。
 //!
 //! 含 cursor blink（T10）、selection（T11）、复制粘贴（T12）。
-//! 本 task（T9）只负责：struct + 键盘 + IME + render。
+//! T9：struct + 键盘 + IME + render。
+//! T10：cursor blink（600ms 周期，任意操作 reset 相位）。
 
 use std::rc::Rc;
+use std::time::Instant;
 
 use gpui::{
     canvas, div, prelude::*, px, App, Bounds, Context, FocusHandle, Focusable, InputHandler,
@@ -15,6 +17,8 @@ use crate::theme::theme;
 type SubmitHandler = Rc<dyn Fn(&str, &mut Window, &mut App) + 'static>;
 type ChangeHandler = Rc<dyn Fn(&str, &mut Window, &mut App) + 'static>;
 
+const BLINK_PERIOD_MS: u64 = 600;
+
 pub struct TextInput {
     focus_handle: FocusHandle,
     text: String,
@@ -22,18 +26,22 @@ pub struct TextInput {
     placeholder: SharedString,
     on_submit: Option<SubmitHandler>,
     on_change: Option<ChangeHandler>,
+    blink_epoch: Instant,
 }
 
 impl TextInput {
     pub fn new(cx: &mut Context<Self>) -> Self {
-        Self {
+        let this = Self {
             focus_handle: cx.focus_handle(),
             text: String::new(),
             cursor: 0,
             placeholder: SharedString::default(),
             on_submit: None,
             on_change: None,
-        }
+            blink_epoch: Instant::now(),
+        };
+        this.start_blink_timer(cx);
+        this
     }
 
     pub fn placeholder(&mut self, p: impl Into<SharedString>) -> &mut Self {
@@ -58,17 +66,45 @@ impl TextInput {
     pub fn set_text(&mut self, t: impl Into<String>, cx: &mut Context<Self>) {
         self.text = t.into();
         self.cursor = self.text.len();
+        self.reset_blink();
         cx.notify();
     }
 
     pub fn clear(&mut self, cx: &mut Context<Self>) {
         self.text.clear();
         self.cursor = 0;
+        self.reset_blink();
         cx.notify();
     }
 
     pub fn focus(&self, window: &mut Window, cx: &mut App) {
         self.focus_handle.focus(window, cx);
+    }
+
+    // -------- blink helpers --------
+
+    /// 重置 blink 相位（按键 / 鼠标后让 cursor 立即可见）。
+    fn reset_blink(&mut self) {
+        self.blink_epoch = Instant::now();
+    }
+
+    /// 根据相位判断 cursor 是否应该可见（render 用）。
+    fn cursor_visible_now(&self) -> bool {
+        let phase = self.blink_epoch.elapsed().as_millis() as u64 % BLINK_PERIOD_MS;
+        phase < BLINK_PERIOD_MS / 2
+    }
+
+    /// 启动定时器：每 100ms 触发 cx.notify()，让 render 重跑（重新计算 phase）。
+    fn start_blink_timer(&self, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| loop {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(100))
+                .await;
+            if this.update(cx, |_this, cx| cx.notify()).is_err() {
+                break;
+            }
+        })
+        .detach();
     }
 
     // -------- 状态机 --------
@@ -80,6 +116,7 @@ impl TextInput {
                 .last()
                 .map(|(i, _)| i)
                 .unwrap_or(0);
+            self.reset_blink();
         }
     }
 
@@ -90,6 +127,7 @@ impl TextInput {
                 .nth(1)
                 .map(|(i, _)| self.cursor + i)
                 .unwrap_or(self.text.len());
+            self.reset_blink();
         }
     }
 
@@ -102,18 +140,21 @@ impl TextInput {
                 .unwrap_or(0);
             self.text.remove(prev);
             self.cursor = prev;
+            self.reset_blink();
         }
     }
 
     pub(crate) fn delete_forward(&mut self) {
         if self.cursor < self.text.len() {
             self.text.remove(self.cursor);
+            self.reset_blink();
         }
     }
 
     pub(crate) fn insert_str(&mut self, s: &str) {
         self.text.insert_str(self.cursor, s);
         self.cursor += s.len();
+        self.reset_blink();
     }
 
     fn fire_change(&self, window: &mut Window, cx: &mut App) {
@@ -150,10 +191,12 @@ impl TextInput {
             }
             "home" => {
                 self.cursor = 0;
+                self.reset_blink();
                 cx.notify();
             }
             "end" => {
                 self.cursor = self.text.len();
+                self.reset_blink();
                 cx.notify();
             }
             "enter" if !event.keystroke.modifiers.shift => {
@@ -269,6 +312,7 @@ impl Render for TextInput {
         let focus_for_ime = self.focus_handle.clone();
         let weak_view = cx.weak_entity();
         let focused = self.focus_handle.is_focused(window);
+        let show_cursor = focused && self.cursor_visible_now();
 
         let t = theme(cx);
         let border_color = if focused {
@@ -316,7 +360,20 @@ impl Render for TextInput {
                     .text_size(t.font_size.sm)
                     .text_color(t.colors.foreground)
                     .child(div().child(cursor_left))
-                    .child(div().w(px(1.0)).h(px(14.0)).bg(t.colors.ring).self_center())
+                    .child(if show_cursor {
+                        div()
+                            .w(px(1.0))
+                            .h(px(14.0))
+                            .bg(t.colors.ring)
+                            .self_center()
+                            .into_any_element()
+                    } else {
+                        div()
+                            .w(px(1.0))
+                            .h(px(14.0))
+                            .self_center()
+                            .into_any_element()
+                    })
                     .child(div().child(cursor_right))
                     .into_any_element()
             })
@@ -444,5 +501,26 @@ mod tests {
         // 应该删掉一个完整字符
         assert_eq!(t, "中");
         assert_eq!(c, 3);
+    }
+
+    #[test]
+    fn blink_phase_first_half_visible() {
+        use std::time::Duration;
+        let epoch = std::time::Instant::now() - Duration::from_millis(100);
+        let phase = epoch.elapsed().as_millis() as u64 % super::BLINK_PERIOD_MS;
+        assert!(phase < super::BLINK_PERIOD_MS / 2);
+    }
+
+    #[test]
+    fn blink_phase_second_half_invisible() {
+        use std::time::Duration;
+        let epoch = std::time::Instant::now() - Duration::from_millis(400);
+        let phase = epoch.elapsed().as_millis() as u64 % super::BLINK_PERIOD_MS;
+        assert!(phase >= super::BLINK_PERIOD_MS / 2);
+    }
+
+    #[test]
+    fn blink_period_constant() {
+        assert_eq!(super::BLINK_PERIOD_MS, 600);
     }
 }
