@@ -110,6 +110,7 @@ impl Render for ToastManager {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
         let toasts = self.toasts.clone();
+        let weak = cx.weak_entity();
         div()
             .absolute()
             .top(t.spacing.px_4)
@@ -117,11 +118,19 @@ impl Render for ToastManager {
             .flex()
             .flex_col()
             .gap(t.spacing.px_2)
-            .children(toasts.into_iter().map(|toast| render_toast(toast, cx)))
+            .children(
+                toasts
+                    .into_iter()
+                    .map(|toast| render_toast(toast, cx, weak.clone())),
+            )
     }
 }
 
-fn render_toast(toast: Toast, cx: &mut App) -> impl IntoElement {
+fn render_toast(
+    toast: Toast,
+    cx: &mut App,
+    weak_mgr: gpui::WeakEntity<ToastManager>,
+) -> impl IntoElement {
     let t = theme(cx);
     let (border_color, fg_color) = match toast.kind {
         ToastKind::Info => (t.colors.accent, t.colors.foreground),
@@ -129,6 +138,19 @@ fn render_toast(toast: Toast, cx: &mut App) -> impl IntoElement {
         ToastKind::Warning => (t.colors.warning, t.colors.foreground),
         ToastKind::Error => (t.colors.destructive, t.colors.foreground),
     };
+
+    let toast_id = toast.id;
+    // toast_id 是 u64，目标平台均为 64-bit，as usize 在此场景下永不截断
+    // （ToastManager::next_id 线性增长，单次会话产生量 << u32::MAX）
+    let close_btn =
+        crate::components::IconButton::new(("toast-close", toast_id as usize), IconName::X)
+            .small()
+            .ghost()
+            .on_click(move |_ev, _w, cx| {
+                if let Some(m) = weak_mgr.upgrade() {
+                    m.update(cx, |m, cx| m.dismiss(toast_id, cx));
+                }
+            });
 
     div()
         .min_w(gpui::px(240.0))
@@ -149,10 +171,12 @@ fn render_toast(toast: Toast, cx: &mut App) -> impl IntoElement {
         )
         .child(
             div()
+                .flex_1()
                 .text_size(t.font_size.sm)
                 .text_color(fg_color)
                 .child(toast.message),
         )
+        .child(close_btn)
 }
 
 #[derive(Clone)]
