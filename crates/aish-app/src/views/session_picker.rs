@@ -6,12 +6,18 @@
 //!
 //! 行为：
 //! - 列出所有 sessions，点击 → 发 AttachTmux + 关弹窗
-//! - "跳过"按钮 → 仅关弹窗（留在 raw shell）
+//! - dialog 标题栏 X / Esc / 点击遮罩 → 仅关弹窗（留在 raw shell）
+//!
+//! M12 重写：外壳换 `aish_ui::Dialog`；session 行保持手画（导航式列表
+//! ↑/↓+Enter 不需要 Select 的下拉语义）。
 
 use std::sync::Arc;
 
 use aish_types::ConnectionId;
-use gpui::{div, prelude::*, px, rgb, Context, Entity, MouseButton, MouseDownEvent, Window};
+use aish_ui::{theme, Dialog};
+use gpui::{
+    div, prelude::*, Context, Entity, IntoElement, MouseButton, MouseDownEvent, Window,
+};
 
 use crate::bridge::Bridge;
 use crate::state::{AppState, SessionCommand, SshEvent, TmuxState};
@@ -21,6 +27,10 @@ pub struct SessionPickerView {
     bridge: Arc<Bridge>,
     #[allow(dead_code)]
     tx: tokio::sync::mpsc::Sender<SshEvent>,
+    dialog: Entity<Dialog>,
+    /// 是否已为当前 pending_session_picker 打开过 dialog。状态 mirror
+    /// 防止每帧重复 open（dialog 自身有幂等性，但避免无意义 notify）。
+    is_open_for: Option<ConnectionId>,
 }
 
 impl SessionPickerView {
@@ -30,8 +40,48 @@ impl SessionPickerView {
         tx: tokio::sync::mpsc::Sender<SshEvent>,
         cx: &mut Context<Self>,
     ) -> Self {
-        cx.observe(&state, |_this, _state, cx| cx.notify()).detach();
-        Self { state, bridge, tx }
+        cx.observe(&state, |this, _state, cx| {
+            this.sync_from_state(cx);
+            cx.notify();
+        })
+        .detach();
+
+        let dialog = cx.new(Dialog::new);
+        let weak = cx.weak_entity();
+        dialog.update(cx, move |d, _cx| {
+            d.title("Tmux Sessions");
+            d.width(gpui::px(480.0));
+            d.on_close(move |_window, cx| {
+                if let Some(this) = weak.upgrade() {
+                    this.update(cx, |this, cx| this.handle_skip(cx));
+                }
+            });
+        });
+
+        Self {
+            state,
+            bridge,
+            tx,
+            dialog,
+            is_open_for: None,
+        }
+    }
+
+    fn sync_from_state(&mut self, cx: &mut Context<Self>) {
+        let current = self.state.read(cx).pending_session_picker;
+        match (self.is_open_for, current) {
+            (_, None) => {
+                if self.is_open_for.is_some() {
+                    self.is_open_for = None;
+                    self.dialog.update(cx, |d, cx| d.close(cx));
+                }
+            }
+            (prev, Some(next)) if prev != Some(next) => {
+                self.is_open_for = Some(next);
+                self.dialog.update(cx, |d, cx| d.open(cx));
+            }
+            _ => {}
+        }
     }
 
     fn handle_skip(&mut self, cx: &mut Context<Self>) {
@@ -47,7 +97,6 @@ impl SessionPickerView {
         session: aish_types::SessionId,
         cx: &mut Context<Self>,
     ) {
-        // 给 actor 发 AttachTmux
         let sender = self.state.read(cx).sessions.get(&conn).cloned();
         if let Some(sender) = sender {
             self.bridge.spawn(async move {
@@ -64,134 +113,73 @@ impl SessionPickerView {
 impl Render for SessionPickerView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let app = self.state.read(cx);
-        let conn = match app.pending_session_picker {
-            Some(c) => c,
-            None => return div().into_any_element(),
+        let Some(conn) = app.pending_session_picker else {
+            return self.dialog.clone().into_any_element();
         };
         let sessions = match app.tmux_state.get(&conn) {
             Some(TmuxState::Detected { sessions, .. }) => sessions.clone(),
             _ => Vec::new(),
         };
 
-        let header = div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .justify_between()
-            .px_5()
-            .py_4()
-            .border_b_1()
-            .border_color(rgb(0x2a2a2a))
-            .child(
-                div()
-                    .text_color(rgb(0xeeeeee))
-                    .text_size(px(16.0))
-                    .child("Tmux Sessions"),
-            )
-            .child(
-                div()
-                    .px_3()
-                    .py_1()
-                    .text_color(rgb(0xaaaaaa))
-                    .text_size(px(12.0))
-                    .bg(rgb(0x2a2a2a))
-                    .rounded_md()
-                    .cursor_pointer()
-                    .hover(|s| s.bg(rgb(0x3a3a3a)).text_color(rgb(0xffffff)))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|this, _ev: &MouseDownEvent, _w, cx| this.handle_skip(cx)),
-                    )
-                    .child("跳过 ▷|"),
-            );
+        let (colors, font_size, spacing) = {
+            let t = theme(cx);
+            (t.colors, t.font_size, t.spacing)
+        };
 
-        let session_rows: Vec<_> = sessions
+        let rows: Vec<_> = sessions
             .iter()
             .map(|s| {
                 let sid = s.id.clone();
                 let name = s.name.clone();
                 div()
-                    .px_5()
-                    .py_3()
+                    .px(spacing.px_3)
+                    .py(spacing.px_2)
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(spacing.px_3)
                     .border_b_1()
-                    .border_color(rgb(0x2a2a2a))
+                    .border_color(colors.border)
                     .cursor_pointer()
-                    .hover(|st| st.bg(rgb(0x252525)))
+                    .hover(move |st| st.bg(colors.accent))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
                             this.handle_pick(conn, sid.clone(), cx);
                         }),
                     )
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_3()
-                    .child(div().text_color(rgb(0x4ec9b0)).child("●"))
-                    .child(div().flex_1().text_color(rgb(0xeeeeee)).child(name))
+                    .child(div().text_color(colors.success).child("●"))
                     .child(
                         div()
-                            .text_color(rgb(0x666666))
-                            .text_size(px(11.0))
+                            .flex_1()
+                            .text_size(font_size.sm)
+                            .text_color(colors.foreground)
+                            .child(name),
+                    )
+                    .child(
+                        div()
+                            .text_size(font_size.xs)
+                            .text_color(colors.muted_foreground)
                             .child("Enter"),
                     )
             })
             .collect();
 
-        let empty = if sessions.is_empty() {
-            Some(
-                div()
-                    .px_5()
-                    .py_8()
-                    .text_color(rgb(0x666666))
-                    .text_size(px(13.0))
-                    .child("(无 session — 点跳过进 raw shell)"),
-            )
+        let body: gpui::AnyElement = if sessions.is_empty() {
+            div()
+                .py(spacing.px_4)
+                .text_size(font_size.sm)
+                .text_color(colors.muted_foreground)
+                .child("(无 session — 关闭弹窗回到 raw shell)")
+                .into_any_element()
         } else {
-            None
+            div().flex().flex_col().children(rows).into_any_element()
         };
 
-        // 半透明遮罩 + 居中卡片
-        div()
-            .absolute()
-            .top_0()
-            .left_0()
-            .size_full()
-            .bg(rgba(0x000000aa))
-            .flex()
-            .items_center()
-            .justify_center()
-            .on_mouse_down(
-                MouseButton::Left,
-                // 点遮罩 = 跳过
-                cx.listener(|this, _ev: &MouseDownEvent, _w, cx| this.handle_skip(cx)),
-            )
-            .child(
-                div()
-                    .w(px(480.0))
-                    .max_h(px(560.0))
-                    .bg(rgb(0x1a1a1a))
-                    .border_1()
-                    .border_color(rgb(0x333333))
-                    .rounded_lg()
-                    .flex()
-                    .flex_col()
-                    // 阻止点击内部区域穿透到遮罩 handle_skip。GPUI listener
-                    // 默认不阻止冒泡，必须显式调 stop_propagation。
-                    .on_mouse_down(MouseButton::Left, |_ev: &MouseDownEvent, _w, cx| {
-                        cx.stop_propagation();
-                    })
-                    .child(header)
-                    .child(div().flex_col().children(session_rows).children(empty)),
-            )
-            .into_any_element()
-    }
-}
+        self.dialog.update(cx, |d, _cx| {
+            d.body(body);
+        });
 
-fn rgba(value: u32) -> gpui::Rgba {
-    let r = ((value >> 24) & 0xff) as f32 / 255.0;
-    let g = ((value >> 16) & 0xff) as f32 / 255.0;
-    let b = ((value >> 8) & 0xff) as f32 / 255.0;
-    let a = (value & 0xff) as f32 / 255.0;
-    gpui::Rgba { r, g, b, a }
+        self.dialog.clone().into_any_element()
+    }
 }
