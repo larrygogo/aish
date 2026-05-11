@@ -404,10 +404,15 @@ impl Render for HomeView {
                 ));
 
                 // actions 浮层：absolute 贴 body row 右上角，hover 时显示
+                // 注意：GPUI/Taffy 的 absolute 子元素需要显式 width/height 才能
+                // 正确相对 .relative() 父定位。否则 inset 计算会 fallback。
+                // 2 个 small IconButton (24x24) + gap_1 (4px) = 52x24
                 let actions_overlay = div()
                     .absolute()
-                    .top_2()
-                    .right_2()
+                    .top(px(8.0))
+                    .right(px(8.0))
+                    .w(px(52.0))
+                    .h(px(24.0))
                     .opacity(0.0)
                     .group_hover(group_name, |s| s.opacity(1.0))
                     .flex()
