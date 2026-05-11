@@ -215,23 +215,18 @@ impl Render for HomeView {
                         );
 
                     // Open 按钮
-                    let open_btn = div()
-                        .px_3()
-                        .py_1()
-                        .text_size(font_size.xs)
-                        .text_color(colors.primary)
-                        .bg(colors.secondary)
-                        .rounded_md()
-                        .cursor_pointer()
-                        .hover(|s| s.bg(colors.accent))
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
-                                cx.stop_propagation();
-                                this.handle_open_session(conn_id, cx);
-                            }),
-                        )
-                        .child("Open ▶");
+                    let open_btn = aish_ui::Button::new(gpui::SharedString::from(format!(
+                        "active-session-open-{}",
+                        conn_id
+                    )))
+                    .label("Open ▶")
+                    .secondary()
+                    .on_click(cx.listener(
+                        move |this, _ev: &MouseDownEvent, _w, cx| {
+                            cx.stop_propagation();
+                            this.handle_open_session(conn_id, cx);
+                        },
+                    ));
 
                     // 整行可点击
                     div()
@@ -312,31 +307,13 @@ impl Render for HomeView {
                     .child(initial);
 
                 // ───── SSH chip ─────
-                let chip = div()
-                    .px_2p5()
-                    .py_0p5()
-                    .text_size(font_size.xs)
-                    .text_color(colors.primary)
-                    .bg(colors.secondary)
-                    .rounded_full()
-                    .child("SSH");
+                let chip = aish_ui::Badge::new("SSH").primary();
 
                 // ───── 活跃数 chip（仅当 active_count > 0） ─────
                 let active_chip: Option<gpui::AnyElement> = if active_count > 0 {
                     Some(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap_1()
-                            .px_2p5()
-                            .py_0p5()
-                            .text_size(font_size.xs)
-                            .text_color(colors.success)
-                            .bg(colors.muted)
-                            .rounded_full()
-                            .child(div().text_color(colors.success).child("●"))
-                            .child(format!("{} 活跃", active_count))
+                        aish_ui::Badge::new(format!("● {} 活跃", active_count))
+                            .success()
                             .into_any_element(),
                     )
                 } else {
@@ -360,21 +337,18 @@ impl Render for HomeView {
                     )
                     .child("✎");
 
-                let delete_btn = div()
-                    .px_2()
-                    .py_1()
-                    .rounded_md()
-                    .text_color(colors.secondary_foreground)
-                    .cursor_pointer()
-                    .hover(|s| s.text_color(colors.destructive).bg(colors.accent))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
-                            cx.stop_propagation();
-                            this.handle_delete_click(id, cx);
-                        }),
-                    )
-                    .child("×");
+                let delete_btn = aish_ui::IconButton::new(
+                    gpui::SharedString::from(format!("host-delete-{}", id)),
+                    aish_ui::IconName::X,
+                )
+                .small()
+                .destructive()
+                .on_click(cx.listener(
+                    move |this, _ev: &MouseDownEvent, _w, cx| {
+                        cx.stop_propagation();
+                        this.handle_delete_click(id, cx);
+                    },
+                ));
 
                 let actions = div()
                     .flex()

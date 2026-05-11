@@ -219,21 +219,19 @@ impl Render for TabBarView {
                 };
 
                 // 关闭按钮（始终可见）
-                let close_btn = div()
-                    .px_1p5()
-                    .text_color(colors.secondary_foreground)
-                    .cursor_pointer()
-                    .hover(|s| s.text_color(colors.destructive))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
-                            // 拦住事件不冒泡到外层 tab listener 触发 select_tab
-                            // （目前 select_tab 对已关闭 id 是 noop，但仍规范化）
-                            cx.stop_propagation();
-                            this.handle_close(id, cx);
-                        }),
-                    )
-                    .child("×");
+                let close_btn = aish_ui::IconButton::new(
+                    gpui::SharedString::from(format!("tab-close-{}", id)),
+                    aish_ui::IconName::X,
+                )
+                .small()
+                .ghost()
+                .on_click(cx.listener(
+                    move |this, _ev: &MouseDownEvent, _w, cx| {
+                        // 拦住事件不冒泡到外层 tab listener 触发 select_tab
+                        cx.stop_propagation();
+                        this.handle_close(id, cx);
+                    },
+                ));
 
                 // 连接 tab：活跃 = 绿点，已断 = 灰点；默认页 tab 不带前缀
                 let prefix: gpui::AnyElement = if is_connection {
@@ -279,15 +277,7 @@ impl Render for TabBarView {
                 // connection tab 在标题与关闭键之间显示蓝色 [SSH] 胶囊
                 // （从已删除的 ConnectionChip 横条迁移过来，保留连接类型可视化标识）
                 let ssh_chip: gpui::AnyElement = if is_connection {
-                    div()
-                        .px_2p5()
-                        .py_0p5()
-                        .text_size(font_size.xs)
-                        .text_color(colors.primary)
-                        .bg(colors.secondary)
-                        .rounded_full()
-                        .child("SSH")
-                        .into_any_element()
+                    aish_ui::Badge::new("SSH").primary().into_any_element()
                 } else {
                     div().into_any_element()
                 };
@@ -337,21 +327,10 @@ impl Render for TabBarView {
             .collect();
 
         // 末尾 + 按钮新建默认页
-        let plus_btn = div()
-            .px_4()
-            .h(px(40.0))
-            .flex()
-            .items_center()
-            .text_size(font_size.lg)
-            .text_color(colors.secondary_foreground)
-            .bg(colors.card)
-            .cursor_pointer()
-            .hover(|s| s.bg(colors.accent).text_color(colors.foreground))
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _ev: &MouseDownEvent, _w, cx| this.handle_new_tab(cx)),
-            )
-            .child("+");
+        let plus_btn = aish_ui::IconButton::new("tab-new", aish_ui::IconName::Plus)
+            .small()
+            .ghost()
+            .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| this.handle_new_tab(cx)));
 
         div()
             .track_focus(&self.focus_handle)

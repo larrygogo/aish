@@ -1,6 +1,6 @@
 //! EmptyTerminalGuideView：sidebar=Terminal 且无任何会话时的引导页（M4a）。
 
-use gpui::{div, prelude::*, px, Context, Entity, MouseButton, MouseDownEvent, Window};
+use gpui::{div, prelude::*, px, Context, Entity, MouseDownEvent, Window};
 
 use crate::state::{AppState, SidebarTab};
 
@@ -21,25 +21,15 @@ impl Render for EmptyTerminalGuideView {
         let colors = theme.colors;
         let font_size = theme.font_size;
 
-        let go_home_btn = div()
-            .px_6()
-            .py_2()
-            .text_size(px(14.0))
-            .text_color(colors.primary_foreground)
-            .bg(colors.primary)
-            .rounded_md()
-            .cursor_pointer()
-            .hover(|s| s.bg(colors.accent))
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
-                    this.state.update(cx, |s, cx| {
-                        s.sidebar = SidebarTab::Home;
-                        cx.notify();
-                    });
-                }),
-            )
-            .child("Go to Home");
+        let go_home_btn = aish_ui::Button::new("empty-terminal-go-home")
+            .label("Go to Home")
+            .primary()
+            .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
+                this.state.update(cx, |s, cx| {
+                    s.sidebar = SidebarTab::Home;
+                    cx.notify();
+                });
+            }));
 
         div()
             .size_full()
