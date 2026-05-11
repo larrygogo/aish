@@ -6,8 +6,7 @@ use std::rc::Rc;
 
 use gpui::{
     div, prelude::*, AnyElement, App, Context, FocusHandle, Focusable, IntoElement, KeyDownEvent,
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, ScrollWheelEvent,
-    SharedString, Window,
+    MouseButton, MouseDownEvent, Pixels, SharedString, Window,
 };
 
 use crate::components::IconButton;
@@ -128,6 +127,10 @@ impl Render for Dialog {
             .items_center()
             .justify_center()
             .bg(gpui::rgba(0x0000_0099))
+            // occlude 让 backdrop hitbox 阻塞所有底层 view 接收鼠标事件
+            // （等价于 z-order 上的"完全遮挡"），覆盖 hover/wheel/click/right-click 等
+            // 所有类型。GPUI 内置 API，比手工 stop_propagation 一堆 listener 干净。
+            .occlude()
             .track_focus(&self.focus_handle)
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
                 this.handle_key(ev, window, cx);
@@ -140,33 +143,6 @@ impl Render for Dialog {
                     this.fire_close(window, cx);
                 }),
             )
-            // Backdrop 必须完整吃掉所有鼠标事件，否则半透明遮罩允许 hover/wheel/right-click
-            // 等穿透到底层 view（点击关闭 + 滚轮滚 terminal 等）。
-            //
-            // GPUI 半透明 bg 不会自动 occlude——需要为每类事件注册 listener 并
-            // cx.stop_propagation()。Left mouse_down 上面已经处理（关闭 dialog），
-            // 这里补齐 Right / Middle / mouse_up / scroll / move。
-            .on_mouse_down(MouseButton::Right, |_ev: &MouseDownEvent, _w, cx| {
-                cx.stop_propagation();
-            })
-            .on_mouse_down(MouseButton::Middle, |_ev: &MouseDownEvent, _w, cx| {
-                cx.stop_propagation();
-            })
-            .on_mouse_up(MouseButton::Left, |_ev: &MouseUpEvent, _w, cx| {
-                cx.stop_propagation();
-            })
-            .on_mouse_up(MouseButton::Right, |_ev: &MouseUpEvent, _w, cx| {
-                cx.stop_propagation();
-            })
-            .on_mouse_up(MouseButton::Middle, |_ev: &MouseUpEvent, _w, cx| {
-                cx.stop_propagation();
-            })
-            .on_scroll_wheel(|_ev: &ScrollWheelEvent, _w, cx| {
-                cx.stop_propagation();
-            })
-            .on_mouse_move(|_ev: &MouseMoveEvent, _w, cx| {
-                cx.stop_propagation();
-            })
             .child(
                 div()
                     .w(width)
