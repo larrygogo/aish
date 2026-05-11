@@ -320,67 +320,20 @@ impl Render for HomeView {
                     None
                 };
 
-                // ───── 编辑 / 删除 hover 按钮 ─────
-                let edit_btn = aish_ui::IconButton::new(
-                    gpui::SharedString::from(format!("host-edit-{}", id)),
-                    aish_ui::IconName::Pencil,
-                )
-                .small()
-                .ghost()
-                .on_click(cx.listener(
-                    move |this, _ev: &MouseDownEvent, _w, cx| {
-                        cx.stop_propagation();
-                        this.handle_edit_click(id, cx);
-                    },
-                ));
-
-                let delete_btn = aish_ui::IconButton::new(
-                    gpui::SharedString::from(format!("host-delete-{}", id)),
-                    aish_ui::IconName::X,
-                )
-                .small()
-                .destructive()
-                .on_click(cx.listener(
-                    move |this, _ev: &MouseDownEvent, _w, cx| {
-                        cx.stop_propagation();
-                        this.handle_delete_click(id, cx);
-                    },
-                ));
-
-                let actions = div()
-                    .flex()
-                    .flex_row()
-                    .gap_1()
-                    .opacity(0.0)
-                    .group_hover("host_card", |s| s.opacity(1.0))
-                    .child(edit_btn)
-                    .child(delete_btn);
-
                 // ───── 右侧 chevron ─────
                 let chevron = div()
                     .text_color(colors.muted_foreground)
                     .text_size(font_size.lg)
                     .child("›");
 
-                // ───── 整个卡片 ─────
-                div()
-                    .group("host_card")
-                    .px_4()
-                    .py_3p5()
-                    .bg(colors.card)
-                    .rounded_2xl()
-                    .cursor_pointer()
-                    .hover(|s| s.bg(colors.accent))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
-                            this.handle_card_click(id, cx);
-                        }),
-                    )
+                // ───── 卡片主体 row ─────
+                let body_row = div()
                     .flex()
                     .flex_row()
                     .items_center()
                     .gap_3()
+                    .px_4()
+                    .py_3p5()
                     .child(avatar)
                     .child(
                         div()
@@ -416,8 +369,54 @@ impl Render for HomeView {
                                     .child(format!("上次连接 {}", s))
                             })),
                     )
-                    .child(actions)
-                    .child(chevron)
+                    .child(chevron);
+
+                // ───── 编辑 / 删除 hover 按钮（actions slot，绝对定位右上角）─────
+                let edit_btn = aish_ui::IconButton::new(
+                    gpui::SharedString::from(format!("host-edit-{}", id)),
+                    aish_ui::IconName::Pencil,
+                )
+                .small()
+                .ghost()
+                .on_click(cx.listener(
+                    move |this, _ev: &MouseDownEvent, _w, cx| {
+                        cx.stop_propagation();
+                        this.handle_edit_click(id, cx);
+                    },
+                ));
+
+                let delete_btn = aish_ui::IconButton::new(
+                    gpui::SharedString::from(format!("host-delete-{}", id)),
+                    aish_ui::IconName::X,
+                )
+                .small()
+                .destructive()
+                .on_click(cx.listener(
+                    move |this, _ev: &MouseDownEvent, _w, cx| {
+                        cx.stop_propagation();
+                        this.handle_delete_click(id, cx);
+                    },
+                ));
+
+                // actions 浮在卡片右上角（Card 内部已 .relative()，absolute 相对 Card 定位）
+                let actions = div()
+                    .absolute()
+                    .top_2()
+                    .right_2()
+                    .flex()
+                    .flex_row()
+                    .gap_1()
+                    .child(edit_btn)
+                    .child(delete_btn);
+
+                // ───── 整张卡片 - 用 aish_ui::Card ─────
+                aish_ui::Card::new(gpui::SharedString::from(format!("host-card-{}", id)))
+                    .body(body_row)
+                    .actions(actions)
+                    .on_click(cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
+                        this.handle_card_click(id, cx);
+                    }))
+                    .into_any_element()
             })
             .collect();
 

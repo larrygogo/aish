@@ -103,6 +103,7 @@ impl RenderOnce for Card {
         let mut el = div()
             .id(id)
             .group(group_name.clone())
+            .relative()
             .flex()
             .flex_col()
             .bg(t.colors.card)
@@ -136,6 +137,7 @@ impl RenderOnce for Card {
         if let Some(a) = actions {
             el = el.child(
                 div()
+                    .absolute()
                     .opacity(0.0)
                     .group_hover(group_name, |s| s.opacity(1.0))
                     .child(a),
