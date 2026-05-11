@@ -1,68 +1,56 @@
-//! 添加/编辑/删除确认 modal。
+//! 添加 / 编辑 / 删除确认 modal。
 //!
-//! 三种状态由 AppState.modal 决定：
-//!   - HostFormState::Adding(draft) — 添加模式
-//!   - HostFormState::Editing { id, draft } — 编辑模式
-//!   - HostFormState::DeleteConfirm { id, label } — 删除确认
+//! M12 重写为基于 `aish_ui::Dialog + Tabs + TextInput` 的组件化版本。
 //!
-//! 表单输入用 KeyDownEvent + key_char append（无真 TextField 控件）。
-//! 用户 Tab 切字段，Enter 保存，Esc 取消，Backspace 删除最后一个字符。
+//! 三种状态由 `AppState.modal: Option<HostFormState>` 决定：
+//!   - `HostFormState::Adding(draft)` — 添加
+//!   - `HostFormState::Editing { id, draft }` — 编辑
+//!   - `HostFormState::DeleteConfirm { id, label }` — 删除确认
+//!
+//! HostFormModal observe state.modal 变化：
+//!   - modal 从 None → Some：dialog.open + 把 draft 同步到 6 个 TextInput
+//!   - modal 从 Some → None：dialog.close
+//!
+//! 保存 / 取消 / 删除业务方法不变，仅改为通过 `input.read(cx).text()` 取值。
 
 use std::sync::Arc;
 
-use gpui::{
-    div, hsla, prelude::*, px, App, Context, Entity, FocusHandle, Focusable, KeyDownEvent,
-    MouseButton, MouseDownEvent, SharedString, Window,
-};
-
 use aish_types::HostId;
-use aish_ui::theme::{ColorTokens, FontSize};
+use aish_ui::{theme, Button, Dialog, Tabs, TextInput};
+use gpui::{
+    div, prelude::*, App, Context, Entity, IntoElement, MouseDownEvent, PathPromptOptions,
+    SharedString, Window,
+};
 
 use crate::bridge::Bridge;
 use crate::persistence;
-use crate::state::{AppState, HostFormDraft, HostFormState, SshEvent};
-
-/// 本地 helper：把 colors + font_size 打包，减少 render helper 参数个数。
-#[derive(Clone, Copy)]
-struct Styles {
-    colors: ColorTokens,
-    font_size: FontSize,
-}
-
-/// 当前 focus 的 input 字段。auth_kind == KeyFile 走 KeyPath；== Password 走 Password。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FocusField {
-    Label,
-    Host,
-    Port,
-    User,
-    KeyPath,
-    Password,
-}
-
-impl FocusField {
-    /// 给定当前 auth_kind，跳到下一个有效字段（跳过当前 auth 不需要的）。
-    fn next(self, auth_kind: crate::state::AuthKind) -> Self {
-        use crate::state::AuthKind;
-        match (self, auth_kind) {
-            (FocusField::Label, _) => FocusField::Host,
-            (FocusField::Host, _) => FocusField::Port,
-            (FocusField::Port, _) => FocusField::User,
-            (FocusField::User, AuthKind::KeyFile) => FocusField::KeyPath,
-            (FocusField::User, AuthKind::Password) => FocusField::Password,
-            (FocusField::KeyPath, _) => FocusField::Label,
-            (FocusField::Password, _) => FocusField::Label,
-        }
-    }
-}
+use crate::state::{AppState, AuthKind, HostFormDraft, HostFormState, SshEvent};
 
 pub struct HostFormModal {
     state: Entity<AppState>,
     bridge: Arc<Bridge>,
     #[allow(dead_code)]
     tx: tokio::sync::mpsc::Sender<SshEvent>,
-    focus_handle: FocusHandle,
-    focus_field: FocusField,
+    dialog: Entity<Dialog>,
+    auth_tabs: Entity<Tabs>,
+    label_input: Entity<TextInput>,
+    host_input: Entity<TextInput>,
+    port_input: Entity<TextInput>,
+    user_input: Entity<TextInput>,
+    keyfile_input: Entity<TextInput>,
+    password_input: Entity<TextInput>,
+    /// 已 sync 过的 modal 镜像键（None / Adding / Editing(id) / DeleteConfirm(id)）。
+    /// 用于检测 modal 切换，避免每帧都把 state.modal 的内容覆盖到 TextInput
+    /// （否则用户输入会被覆盖回原值）。
+    synced_key: SyncedKey,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SyncedKey {
+    None,
+    Adding,
+    Editing(HostId),
+    DeleteConfirm(HostId),
 }
 
 impl HostFormModal {
@@ -72,78 +60,163 @@ impl HostFormModal {
         tx: tokio::sync::mpsc::Sender<SshEvent>,
         cx: &mut Context<Self>,
     ) -> Self {
-        cx.observe(&state, |_this, _state, cx| cx.notify()).detach();
+        cx.observe(&state, |this, _state, cx| {
+            this.sync_from_state(cx);
+            cx.notify();
+        })
+        .detach();
+
+        let dialog = cx.new(Dialog::new);
+        let weak = cx.weak_entity();
+        dialog.update(cx, move |d, _cx| {
+            d.title("Host");
+            d.width(gpui::px(460.0));
+            d.on_close(move |_window, cx| {
+                if let Some(this) = weak.upgrade() {
+                    this.update(cx, |this, cx| this.cancel(cx));
+                }
+            });
+        });
+
+        let auth_tabs = cx.new(|cx| {
+            let labels: Vec<SharedString> = vec!["Key File".into(), "Password".into()];
+            Tabs::new(labels, cx)
+        });
+
+        let label_input = cx.new(|cx| {
+            let mut i = TextInput::new(cx);
+            i.placeholder("My Server");
+            i
+        });
+        let host_input = cx.new(|cx| {
+            let mut i = TextInput::new(cx);
+            i.placeholder("example.com");
+            i
+        });
+        let port_input = cx.new(|cx| {
+            let mut i = TextInput::new(cx);
+            i.placeholder("22");
+            i
+        });
+        let user_input = cx.new(|cx| {
+            let mut i = TextInput::new(cx);
+            i.placeholder("root");
+            i
+        });
+        let keyfile_input = cx.new(|cx| {
+            let mut i = TextInput::new(cx);
+            i.placeholder("~/.ssh/id_rsa");
+            i
+        });
+        let password_input = cx.new(|cx| {
+            let mut i = TextInput::new(cx);
+            i.placeholder("password");
+            i
+        });
+
         Self {
             state,
             bridge,
             tx,
-            focus_handle: cx.focus_handle(),
-            focus_field: FocusField::Label,
+            dialog,
+            auth_tabs,
+            label_input,
+            host_input,
+            port_input,
+            user_input,
+            keyfile_input,
+            password_input,
+            synced_key: SyncedKey::None,
         }
     }
 
-    /// 把字符 append 到当前 focused 字段。
-    fn append_char(&mut self, ch: char, cx: &mut Context<Self>) {
-        let field = self.focus_field;
-        self.state.update(cx, |state, cx| {
-            if let Some(modal) = &mut state.modal {
-                let draft = match modal {
-                    HostFormState::Adding(d) | HostFormState::Editing { draft: d, .. } => d,
-                    HostFormState::DeleteConfirm { .. } => return,
-                };
-                let target = match field {
-                    FocusField::Label => &mut draft.label,
-                    FocusField::Host => &mut draft.host,
-                    FocusField::Port => &mut draft.port,
-                    FocusField::User => &mut draft.user,
-                    FocusField::KeyPath => &mut draft.key_path,
-                    FocusField::Password => &mut draft.password,
-                };
-                target.push(ch);
-                draft.error = None;
-                cx.notify();
-            }
+    /// 根据 state.modal 的当前值，同步 dialog 显隐 + 把 draft 内容塞到 6 个 input。
+    /// 用 `synced_key` 防止每帧 observe 都覆盖用户输入。
+    fn sync_from_state(&mut self, cx: &mut Context<Self>) {
+        let current = self.state.read(cx).modal.as_ref().map(|m| match m {
+            HostFormState::Adding(_) => SyncedKey::Adding,
+            HostFormState::Editing { id, .. } => SyncedKey::Editing(*id),
+            HostFormState::DeleteConfirm { id, .. } => SyncedKey::DeleteConfirm(*id),
         });
+
+        match (self.synced_key, current) {
+            // modal 关闭：dialog 也关
+            (_, None) => {
+                if self.synced_key != SyncedKey::None {
+                    self.synced_key = SyncedKey::None;
+                    self.dialog.update(cx, |d, cx| d.close(cx));
+                }
+            }
+            // modal 切换：dialog open + 把 draft 内容同步到 input
+            (prev, Some(next)) if prev != next => {
+                self.synced_key = next;
+                self.fill_inputs_from_modal(cx);
+                self.dialog.update(cx, |d, cx| d.open(cx));
+            }
+            // 同 key 不动（用户正在编辑，避免覆盖输入）
+            _ => {}
+        }
     }
 
-    fn backspace(&mut self, cx: &mut Context<Self>) {
-        let field = self.focus_field;
-        self.state.update(cx, |state, cx| {
-            if let Some(modal) = &mut state.modal {
-                let draft = match modal {
-                    HostFormState::Adding(d) | HostFormState::Editing { draft: d, .. } => d,
-                    HostFormState::DeleteConfirm { .. } => return,
-                };
-                let target = match field {
-                    FocusField::Label => &mut draft.label,
-                    FocusField::Host => &mut draft.host,
-                    FocusField::Port => &mut draft.port,
-                    FocusField::User => &mut draft.user,
-                    FocusField::KeyPath => &mut draft.key_path,
-                    FocusField::Password => &mut draft.password,
-                };
-                target.pop();
-                draft.error = None;
-                cx.notify();
-            }
+    /// 把 state.modal 内的 draft 字段塞到 6 个 TextInput + 切换 auth_tabs。
+    fn fill_inputs_from_modal(&mut self, cx: &mut Context<Self>) {
+        let snapshot = self.state.read(cx).modal.as_ref().and_then(|m| match m {
+            HostFormState::Adding(d) => Some(d.clone()),
+            HostFormState::Editing { draft, .. } => Some(draft.clone()),
+            HostFormState::DeleteConfirm { .. } => None,
         });
+
+        if let Some(draft) = snapshot {
+            let label = draft.label.clone();
+            let host = draft.host.clone();
+            let port = if draft.port.is_empty() {
+                "22".into()
+            } else {
+                draft.port.clone()
+            };
+            let user = if draft.user.is_empty() {
+                "root".into()
+            } else {
+                draft.user.clone()
+            };
+            let key_path = draft.key_path.clone();
+            let auth_kind = draft.auth_kind;
+
+            self.label_input.update(cx, |i, cx| i.set_text(label, cx));
+            self.host_input.update(cx, |i, cx| i.set_text(host, cx));
+            self.port_input.update(cx, |i, cx| i.set_text(port, cx));
+            self.user_input.update(cx, |i, cx| i.set_text(user, cx));
+            self.keyfile_input
+                .update(cx, |i, cx| i.set_text(key_path, cx));
+            self.password_input.update(cx, |i, cx| i.clear(cx));
+
+            let active = match auth_kind {
+                AuthKind::KeyFile => 0,
+                AuthKind::Password => 1,
+            };
+            self.auth_tabs.update(cx, |t, cx| t.set_active(active, cx));
+        }
+        // DeleteConfirm 不需要 input 内容
     }
 
-    fn cycle_focus(&mut self, cx: &mut Context<Self>) {
-        // 取当前 modal 的 draft.auth_kind 决定 next() 跳到哪
-        let auth_kind = self
-            .state
-            .read(cx)
-            .modal
-            .as_ref()
-            .and_then(|m| match m {
-                HostFormState::Adding(d) => Some(d.auth_kind),
-                HostFormState::Editing { draft: d, .. } => Some(d.auth_kind),
-                HostFormState::DeleteConfirm { .. } => None,
-            })
-            .unwrap_or(crate::state::AuthKind::KeyFile);
-        self.focus_field = self.focus_field.next(auth_kind);
-        cx.notify();
+    /// 从 6 个 input + auth_tabs 拼出 HostFormDraft 用于 save。
+    fn collect_draft(&self, cx: &App) -> HostFormDraft {
+        let auth_kind = if self.auth_tabs.read(cx).active() == 0 {
+            AuthKind::KeyFile
+        } else {
+            AuthKind::Password
+        };
+        HostFormDraft {
+            label: self.label_input.read(cx).text().to_string(),
+            host: self.host_input.read(cx).text().to_string(),
+            port: self.port_input.read(cx).text().to_string(),
+            user: self.user_input.read(cx).text().to_string(),
+            auth_kind,
+            key_path: self.keyfile_input.read(cx).text().to_string(),
+            password: self.password_input.read(cx).text().to_string(),
+            password_visible: false,
+            error: None,
+        }
     }
 
     fn cancel(&mut self, cx: &mut Context<Self>) {
@@ -153,26 +226,34 @@ impl HostFormModal {
         });
     }
 
-    /// 保存（添加 / 编辑 / 删除确认）。返回是否需要持久化。
+    /// 保存（添加 / 编辑 / 删除确认）。
     fn save(&mut self, cx: &mut Context<Self>) {
-        // 把 modal 取出（同时清空），决定后续动作
-        let action = self.state.update(cx, |state, _cx| state.modal.take());
+        // 先确定 modal 类型（不取走，校验失败时仍要更新原 modal 的 error 字段）
+        let kind = self.state.read(cx).modal.as_ref().map(|m| match m {
+            HostFormState::Adding(_) => SyncedKey::Adding,
+            HostFormState::Editing { id, .. } => SyncedKey::Editing(*id),
+            HostFormState::DeleteConfirm { id, .. } => SyncedKey::DeleteConfirm(*id),
+        });
 
-        let needs_persist = match action {
-            Some(HostFormState::DeleteConfirm { id, .. }) => {
+        let needs_persist = match kind {
+            Some(SyncedKey::DeleteConfirm(id)) => {
                 self.state.update(cx, |state, cx| {
                     state.remove_host(id);
+                    state.modal = None;
                     cx.notify();
                 });
-                // 删 host 同步删 keyring（idempotent，NoEntry 不报错）
                 crate::persistence::delete_secret_for(id);
                 true
             }
-            Some(HostFormState::Adding(draft)) => self.handle_add_or_edit(None, draft, cx),
-            Some(HostFormState::Editing { id, draft }) => {
+            Some(SyncedKey::Adding) => {
+                let draft = self.collect_draft(cx);
+                self.handle_add_or_edit(None, draft, cx)
+            }
+            Some(SyncedKey::Editing(id)) => {
+                let draft = self.collect_draft(cx);
                 self.handle_add_or_edit(Some(id), draft, cx)
             }
-            None => false,
+            _ => false,
         };
 
         if needs_persist {
@@ -185,7 +266,7 @@ impl HostFormModal {
         }
     }
 
-    /// 处理添加/编辑保存：校验失败重新塞回 modal 并显示红字。返回是否成功（需持久化）。
+    /// 校验失败时塞回 modal（含 error）。返回是否成功（需持久化）。
     fn handle_add_or_edit(
         &mut self,
         id: Option<HostId>,
@@ -200,12 +281,13 @@ impl HostFormModal {
                     } else {
                         state.add_host(cfg);
                     }
+                    state.modal = None;
                     cx.notify();
                 });
                 true
             }
             Err(err) => {
-                let mut new_draft = draft.clone();
+                let mut new_draft = draft;
                 new_draft.error = Some(err);
                 self.state.update(cx, |state, cx| {
                     state.modal = match id {
@@ -222,584 +304,210 @@ impl HostFormModal {
         }
     }
 
-    fn handle_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
-        let key = event.keystroke.key.as_str();
-        let ctrl = event.keystroke.modifiers.control;
-
-        match key {
-            "escape" => self.cancel(cx),
-            "tab" => self.cycle_focus(cx),
-            "enter" => self.save(cx),
-            "backspace" => self.backspace(cx),
-            // Ctrl+T: 切换 auth_kind
-            "t" if ctrl => self.toggle_auth_kind(cx),
-            // Ctrl+E: 切换 password_visible
-            "e" if ctrl => self.toggle_password_visible(cx),
-            _ => {
-                // 优先使用 key_char（系统 IME / 布局感知字符），退回到 key 本身（长度==1时）
-                if let Some(ch_str) = event.keystroke.key_char.as_deref() {
-                    if let Some(ch) = ch_str.chars().next() {
-                        self.append_char(ch, cx);
-                    }
-                } else if key.len() == 1 {
-                    if let Some(ch) = key.chars().next() {
-                        self.append_char(ch, cx);
-                    }
+    fn pick_keyfile(&mut self, cx: &mut Context<Self>) {
+        let options = PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some(SharedString::from("选择 SSH 密钥文件")),
+        };
+        let receiver = cx.prompt_for_paths(options);
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            if let Ok(Ok(Some(paths))) = receiver.await {
+                if let Some(path) = paths.into_iter().next() {
+                    this.update(cx, |this, cx| {
+                        let s = path.to_string_lossy().to_string();
+                        this.keyfile_input.update(cx, |i, cx| i.set_text(s, cx));
+                    })
+                    .ok();
                 }
             }
-        }
-    }
-
-    /// 切换 auth_kind（KeyFile ↔ Password）。focus 重置到 Label 避免指向不可见字段。
-    fn toggle_auth_kind(&mut self, cx: &mut Context<Self>) {
-        use crate::state::AuthKind;
-        self.state.update(cx, |state, cx| {
-            if let Some(modal) = &mut state.modal {
-                let draft = match modal {
-                    HostFormState::Adding(d) | HostFormState::Editing { draft: d, .. } => d,
-                    HostFormState::DeleteConfirm { .. } => return,
-                };
-                draft.auth_kind = match draft.auth_kind {
-                    AuthKind::KeyFile => AuthKind::Password,
-                    AuthKind::Password => AuthKind::KeyFile,
-                };
-                draft.error = None;
-                cx.notify();
-            }
-        });
-        self.focus_field = FocusField::Label;
-    }
-
-    /// 鼠标点击切到指定字段。
-    fn focus_to(&mut self, field: FocusField, cx: &mut Context<Self>) {
-        self.focus_field = field;
-        cx.notify();
-    }
-
-    /// 鼠标点 segmented 强制设 auth_kind 到指定值（区别于 keyboard toggle）。
-    fn set_auth_kind(&mut self, kind: crate::state::AuthKind, cx: &mut Context<Self>) {
-        self.state.update(cx, |state, cx| {
-            if let Some(modal) = &mut state.modal {
-                let draft = match modal {
-                    HostFormState::Adding(d) | HostFormState::Editing { draft: d, .. } => d,
-                    HostFormState::DeleteConfirm { .. } => return,
-                };
-                draft.auth_kind = kind;
-                draft.error = None;
-                cx.notify();
-            }
-        });
-        // focus 跳到对应字段
-        self.focus_field = match kind {
-            crate::state::AuthKind::KeyFile => FocusField::KeyPath,
-            crate::state::AuthKind::Password => FocusField::Password,
-        };
-    }
-
-    /// 切换 password_visible（mask ↔ 明文）。
-    fn toggle_password_visible(&mut self, cx: &mut Context<Self>) {
-        self.state.update(cx, |state, cx| {
-            if let Some(modal) = &mut state.modal {
-                let draft = match modal {
-                    HostFormState::Adding(d) | HostFormState::Editing { draft: d, .. } => d,
-                    HostFormState::DeleteConfirm { .. } => return,
-                };
-                draft.password_visible = !draft.password_visible;
-                cx.notify();
-            }
-        });
-    }
-}
-
-impl Focusable for HostFormModal {
-    fn focus_handle(&self, _cx: &App) -> FocusHandle {
-        self.focus_handle.clone()
+        })
+        .detach();
     }
 }
 
 impl Render for HostFormModal {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let focus_field = self.focus_field;
-        let modal_state = self.state.read(cx).modal.as_ref().map(|m| match m {
-            HostFormState::Adding(d) => ("add", Some(d.clone()), None::<String>),
-            HostFormState::Editing { draft, .. } => ("edit", Some(draft.clone()), None),
+        let modal_kind = self.state.read(cx).modal.as_ref().map(|m| match m {
+            HostFormState::Adding(d) => ("add", Some(d.error.clone()), None::<String>),
+            HostFormState::Editing { draft, .. } => ("edit", Some(draft.error.clone()), None),
             HostFormState::DeleteConfirm { label, .. } => ("delete", None, Some(label.clone())),
         });
 
-        // modal == None 不应出现（caller 负责检查），返回空 div
-        let Some(ref kind) = modal_state else {
-            return div().into_any_element();
+        let Some((kind, err_opt, label_opt)) = modal_kind else {
+            // modal 为 None，dialog 也已通过 observe 关闭
+            return self.dialog.clone().into_any_element();
         };
 
-        let theme = aish_ui::theme(cx);
-        let styles = Styles {
-            colors: theme.colors,
-            font_size: theme.font_size,
+        // 提前拷贝 token，避免 theme(cx) 的不可变借用跨整个 render（与下面
+        // keyfile_row(cx)/buttons_row(cx) 的可变借用冲突）。
+        let (colors, font_size, spacing) = {
+            let t = theme(cx);
+            (t.colors, t.font_size, t.spacing)
         };
-
-        let body: gpui::AnyElement = match kind {
-            ("add", Some(draft), _) => {
-                self.render_form_body("添加 Host", draft, focus_field, styles, cx)
-            }
-            ("edit", Some(draft), _) => {
-                self.render_form_body("编辑 Host", draft, focus_field, styles, cx)
-            }
-            ("delete", _, Some(label)) => render_delete_body(label, styles),
-            _ => return div().into_any_element(),
+        let active = self.auth_tabs.read(cx).active();
+        let is_edit = kind == "edit";
+        let is_delete = kind == "delete";
+        let title = match kind {
+            "add" => "添加 Host",
+            "edit" => "编辑 Host",
+            "delete" => "确认删除",
+            _ => "Host",
         };
+        let primary_label = if is_delete { "Delete" } else { "Save" };
 
-        let primary_text = if kind.0 == "delete" {
-            "Delete (Enter)"
-        } else {
-            "Save (Enter)"
-        };
-
-        // 全屏半透明遮罩 + 居中 modal 卡片。点击遮罩 = cancel。
-        div()
-            .track_focus(&self.focus_handle)
-            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _w, cx| this.handle_key(ev, cx)))
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _ev: &MouseDownEvent, _w, cx| this.cancel(cx)),
-            )
-            .absolute()
-            .top_0()
-            .left_0()
-            .size_full()
-            .bg(hsla(0.0, 0.0, 0.0, 0.6))
-            .flex()
-            .items_center()
-            .justify_center()
-            .child(
-                div()
-                    // 阻止点击 modal 内部冒泡到遮罩触发 cancel。
-                    //
-                    // GPUI 的 mouse listener 默认不阻止冒泡，必须显式调
-                    // cx.stop_propagation() 才能把 propagate_event 设 false
-                    // 让 bubble 循环 break，外层遮罩 cancel 不再触发。
-                    //
-                    // 但这同时会拦掉 modal 顶层 .track_focus 自动注册的
-                    // mouse_down focus-transfer listener（gpui/elements/div.rs
-                    // ~2213），导致 focus_handle 不会被 transfer 到 modal，
-                    // 键盘事件到不了 on_key_down，"无法输入"。所以这里在
-                    // stop_propagation 之前显式 w.focus(&self.focus_handle)
-                    // 把 focus 强制切到 modal handle。
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|this, _ev: &MouseDownEvent, w, cx| {
-                            w.focus(&this.focus_handle, cx);
-                            cx.stop_propagation();
-                        }),
-                    )
-                    .w(px(460.0))
-                    .bg(styles.colors.card)
-                    .rounded_xl()
-                    .border_1()
-                    .border_color(styles.colors.border)
-                    .px_6()
-                    .py_5()
-                    .flex()
-                    .flex_col()
-                    .gap_4()
-                    .child(body)
-                    .child(self.render_buttons(primary_text, styles, cx)),
-            )
-            .into_any_element()
-    }
-}
-
-impl HostFormModal {
-    fn render_form_body(
-        &self,
-        title: &str,
-        draft: &HostFormDraft,
-        focus_field: FocusField,
-        st: Styles,
-        cx: &mut Context<Self>,
-    ) -> gpui::AnyElement {
-        use crate::state::AuthKind;
-
-        let colors = st.colors;
-        let font_size = st.font_size;
-        let title_str = title.to_string();
-        let auth_kind = draft.auth_kind;
-        let kf_selected = auth_kind == AuthKind::KeyFile;
-        let pw_selected = auth_kind == AuthKind::Password;
-
-        let mut col = div()
-            .flex()
-            .flex_col()
-            .gap_3()
-            .child(
-                div()
-                    .text_color(colors.foreground)
-                    .text_size(font_size.xl)
-                    .child(title_str),
-            )
-            .child(self.field_row(
-                "label",
-                &draft.label,
-                focus_field == FocusField::Label,
-                FocusField::Label,
-                st,
-                cx,
-            ))
-            .child(self.field_row(
-                "host",
-                &draft.host,
-                focus_field == FocusField::Host,
-                FocusField::Host,
-                st,
-                cx,
-            ))
-            .child(self.field_row(
-                "port",
-                &draft.port,
-                focus_field == FocusField::Port,
-                FocusField::Port,
-                st,
-                cx,
-            ))
-            .child(self.field_row(
-                "user",
-                &draft.user,
-                focus_field == FocusField::User,
-                FocusField::User,
-                st,
-                cx,
-            ));
-
-        // 认证方式 segmented control（点击切 auth_kind）
-        let kf_marker = if kf_selected {
-            "● 密钥"
-        } else {
-            "○ 密钥"
-        };
-        let pw_marker = if pw_selected {
-            "● 密码"
-        } else {
-            "○ 密码"
-        };
-        col = col.child(
+        let body: gpui::AnyElement = if is_delete {
+            let label = label_opt.unwrap_or_default();
             div()
                 .flex()
-                .flex_row()
-                .bg(colors.background)
-                .rounded_md()
-                .p_0p5()
+                .flex_col()
+                .gap(spacing.px_3)
                 .child(
                     div()
-                        .flex_1()
-                        .py_1p5()
-                        .text_color(if kf_selected {
-                            colors.foreground
-                        } else {
-                            colors.secondary_foreground
-                        })
-                        .bg(if kf_selected {
-                            colors.accent
-                        } else {
-                            colors.background
-                        })
                         .text_size(font_size.sm)
-                        .rounded_md()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .cursor_pointer()
-                        // 未选中段 hover 时显示 accent；选中段已是 accent 不动 bg
-                        .hover(move |s| {
-                            if kf_selected {
-                                s
-                            } else {
-                                s.bg(colors.accent)
-                            }
-                        })
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
-                                this.set_auth_kind(AuthKind::KeyFile, cx);
-                            }),
-                        )
-                        .child(kf_marker),
+                        .text_color(colors.foreground)
+                        .child(format!("将永久删除 host：{}", label)),
                 )
                 .child(
                     div()
-                        .flex_1()
-                        .py_1p5()
-                        .text_color(if pw_selected {
-                            colors.foreground
-                        } else {
-                            colors.secondary_foreground
-                        })
-                        .bg(if pw_selected {
-                            colors.accent
-                        } else {
-                            colors.background
-                        })
-                        .text_size(font_size.sm)
-                        .rounded_md()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .cursor_pointer()
-                        .hover(move |s| if pw_selected { s } else { s.bg(colors.accent) })
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
-                                this.set_auth_kind(AuthKind::Password, cx);
-                            }),
-                        )
-                        .child(pw_marker),
-                ),
-        );
-
-        col = match auth_kind {
-            AuthKind::KeyFile => col.child(self.field_row(
-                "key path",
-                &draft.key_path,
-                focus_field == FocusField::KeyPath,
-                FocusField::KeyPath,
-                st,
-                cx,
-            )),
-            AuthKind::Password => col.child(self.password_field_row(
-                &draft.password,
-                draft.password_visible,
-                focus_field == FocusField::Password,
-                st,
-                cx,
-            )),
-        };
-
-        if let Some(err) = &draft.error {
-            col = col.child(
-                div()
-                    .text_color(colors.destructive)
-                    .text_size(font_size.sm)
-                    .child(err.clone()),
-            );
-        }
-
-        col.child(
+                        .text_size(font_size.xs)
+                        .text_color(colors.muted_foreground)
+                        .child("Enter 确认 · Esc 取消"),
+                )
+                .child(buttons_row(primary_label, true, cx))
+                .into_any_element()
+        } else {
+            let err = err_opt.flatten();
             div()
-                .text_color(colors.muted_foreground)
-                .text_size(font_size.xs)
-                .child("Tab 切换字段 · Ctrl+T 切 auth · Ctrl+E 切密码可见 · Enter 保存 · Esc 取消"),
-        )
-        .into_any_element()
-    }
-
-    /// 密码字段行：input + 👁 toggle 图标（点击切可见性）。
-    fn password_field_row(
-        &self,
-        password: &str,
-        visible: bool,
-        focused: bool,
-        st: Styles,
-        cx: &mut Context<Self>,
-    ) -> gpui::AnyElement {
-        let colors = st.colors;
-        let font_size = st.font_size;
-        let display: SharedString = if password.is_empty() {
-            SharedString::from("(unchanged) 输入新密码所换")
-        } else if visible {
-            SharedString::from(password.to_string())
-        } else {
-            SharedString::from("•".repeat(password.chars().count()))
+                .flex()
+                .flex_col()
+                .gap(spacing.px_3)
+                .child(field_row(cx, "label", self.label_input.clone()))
+                .child(field_row(cx, "host", self.host_input.clone()))
+                .child(field_row(cx, "port", self.port_input.clone()))
+                .child(field_row(cx, "user", self.user_input.clone()))
+                .child(self.auth_tabs.clone())
+                .child(if active == 0 {
+                    let kf = self.keyfile_input.clone();
+                    keyfile_row(kf, cx).into_any_element()
+                } else {
+                    field_row(cx, "password", self.password_input.clone()).into_any_element()
+                })
+                .when_some(err, |d, e| {
+                    d.child(
+                        div()
+                            .text_size(font_size.sm)
+                            .text_color(colors.destructive)
+                            .child(e),
+                    )
+                })
+                .child(buttons_row(primary_label, is_edit, cx))
+                .into_any_element()
         };
-        let border_color = if focused { colors.ring } else { colors.border };
-        let text_color = if password.is_empty() {
-            colors.muted_foreground
-        } else {
-            colors.foreground
-        };
-        let eye = if visible { "👁" } else { "👁‍🗨" };
-        div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap_3()
-            .child(
-                div()
-                    .w(px(80.0))
-                    .text_color(colors.secondary_foreground)
-                    .text_size(font_size.sm)
-                    .child("password"),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .px_3()
-                    .py_2()
-                    .bg(colors.background)
-                    .border_1()
-                    .border_color(border_color)
-                    .rounded_md()
-                    .text_color(text_color)
-                    .text_size(font_size.sm)
-                    .cursor_text()
-                    .hover(|s| s.bg(colors.accent))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
-                            this.focus_to(FocusField::Password, cx);
-                        }),
-                    )
-                    .child(display),
-            )
-            .child(
-                div()
-                    .px_2()
-                    .rounded_md()
-                    .text_color(colors.secondary_foreground)
-                    .text_size(font_size.lg)
-                    .cursor_pointer()
-                    .hover(|s| s.text_color(colors.foreground).bg(colors.accent))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
-                            this.toggle_password_visible(cx);
-                        }),
-                    )
-                    .child(eye),
-            )
-            .into_any_element()
-    }
 
-    fn field_row(
-        &self,
-        label: &str,
-        value: &str,
-        focused: bool,
-        target_field: FocusField,
-        st: Styles,
-        cx: &mut Context<Self>,
-    ) -> gpui::AnyElement {
-        let colors = st.colors;
-        let font_size = st.font_size;
-        let display: SharedString = if value.is_empty() {
-            SharedString::from("(空)")
-        } else {
-            SharedString::from(value.to_string())
-        };
-        let border_color = if focused { colors.ring } else { colors.border };
-        div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap_3()
-            .child(
-                div()
-                    .w(px(80.0))
-                    .text_color(colors.secondary_foreground)
-                    .text_size(font_size.sm)
-                    .child(label.to_string()),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .px_3()
-                    .py_2()
-                    .bg(colors.background)
-                    .border_1()
-                    .border_color(border_color)
-                    .rounded_md()
-                    .text_color(if value.is_empty() {
-                        colors.muted_foreground
-                    } else {
-                        colors.foreground
-                    })
-                    .text_size(font_size.sm)
-                    .cursor_text()
-                    .hover(|s| s.bg(colors.accent))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
-                            this.focus_to(target_field, cx);
-                        }),
-                    )
-                    .child(display),
-            )
-            .into_any_element()
-    }
+        self.dialog.update(cx, |d, _cx| {
+            d.title(title);
+            d.body(body);
+        });
 
-    fn render_buttons(
-        &self,
-        primary_text: &str,
-        st: Styles,
-        cx: &mut Context<Self>,
-    ) -> gpui::AnyElement {
-        let colors = st.colors;
-        let font_size = st.font_size;
-        div()
-            .flex()
-            .flex_row()
-            .gap_2()
-            .justify_end()
-            .child(
-                div()
-                    .px_4()
-                    .py_2()
-                    .bg(colors.background)
-                    .border_1()
-                    .border_color(colors.border)
-                    .text_color(colors.secondary_foreground)
-                    .text_size(font_size.sm)
-                    .rounded_md()
-                    .cursor_pointer()
-                    .hover(|s| s.bg(colors.accent).text_color(colors.foreground))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|this, _ev: &MouseDownEvent, _w, cx| this.cancel(cx)),
-                    )
-                    .child("Cancel (Esc)"),
-            )
-            .child(
-                div()
-                    .px_4()
-                    .py_2()
-                    .bg(colors.primary)
-                    .text_color(colors.primary_foreground)
-                    .text_size(font_size.sm)
-                    .rounded_md()
-                    .cursor_pointer()
-                    .hover(|s| s.bg(colors.accent))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|this, _ev: &MouseDownEvent, _w, cx| this.save(cx)),
-                    )
-                    .child(primary_text.to_string()),
-            )
-            .into_any_element()
+        self.dialog.clone().into_any_element()
     }
 }
 
-fn render_delete_body(label: &str, st: Styles) -> gpui::AnyElement {
-    let colors = st.colors;
-    let font_size = st.font_size;
-    let label_str = format!("将永久删除 host：{}", label);
+fn field_label(cx: &App, text: &'static str) -> impl IntoElement {
+    let t = theme(cx);
+    div()
+        .w(gpui::px(80.0))
+        .text_size(t.font_size.sm)
+        .text_color(t.colors.secondary_foreground)
+        .child(text)
+}
+
+fn field_row(cx: &App, label: &'static str, input: Entity<TextInput>) -> impl IntoElement {
+    let t = theme(cx);
     div()
         .flex()
-        .flex_col()
-        .gap_3()
+        .flex_row()
+        .items_center()
+        .gap(t.spacing.px_3)
+        .child(field_label(cx, label))
+        .child(div().flex_1().child(input))
+}
+
+fn keyfile_row(
+    keyfile_input: Entity<TextInput>,
+    cx: &mut Context<HostFormModal>,
+) -> impl IntoElement {
+    let spacing_px_3 = {
+        let t = theme(cx);
+        t.spacing.px_3
+    };
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(spacing_px_3)
+        .child(field_label(cx, "key path"))
+        .child(div().flex_1().child(keyfile_input))
         .child(
-            div()
-                .text_color(colors.destructive)
-                .text_size(font_size.xl)
-                .child("确认删除？"),
+            Button::new("pick-keyfile")
+                .label("…")
+                .secondary()
+                .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
+                    this.pick_keyfile(cx);
+                })),
         )
+}
+
+fn buttons_row(
+    primary_label: &'static str,
+    show_delete: bool,
+    cx: &mut Context<HostFormModal>,
+) -> impl IntoElement {
+    let spacing_px_2 = {
+        let t = theme(cx);
+        t.spacing.px_2
+    };
+    let mut row = div()
+        .flex()
+        .flex_row()
+        .gap(spacing_px_2)
+        .justify_end()
         .child(
-            div()
-                .text_color(colors.foreground)
-                .text_size(font_size.sm)
-                .child(label_str),
-        )
-        .child(
-            div()
-                .text_color(colors.muted_foreground)
-                .text_size(font_size.xs)
-                .child("Enter 确认删除 · Esc 取消"),
-        )
-        .into_any_element()
+            Button::new("host-cancel")
+                .label("Cancel")
+                .ghost()
+                .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
+                    this.cancel(cx);
+                })),
+        );
+    if show_delete && primary_label != "Delete" {
+        // edit 模式额外加一个 Delete 按钮（DeleteConfirm 通过 home.rs 单独触发）
+        row = row.child(
+            Button::new("host-delete")
+                .label("Delete")
+                .destructive()
+                .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
+                    // 从 Editing 切到 DeleteConfirm
+                    this.state.update(cx, |s, cx| {
+                        if let Some(HostFormState::Editing { id, draft }) = &s.modal {
+                            s.modal = Some(HostFormState::DeleteConfirm {
+                                id: *id,
+                                label: draft.label.clone(),
+                            });
+                            cx.notify();
+                        }
+                    });
+                })),
+        );
+    }
+    row.child(
+        Button::new("host-save")
+            .label(primary_label)
+            .primary()
+            .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
+                this.save(cx);
+            })),
+    )
 }
