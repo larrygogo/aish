@@ -538,10 +538,28 @@ impl Render for TextInput {
                 }),
             )
             .child(if placeholder_visible {
+                // 空文本：placeholder + 前置 cursor（focused 时闪烁）
                 div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
                     .text_size(t.font_size.sm)
                     .text_color(t.colors.muted_foreground)
-                    .child(self.placeholder.clone())
+                    .child(if show_cursor {
+                        div()
+                            .w(px(1.0))
+                            .h(px(14.0))
+                            .bg(t.colors.ring)
+                            .self_center()
+                            .into_any_element()
+                    } else {
+                        div()
+                            .w(px(1.0))
+                            .h(px(14.0))
+                            .self_center()
+                            .into_any_element()
+                    })
+                    .child(div().child(self.placeholder.clone()))
                     .into_any_element()
             } else if let Some(sel) = selection {
                 let before = self.text[..sel.start].to_string();
