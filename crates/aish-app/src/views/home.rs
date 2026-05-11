@@ -142,23 +142,10 @@ impl Render for HomeView {
         let font_size = theme.font_size;
 
         // ───── Quick Actions 顶部栏 ─────
-        let add_btn = div()
-            .id("home-add-host-btn")
-            .px_4()
-            .py_2()
-            .text_size(font_size.sm)
-            .text_color(colors.foreground)
-            .bg(colors.card)
-            .border_1()
-            .border_color(colors.border)
-            .rounded_md()
-            .cursor_pointer()
-            .hover(|s| s.bg(colors.accent).border_color(colors.ring))
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _ev: &MouseDownEvent, _w, cx| this.handle_add_click(cx)),
-            )
-            .child("+ 添加 host");
+        let add_btn = aish_ui::Button::new("home-add-host-btn")
+            .label("+ 添加 host")
+            .secondary()
+            .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| this.handle_add_click(cx)));
 
         let header = div()
             .px_8()
