@@ -326,13 +326,45 @@ impl Render for HomeView {
                     .text_size(font_size.lg)
                     .child("›");
 
+                // ───── 编辑 / 删除按钮（始终可见，inline 在 row 末尾）─────
+                let edit_btn = aish_ui::IconButton::new(
+                    gpui::SharedString::from(format!("host-edit-{}", id)),
+                    aish_ui::IconName::Pencil,
+                )
+                .small()
+                .ghost()
+                .on_click(cx.listener(
+                    move |this, _ev: &MouseDownEvent, _w, cx| {
+                        cx.stop_propagation();
+                        this.handle_edit_click(id, cx);
+                    },
+                ));
+
+                let delete_btn = aish_ui::IconButton::new(
+                    gpui::SharedString::from(format!("host-delete-{}", id)),
+                    aish_ui::IconName::X,
+                )
+                .small()
+                .destructive()
+                .on_click(cx.listener(
+                    move |this, _ev: &MouseDownEvent, _w, cx| {
+                        cx.stop_propagation();
+                        this.handle_delete_click(id, cx);
+                    },
+                ));
+
+                let actions = div()
+                    .flex()
+                    .flex_row()
+                    .gap_1()
+                    .child(edit_btn)
+                    .child(delete_btn);
+
                 // ───── 卡片主体 row ─────
-                // 用 .relative() + .group(name) 让浮层 actions 相对 body row 定位
-                // + hover 时显示。group_name 用 host id 派生避免多卡片相互影响。
-                let group_name = gpui::SharedString::from(format!("host-card-row-{}", id));
+                // M13 简化：放弃 absolute hover overlay（GPUI/Taffy absolute 子元素
+                // 的 inset 在 flex container 内行为与 CSS 不一致，定位飘移），改为
+                // actions 始终可见放在 row 末尾、chevron 之前。
                 let body_row = div()
-                    .relative()
-                    .group(group_name.clone())
                     .flex()
                     .flex_row()
                     .items_center()
@@ -374,58 +406,12 @@ impl Render for HomeView {
                                     .child(format!("上次连接 {}", s))
                             })),
                     )
+                    .child(actions)
                     .child(chevron);
-
-                // ───── 编辑 / 删除 hover 按钮（actions slot，绝对定位右上角）─────
-                let edit_btn = aish_ui::IconButton::new(
-                    gpui::SharedString::from(format!("host-edit-{}", id)),
-                    aish_ui::IconName::Pencil,
-                )
-                .small()
-                .ghost()
-                .on_click(cx.listener(
-                    move |this, _ev: &MouseDownEvent, _w, cx| {
-                        cx.stop_propagation();
-                        this.handle_edit_click(id, cx);
-                    },
-                ));
-
-                let delete_btn = aish_ui::IconButton::new(
-                    gpui::SharedString::from(format!("host-delete-{}", id)),
-                    aish_ui::IconName::X,
-                )
-                .small()
-                .destructive()
-                .on_click(cx.listener(
-                    move |this, _ev: &MouseDownEvent, _w, cx| {
-                        cx.stop_propagation();
-                        this.handle_delete_click(id, cx);
-                    },
-                ));
-
-                // actions 浮层：absolute 贴 body row 右上角，hover 时显示
-                // 注意：GPUI/Taffy 的 absolute 子元素需要显式 width/height 才能
-                // 正确相对 .relative() 父定位。否则 inset 计算会 fallback。
-                // 2 个 small IconButton (24x24) + gap_1 (4px) = 52x24
-                let actions_overlay = div()
-                    .absolute()
-                    .top(px(8.0))
-                    .right(px(8.0))
-                    .w(px(52.0))
-                    .h(px(24.0))
-                    .opacity(0.0)
-                    .group_hover(group_name, |s| s.opacity(1.0))
-                    .flex()
-                    .flex_row()
-                    .gap_1()
-                    .child(edit_btn)
-                    .child(delete_btn);
-
-                let body_with_actions = body_row.child(actions_overlay);
 
                 // ───── 整张卡片 - 用 aish_ui::Card ─────
                 aish_ui::Card::new(gpui::SharedString::from(format!("host-card-{}", id)))
-                    .body(body_with_actions)
+                    .body(body_row)
                     .on_click(cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
                         this.handle_card_click(id, cx);
                     }))
