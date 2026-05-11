@@ -136,7 +136,8 @@ impl RenderOnce for IconButton {
             .child(icon(self.icon_name).size(isz).text_color(fg));
 
         if !disabled {
-            el = el.cursor_pointer();
+            let hover_bg = t.colors.accent;
+            el = el.cursor_pointer().hover(move |s| s.bg(hover_bg));
             if let Some(handler) = self.on_click {
                 el = el.on_mouse_down(MouseButton::Left, move |ev, window, cx| {
                     handler(ev, window, cx);
