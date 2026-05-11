@@ -10,13 +10,31 @@
 
 ## 当前状态
 
-- **活跃分支**：`main`（M11 aish-ui 起步套件已完成；M10 App 图标也已合并）
-- **下一里程碑**：M12 — 表单与导航（Card / Tabs / Dialog / Select / Checkbox / RadioGroup / Switch）
-- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui 51 + aish-app 101 + 其他 crate) 全过
+- **活跃分支**：`feat/aish-ui-m12-20260509-zj`（M12 表单与导航 + HostForm/SessionPicker 迁移已完成）
+- **下一里程碑**：M13 — DropdownMenu / ContextMenu + Light theme 实现 + 视觉回归收尾（含 Button hover state / Toast 关闭按钮 / Select 弹层翻转 / Dialog Tab focus trap 等 M11/M12 遗留）
+- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui 77 + aish-app 101 + 其他 crate) 全过
 
 ---
 
 ## Milestones（按时间倒序）
+
+### M12 — aish-ui 表单与导航 + HostForm/SessionPicker 迁移（2026-05-11）— ✅ 已完成
+- 父 spec：[`specs/2026-05-09-aish-ui-architecture-design.md`](specs/2026-05-09-aish-ui-architecture-design.md)
+- spec：[`specs/2026-05-09-aish-m12-forms-nav-design.md`](specs/2026-05-09-aish-m12-forms-nav-design.md)
+- plan：[`plans/2026-05-09-aish-m12-forms-nav.md`](plans/2026-05-09-aish-m12-forms-nav.md)
+- 范围：5 个新组件（Checkbox / Switch / Tabs / Dialog / Select）+ HostFormModal 重写为 Dialog+Tabs+6 TextInput（-294 行）+ SessionPickerView 外壳迁 Dialog + SettingsView 加 Appearance section 含 Dark mode Switch（点 Light 弹 toast warning + 视觉回弹）
+- 关键 commits：
+  - `20c106f` — T1 Checkbox（builder + 受控）
+  - `122ac00` — T2 Switch（iOS 风胶囊）
+  - `022e59b` — T3 Tabs（Entity + 键盘 ←/→）
+  - `3bbc6e1` — T4 Dialog（Entity + Esc/backdrop close + needs_focus）
+  - `72e992f` — T5 Select（Entity + 下拉 + ↑/↓/Enter/Esc）
+  - （T6 prelude 验证：components::* glob 自动覆盖，无 commit）
+  - `f52719d` — T7 HostFormModal 重写（删 FocusField/cycle_focus，引入 SyncedKey + 6 TextInput）
+  - `9c617c0` — T8 SessionPickerView 外壳迁 Dialog
+  - `8247f82` — T9 SettingsView Appearance section + Dark mode Switch
+- 测试：aish-ui 51 → **77**（+26：Checkbox 5 / Switch 4 / Tabs 5 / Dialog 6 / Select 6）；aish-app 101 不变
+- 已知边界：Dialog Tab 循环 focus trap 留 M13；Select 弹层只向下；Light theme 仍 unimplemented! stub；HostForm 的 password mask toggle 不再支持（M11 TextInput 暂无 mask 模式）；Edit 模式下"Tab 切字段"键盘流不接（依赖 Dialog focus trap）
 
 ### M11 — aish-ui 起步套件（2026-05-09）— ✅ 已完成
 - 父 spec：[`specs/2026-05-09-aish-ui-architecture-design.md`](specs/2026-05-09-aish-ui-architecture-design.md)
