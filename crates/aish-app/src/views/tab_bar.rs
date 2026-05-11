@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use aish_types::TabId;
 use gpui::{
-    div, prelude::*, px, App, Context, Entity, FocusHandle, Focusable, KeyDownEvent, MouseButton,
+    div, prelude::*, px, App, Context, Entity, FocusHandle, Focusable, KeyDownEvent,
     MouseDownEvent, Window,
 };
 
@@ -274,55 +274,26 @@ impl Render for TabBarView {
                         .into_any_element()
                 };
 
-                // connection tab 在标题与关闭键之间显示蓝色 [SSH] 胶囊
-                // （从已删除的 ConnectionChip 横条迁移过来，保留连接类型可视化标识）
-                let ssh_chip: gpui::AnyElement = if is_connection {
-                    aish_ui::Badge::new("SSH").primary().into_any_element()
-                } else {
-                    div().into_any_element()
-                };
-
-                // 选中态底部 2px primary 线（用 border_b 实现）
-                let bottom_line: gpui::AnyElement = if is_selected {
-                    div()
-                        .absolute()
-                        .bottom_0()
-                        .left_0()
-                        .right_0()
-                        .h(px(2.0))
-                        .bg(colors.primary)
-                        .into_any_element()
-                } else {
-                    div().into_any_element()
-                };
-
-                div()
-                    .relative()
+                // suffix: SSH chip（connection tab 专属）+ 关闭按钮
+                let suffix = div()
                     .flex()
                     .flex_row()
                     .items_center()
                     .gap_2()
-                    .px_4()
-                    .h(px(40.0))
-                    .text_size(font_size.sm)
-                    .bg(if is_selected {
-                        colors.background
-                    } else {
-                        colors.card
+                    .when(is_connection, |d| {
+                        d.child(aish_ui::Badge::new("SSH").primary())
                     })
-                    .cursor_pointer()
-                    .hover(|s| s.bg(colors.accent))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, ev: &MouseDownEvent, w, cx| {
-                            this.handle_tab_click(id, ev.click_count, w, cx);
-                        }),
-                    )
-                    .child(prefix)
-                    .child(title_el)
-                    .child(ssh_chip)
                     .child(close_btn)
-                    .child(bottom_line)
+                    .into_any_element();
+
+                aish_ui::TabItem::new(gpui::SharedString::from(format!("tab-{}", id)))
+                    .prefix(prefix)
+                    .title(title_el)
+                    .suffix(suffix)
+                    .active(is_selected)
+                    .on_click(cx.listener(move |this, ev: &MouseDownEvent, w, cx| {
+                        this.handle_tab_click(id, ev.click_count, w, cx);
+                    }))
             })
             .collect();
 
