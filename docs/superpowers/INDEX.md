@@ -10,13 +10,33 @@
 
 ## 当前状态
 
-- **活跃分支**：`feat/aish-ui-m13-20260511-zj`（M13 Card/NavItem/TabItem + 全 view 切组件已完成）
-- **下一里程碑**：M14 — DropdownMenu/ContextMenu + Light theme 实现 + 其他 M11-M13 遗留（TextInput mask / Toast 关闭按钮 / Dialog Tab focus trap / Select 弹层翻转 / Button hover variant 精细化 等）
-- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui 90 + aish-app 101 + 其他 crate) 全过
+- **活跃分支**：`feat/aish-ui-m14-20260511-zj`（M14 Popover/DropdownMenu + Select 改造 + Toast 关闭已完成，待合 main）
+- **下一里程碑**：M15 — ContextMenu（Popover + 右键）/ DropdownMenu 键盘导航 / Light theme 实现 / TextInput mask / TextInput cursor_at_pixel / Dialog Tab focus trap / Button hover variant 精细化 等
+- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui 100 + aish-app 101 + 其他 crate) 全过
 
 ---
 
 ## Milestones（按时间倒序）
+
+### M14 — aish-ui Popover / DropdownMenu + Select 改造 + Toast 关闭（2026-05-11）— ✅ 已完成
+- 父 spec：[`specs/2026-05-09-aish-ui-architecture-design.md`](specs/2026-05-09-aish-ui-architecture-design.md)
+- spec：[`specs/2026-05-11-aish-m14-popover-design.md`](specs/2026-05-11-aish-m14-popover-design.md)
+- plan：[`plans/2026-05-11-aish-m14-popover.md`](plans/2026-05-11-aish-m14-popover.md)
+- 范围：
+  - Popover Entity（click + programmatic 触发 + GPUI anchored Window mode + canvas prepaint 写入 trigger bounds + SwitchAnchor 自动翻转 + Esc/backdrop close + occlude）
+  - MenuItem 数据 struct + DropdownMenu builder（作为 Popover content 使用）
+  - Select 弹层从手糊 absolute 切到 Popover（自动获得 fit_mode 翻转，向下没空间时翻向上）
+  - Toast 每条加 X 关闭按钮（IconButton + weak_entity().upgrade().dismiss）
+- 关键 commits：
+  - `ca9ac72` — T1 Popover（amend 修 fit_mode dead code + handle_key 抽离 + 模块注释补 trigger_bounds 前提）
+  - `5d1e8e9` — T2 MenuItem + DropdownMenu
+  - `d791baa` — T3 Select 改 Popover（amend 修 if popover_open guard + 删冗余 popover_handle）
+  - `f2faf42` — T4 Toast X 关闭按钮（amend 删冗余测试 + 注释 usize 转换假设）
+- 测试：aish-ui 90 → **100**（净 +10：Popover 5 / MenuItem 3 / DropdownMenu 3 / Select 6→5 / Toast 不变）；aish-app 101 不变
+- 已知边界：
+  - DropdownMenu 不接键盘导航（M14 简化版，M15+ 升级为 stateful Entity）
+  - ContextMenu（右键触发）未做，留 M15+
+  - `fit_mode` builder 已删除：gpui `anchored()` API 不允许 runtime 切换 fit mode，默认 SwitchAnchor 已包含
 
 ### M13 — aish-ui Card / NavItem / TabItem + 全 view 切组件（2026-05-11）— ✅ 已完成
 - 父 spec：[`specs/2026-05-09-aish-ui-architecture-design.md`](specs/2026-05-09-aish-ui-architecture-design.md)
