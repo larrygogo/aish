@@ -149,10 +149,12 @@ impl Render for Dialog {
                     .border_color(t.colors.border)
                     .flex()
                     .flex_col()
-                    // 阻止冒泡到 backdrop（GPUI 没原生 stop_propagation，但 hit test 命中
-                    // 子元素时 backdrop on_mouse_down 不会触发同坐标）。空 listener 占位
-                    // 即可，确保点 dialog 内部不关闭。
-                    .on_mouse_down(MouseButton::Left, |_ev, _w, _cx| {})
+                    // 阻止冒泡到 backdrop（GPUI mouse 事件是冒泡的，子元素 mouse_down
+                    // 不会自动拦住父级 listener；必须显式 stop_propagation 才能让
+                    // backdrop 的 close listener 不被点击 dialog 内部时触发）。
+                    .on_mouse_down(MouseButton::Left, |_ev, _w, cx| {
+                        cx.stop_propagation();
+                    })
                     .child(
                         div()
                             .px(t.spacing.px_4)
