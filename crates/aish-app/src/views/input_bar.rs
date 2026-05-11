@@ -240,50 +240,23 @@ impl Render for InputBarView {
             .px(px(8.0))
             .py(px(6.0))
             .child(
-                div()
-                    .w(px(28.0))
-                    .h(px(28.0))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded(px(4.0))
-                    .bg(t.colors.secondary)
-                    .cursor_pointer()
-                    .on_mouse_down(
-                        gpui::MouseButton::Left,
-                        cx.listener(|this, _, _window, cx| {
+                aish_ui::IconButton::new("input-bar-pick", aish_ui::IconName::Plus)
+                    .small()
+                    .secondary()
+                    .on_click(
+                        cx.listener(|this, _ev: &gpui::MouseDownEvent, _window, cx| {
                             this.pick_images(cx);
                         }),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(14.0))
-                            .text_color(rgb(0x888899))
-                            .child("+"),
                     ),
             )
             .child(div().flex_1().child(self.input.clone()))
             .child(
-                div()
-                    .px(px(10.0))
-                    .h(px(28.0))
-                    .flex()
-                    .items_center()
-                    .rounded(px(4.0))
-                    .bg(t.colors.primary)
-                    .cursor_pointer()
-                    .on_mouse_down(
-                        gpui::MouseButton::Left,
-                        cx.listener(|this, _, window, cx| {
-                            this.send(window, cx);
-                        }),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(12.0))
-                            .text_color(t.colors.primary_foreground)
-                            .child("发送"),
-                    ),
+                aish_ui::Button::new("input-bar-send")
+                    .label("发送")
+                    .primary()
+                    .on_click(cx.listener(|this, _ev: &gpui::MouseDownEvent, window, cx| {
+                        this.send(window, cx);
+                    })),
             );
 
         div()
