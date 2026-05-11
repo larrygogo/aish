@@ -1,12 +1,14 @@
-//! Select — 下拉选单。Entity 持久化 open / selected 状态。
+//! Select — 下拉选单。M14 改造：弹层从手糊 absolute 切到 Popover，
+//! 获得自动 fit_mode 翻转（向下没空间时翻向上）。
 
 use std::rc::Rc;
 
 use gpui::{
-    div, prelude::*, App, Context, FocusHandle, Focusable, IntoElement, KeyDownEvent, MouseButton,
-    MouseDownEvent, SharedString, Window,
+    canvas, div, prelude::*, App, Context, Entity, FocusHandle, Focusable, IntoElement,
+    KeyDownEvent, MouseButton, MouseDownEvent, SharedString, Window,
 };
 
+use crate::components::{Popover, PopoverPlacement};
 use crate::icons::{icon, IconName};
 use crate::theme::theme;
 
@@ -16,18 +18,23 @@ pub struct Select {
     focus_handle: FocusHandle,
     options: Vec<SharedString>,
     selected: usize,
-    open: bool,
+    popover: Entity<Popover>,
     placeholder: SharedString,
     on_change: Option<ChangeHandler>,
 }
 
 impl Select {
     pub fn new<S: Into<SharedString>>(options: Vec<S>, cx: &mut Context<Self>) -> Self {
+        let popover = cx.new(|cx| {
+            let mut p = Popover::new(cx);
+            p.placement(PopoverPlacement::Bottom);
+            p
+        });
         Self {
             focus_handle: cx.focus_handle(),
             options: options.into_iter().map(Into::into).collect(),
             selected: 0,
-            open: false,
+            popover,
             placeholder: SharedString::default(),
             on_change: None,
         }
@@ -60,22 +67,18 @@ impl Select {
     }
 
     fn toggle(&mut self, cx: &mut Context<Self>) {
-        self.open = !self.open;
-        cx.notify();
+        self.popover.update(cx, |p, cx| p.toggle(cx));
     }
 
     fn close(&mut self, cx: &mut Context<Self>) {
-        if self.open {
-            self.open = false;
-            cx.notify();
-        }
+        self.popover.update(cx, |p, cx| p.close(cx));
     }
 
     fn select(&mut self, idx: usize, window: &mut Window, cx: &mut Context<Self>) {
         let clamped = idx.min(self.options.len().saturating_sub(1));
         let changed = clamped != self.selected;
         self.selected = clamped;
-        self.open = false;
+        self.close(cx);
         cx.notify();
         if changed {
             if let Some(h) = self.on_change.clone() {
@@ -108,10 +111,11 @@ impl Focusable for Select {
 impl Render for Select {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
-        let open = self.open;
+        let popover_open = self.popover.read(cx).is_open();
         let selected = self.selected;
-        let options = self.options.clone();
         let placeholder = self.placeholder.clone();
+        let options = self.options.clone();
+        let weak_self = cx.weak_entity();
 
         let display_text = self
             .options
@@ -119,8 +123,11 @@ impl Render for Select {
             .cloned()
             .unwrap_or_else(|| placeholder.clone());
 
+        // trigger 元素 — 含 canvas 写入 bounds 到 popover
+        let popover_for_canvas = self.popover.clone();
         let trigger = div()
             .id("select-trigger")
+            .relative()
             .h(gpui::px(28.0))
             .px(t.spacing.px_3)
             .flex()
@@ -140,7 +147,7 @@ impl Render for Select {
                     .child(display_text),
             )
             .child(
-                icon(if open {
+                icon(if popover_open {
                     IconName::ChevronUp
                 } else {
                     IconName::ChevronDown
@@ -153,51 +160,62 @@ impl Render for Select {
                 cx.listener(|this, _ev: &MouseDownEvent, _window, cx| {
                     this.toggle(cx);
                 }),
+            )
+            .child(
+                canvas(
+                    move |bounds, _w, cx| {
+                        let h = popover_for_canvas.clone();
+                        h.update(cx, |p, _cx| p.set_trigger_bounds(bounds));
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full(),
             );
 
-        let dropdown = if open {
-            Some(
-                div()
-                    .absolute()
-                    .top(gpui::px(32.0))
-                    .left_0()
-                    .right_0()
-                    .max_h(gpui::px(240.0))
-                    .overflow_hidden()
-                    .rounded(t.radius.md)
-                    .bg(t.colors.popover)
-                    .border_1()
-                    .border_color(t.colors.border)
-                    .flex()
-                    .flex_col()
-                    .children(options.into_iter().enumerate().map(|(i, opt)| {
-                        let is_selected = i == selected;
-                        div()
-                            .id(("select-option", i))
-                            .h(gpui::px(28.0))
-                            .px(t.spacing.px_3)
-                            .flex()
-                            .items_center()
-                            .text_size(t.font_size.sm)
-                            .text_color(if is_selected {
-                                t.colors.accent_foreground
-                            } else {
-                                t.colors.popover_foreground
-                            })
-                            .when(is_selected, |d| d.bg(t.colors.accent))
-                            .cursor_pointer()
-                            .on_mouse_down(
-                                MouseButton::Left,
-                                cx.listener(move |this, _ev: &MouseDownEvent, window, cx| {
-                                    this.select(i, window, cx);
-                                }),
-                            )
-                            .child(opt)
-                    })),
-            )
-        } else {
-            None
-        };
+        // popover content 选项列表 — 只在展开时构建，避免每帧白白分配 N 个 div
+        if popover_open {
+            let content = div()
+                .flex()
+                .flex_col()
+                .min_w(gpui::px(200.0))
+                .py(t.spacing.px_1)
+                .children(options.into_iter().enumerate().map(|(i, opt)| {
+                    let is_selected = i == selected;
+                    let weak = weak_self.clone();
+                    div()
+                        .id(("select-option", i))
+                        .h(gpui::px(28.0))
+                        .px(t.spacing.px_3)
+                        .flex()
+                        .items_center()
+                        .text_size(t.font_size.sm)
+                        .text_color(if is_selected {
+                            t.colors.accent_foreground
+                        } else {
+                            t.colors.popover_foreground
+                        })
+                        .when(is_selected, |d| d.bg(t.colors.accent))
+                        .cursor_pointer()
+                        .hover({
+                            let accent = t.colors.accent;
+                            move |s| s.bg(accent)
+                        })
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            move |_ev: &MouseDownEvent, window, cx| {
+                                let _ = weak.update(cx, |s, cx| s.select(i, window, cx));
+                            },
+                        )
+                        .child(opt)
+                }));
+
+            self.popover.update(cx, |p, _| {
+                p.content(content);
+            });
+        }
 
         div()
             .relative()
@@ -206,7 +224,7 @@ impl Render for Select {
                 this.handle_key(ev, window, cx);
             }))
             .child(trigger)
-            .children(dropdown)
+            .child(self.popover.clone())
     }
 }
 
@@ -234,15 +252,6 @@ mod tests {
     }
 
     #[test]
-    fn toggle_flips_open() {
-        let mut open = false;
-        open = !open;
-        assert!(open);
-        open = !open;
-        assert!(!open);
-    }
-
-    #[test]
     fn down_arrow_advances_within_range() {
         let mut selected = 0usize;
         let len = 3usize;
@@ -255,7 +264,9 @@ mod tests {
     #[test]
     fn up_arrow_stays_at_zero() {
         let mut selected = 0usize;
-        selected = selected.saturating_sub(1);
+        if selected > 0 {
+            selected = selected.saturating_sub(1);
+        }
         assert_eq!(selected, 0);
     }
 }
