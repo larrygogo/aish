@@ -10,13 +10,34 @@
 
 ## 当前状态
 
-- **活跃分支**：`feat/aish-ui-m12-20260509-zj`（M12 表单与导航 + HostForm/SessionPicker 迁移已完成）
-- **下一里程碑**：M13 — DropdownMenu / ContextMenu + Light theme 实现 + 视觉回归收尾（含 Button hover state / Toast 关闭按钮 / Select 弹层翻转 / Dialog Tab focus trap 等 M11/M12 遗留）
-- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui 77 + aish-app 101 + 其他 crate) 全过
+- **活跃分支**：`feat/aish-ui-m13-20260511-zj`（M13 Card/NavItem/TabItem + 全 view 切组件已完成）
+- **下一里程碑**：M14 — DropdownMenu/ContextMenu + Light theme 实现 + 其他 M11-M13 遗留（TextInput mask / Toast 关闭按钮 / Dialog Tab focus trap / Select 弹层翻转 / Button hover variant 精细化 等）
+- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui 90 + aish-app 101 + 其他 crate) 全过
 
 ---
 
 ## Milestones（按时间倒序）
+
+### M13 — aish-ui Card / NavItem / TabItem + 全 view 切组件（2026-05-11）— ✅ 已完成
+- 父 spec：[`specs/2026-05-09-aish-ui-architecture-design.md`](specs/2026-05-09-aish-ui-architecture-design.md)
+- spec：[`specs/2026-05-11-aish-m13-cards-nav-design.md`](specs/2026-05-11-aish-m13-cards-nav-design.md)
+- plan：[`plans/2026-05-11-aish-m13-cards-nav.md`](plans/2026-05-11-aish-m13-cards-nav.md)
+- 范围：3 个新组件 + 3 处 view 迁移
+  - Card（4 slot: header/body/footer/actions + 3 variant: Default/Outlined/Elevated + on_click + group_hover actions 悬停显隐）
+  - NavItem（vertical+horizontal 双模 + icon 接受任意 IntoElement + label + active indicator: 左 2px vertical / 底 2px horizontal）
+  - TabItem（3 slot: prefix/title/suffix + active 切 bg + 绝对定位底部 2px primary line + on_click 透 click_count）
+  - home host 卡片 → Card（actions 浮在右上角 hover 显示）
+  - sidebar_nav 4 tab → NavItem.vertical()（Nerd Font icon 通过 div+font_family 包装传入）
+  - tab_bar tab 项 → TabItem（rename 状态机和 close stop_propagation 仍在 caller）
+- 关键 commits：
+  - `311dc0b` — T1 Card
+  - `8dc83f3` — T2 NavItem
+  - `5f74da1` — T3 TabItem
+  - `2431e00` — T4 home host 卡片切 Card（Card 内部加 .relative()）
+  - `417d487` — T5 sidebar_nav 切 NavItem
+  - `4290846` — T6 tab_bar 切 TabItem
+- 测试：aish-ui 77 → **90**（+13：Card 4 / NavItem 5 / TabItem 4）；aish-app 101 不变
+- 收尾：aish-app 内复合 view 元素全部组件化（仅 terminal_view 本体 + 已废弃 tmux_sidebar 保留手糊）
 
 ### M12 — aish-ui 表单与导航 + HostForm/SessionPicker 迁移（2026-05-11）— ✅ 已完成
 - 父 spec：[`specs/2026-05-09-aish-ui-architecture-design.md`](specs/2026-05-09-aish-ui-architecture-design.md)
