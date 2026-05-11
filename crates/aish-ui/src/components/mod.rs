@@ -2,6 +2,7 @@
 
 mod badge;
 mod button;
+mod card;
 mod checkbox;
 mod dialog;
 mod icon_button;
@@ -15,6 +16,7 @@ mod tooltip;
 
 pub use badge::{Badge, BadgeVariant};
 pub use button::{Button, ButtonVariant};
+pub use card::{Card, CardVariant};
 pub use checkbox::Checkbox;
 pub use dialog::Dialog;
 pub use icon_button::{IconButton, IconButtonSize};
