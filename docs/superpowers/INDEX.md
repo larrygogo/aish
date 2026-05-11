@@ -10,13 +10,36 @@
 
 ## 当前状态
 
-- **活跃分支**：`feat/aish-ui-m14-20260511-zj`（M14 Popover/DropdownMenu + Select 改造 + Toast 关闭已完成，待合 main）
-- **下一里程碑**：M15 — ContextMenu（Popover + 右键）/ DropdownMenu 键盘导航 / Light theme 实现 / TextInput mask / TextInput cursor_at_pixel / Dialog Tab focus trap / Button hover variant 精细化 等
-- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui 100 + aish-app 101 + 其他 crate) 全过
+- **活跃分支**：`feat/aish-ui-m15-20260511-zj`（M15 Button + IconButton 精细化已完成，待合 main）
+- **下一里程碑**：M16 候选 — ContextMenu（Popover + 右键）/ DropdownMenu 键盘导航 / Light theme 实施（含 M15 留的 6 个占位 token）/ TextInput mask + cursor_at_pixel / Dialog Tab focus trap / 其他组件 hover variant 改造（Card on_click / NavItem / TabItem）
+- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui 110 + aish-app 101 + 其他 crate) 全过
 
 ---
 
 ## Milestones（按时间倒序）
+
+### M15 — aish-ui Button + IconButton 精细化（2026-05-11）— ✅ 已完成
+- 父 spec：[`specs/2026-05-09-aish-ui-architecture-design.md`](specs/2026-05-09-aish-ui-architecture-design.md)
+- spec：[`specs/2026-05-11-aish-m15-button-polish-design.md`](specs/2026-05-11-aish-m15-button-polish-design.md)
+- plan：[`plans/2026-05-11-aish-m15-button-polish.md`](plans/2026-05-11-aish-m15-button-polish.md)
+- 范围：
+  - ColorTokens 加 6 个 hover/active 状态色（primary/secondary/destructive 各一对，Ghost 不动用 accent，Disabled 用 muted）
+  - Dark theme 填 Tokyo Night 阶梯（lightness 单调递增 idle → hover → active）
+  - Light theme 6 个新字段占位 = dark 同值 + TODO 注释（下个 light theme milestone 真正手挑）
+  - Button hover/active 按 variant 分色（GPUI `.hover()` + `.active()` modifier）
+  - Button 加可选 `focus_handle(handle)` builder，传入后 render 用 `is_focused(window)` 判定，true 时画 2px outer ring（box_shadow，spread 2px，color t.colors.ring）
+  - IconButton 同步处理（与 Button 完全对称的 variant 三态 + focus ring）
+- 关键 commits：
+  - `32e3506` — T1 ColorTokens +6 + Dark 填值 + Light 占位 + 6 个单调 lightness 断言测试
+  - `34ca591` — T2 Button hover/active per variant + focus_handle（amend 含 disabled 三写占位 + Ghost active 同色决策注释）
+  - `6f38227` — T3 IconButton 同步处理（amend 含 BoxShadow/point/FocusHandle import 一致性 + 注释对齐）
+- 测试：aish-ui 100 → **110**（净 +10：dark.rs +6 / button.rs +2 / icon_button.rs +2）
+- 已知边界：
+  - Ghost variant hover/active 未拆 token（用 accent 单色）
+  - Disabled 状态视觉不精细化（保持 muted）
+  - Light theme 6 个新 token 仅占位，真正配色留下个 light theme milestone
+  - focus ring 不区分键鼠 focus 路径（focus-visible 留 backlog）
+  - 现有 Button / IconButton callsite 不传 focus_handle，向后兼容；具体接入由后续 milestone 在需要的场景按需做
 
 ### M14 — aish-ui Popover / DropdownMenu + Select 改造 + Toast 关闭（2026-05-11）— ✅ 已完成
 - 父 spec：[`specs/2026-05-09-aish-ui-architecture-design.md`](specs/2026-05-09-aish-ui-architecture-design.md)
