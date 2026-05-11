@@ -321,21 +321,18 @@ impl Render for HomeView {
                 };
 
                 // ───── 编辑 / 删除 hover 按钮 ─────
-                let edit_btn = div()
-                    .px_2()
-                    .py_1()
-                    .rounded_md()
-                    .text_color(colors.secondary_foreground)
-                    .cursor_pointer()
-                    .hover(|s| s.text_color(colors.foreground).bg(colors.accent))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
-                            cx.stop_propagation();
-                            this.handle_edit_click(id, cx);
-                        }),
-                    )
-                    .child("✎");
+                let edit_btn = aish_ui::IconButton::new(
+                    gpui::SharedString::from(format!("host-edit-{}", id)),
+                    aish_ui::IconName::Pencil,
+                )
+                .small()
+                .ghost()
+                .on_click(cx.listener(
+                    move |this, _ev: &MouseDownEvent, _w, cx| {
+                        cx.stop_propagation();
+                        this.handle_edit_click(id, cx);
+                    },
+                ));
 
                 let delete_btn = aish_ui::IconButton::new(
                     gpui::SharedString::from(format!("host-delete-{}", id)),

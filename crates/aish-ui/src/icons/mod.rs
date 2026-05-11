@@ -29,6 +29,7 @@ pub enum IconName {
     Search,
     Settings,
     Trash,
+    Pencil,
 }
 
 impl IconName {
@@ -50,6 +51,7 @@ impl IconName {
         IconName::Search,
         IconName::Settings,
         IconName::Trash,
+        IconName::Pencil,
     ];
 
     /// AssetSource 加载用的 path（对应 assets/icons/ 内文件名）。
@@ -70,6 +72,7 @@ impl IconName {
             IconName::Search => "icons/search.svg",
             IconName::Settings => "icons/settings.svg",
             IconName::Trash => "icons/trash.svg",
+            IconName::Pencil => "icons/pencil.svg",
         }
     }
 
@@ -91,6 +94,7 @@ impl IconName {
             IconName::Search => include_bytes!("../../assets/icons/search.svg"),
             IconName::Settings => include_bytes!("../../assets/icons/settings.svg"),
             IconName::Trash => include_bytes!("../../assets/icons/trash.svg"),
+            IconName::Pencil => include_bytes!("../../assets/icons/pencil.svg"),
         }
     }
 }
