@@ -27,6 +27,13 @@ impl Theme {
                 ring: hex(0x6c91c2),
                 success: hex(0x9ece6a),
                 warning: hex(0xe0af68),
+                // M15 新加：Tokyo Night 阶梯（lightness 单调递增 idle→hover→active）
+                primary_hover: hex(0x4a6ab3),
+                primary_active: hex(0x5a7bc8),
+                secondary_hover: hex(0x3a3a52),
+                secondary_active: hex(0x444460),
+                destructive_hover: hex(0xff8aa1),
+                destructive_active: hex(0xff9cb5),
             },
             radius: Radius::default(),
             spacing: Spacing::default(),
@@ -58,5 +65,41 @@ mod tests {
     fn dark_background_is_very_dark() {
         let t = Theme::dark();
         assert!(t.colors.background.l < 0.15);
+    }
+
+    #[test]
+    fn dark_primary_hover_is_lighter_than_primary() {
+        let t = Theme::dark();
+        assert!(t.colors.primary_hover.l > t.colors.primary.l);
+    }
+
+    #[test]
+    fn dark_primary_active_is_lighter_than_hover() {
+        let t = Theme::dark();
+        assert!(t.colors.primary_active.l > t.colors.primary_hover.l);
+    }
+
+    #[test]
+    fn dark_secondary_hover_is_lighter_than_secondary() {
+        let t = Theme::dark();
+        assert!(t.colors.secondary_hover.l > t.colors.secondary.l);
+    }
+
+    #[test]
+    fn dark_secondary_active_is_lighter_than_hover() {
+        let t = Theme::dark();
+        assert!(t.colors.secondary_active.l > t.colors.secondary_hover.l);
+    }
+
+    #[test]
+    fn dark_destructive_hover_is_lighter_than_destructive() {
+        let t = Theme::dark();
+        assert!(t.colors.destructive_hover.l > t.colors.destructive.l);
+    }
+
+    #[test]
+    fn dark_destructive_active_is_lighter_than_hover() {
+        let t = Theme::dark();
+        assert!(t.colors.destructive_active.l > t.colors.destructive_hover.l);
     }
 }
