@@ -10,6 +10,7 @@ mod nav_item;
 mod select;
 mod separator;
 mod switch;
+mod tab_item;
 mod tabs;
 mod text_input;
 mod toast;
@@ -25,6 +26,7 @@ pub use nav_item::{NavItem, NavItemOrientation};
 pub use select::Select;
 pub use separator::{Orientation, Separator};
 pub use switch::Switch;
+pub use tab_item::TabItem;
 pub use tabs::Tabs;
 pub use text_input::TextInput;
 pub use toast::{
