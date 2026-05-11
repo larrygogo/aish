@@ -135,9 +135,13 @@ impl RenderOnce for Card {
             .when_some(footer, |d, f| d.child(div().child(f)));
 
         if let Some(a) = actions {
+            // wrapper 自己负责 absolute + 右上角定位，caller 只传 actions 内容
+            // （通常是 flex_row + buttons）。caller 不要在 actions 上再加 absolute。
             el = el.child(
                 div()
                     .absolute()
+                    .top(t.spacing.px_2)
+                    .right(t.spacing.px_2)
                     .opacity(0.0)
                     .group_hover(group_name, |s| s.opacity(1.0))
                     .child(a),

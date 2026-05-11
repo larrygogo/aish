@@ -398,11 +398,9 @@ impl Render for HomeView {
                     },
                 ));
 
-                // actions 浮在卡片右上角（Card 内部已 .relative()，absolute 相对 Card 定位）
+                // actions 内容 — Card 内部 wrapper 自己负责 absolute + 右上角定位 +
+                // hover 显隐，caller 只传 row 内容
                 let actions = div()
-                    .absolute()
-                    .top_2()
-                    .right_2()
                     .flex()
                     .flex_row()
                     .gap_1()
