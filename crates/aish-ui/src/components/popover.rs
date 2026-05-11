@@ -101,6 +101,9 @@ impl Popover {
 
     /// 由 trigger element 的 prepaint 阶段调，写入 viewport bounds。
     /// 下一帧 render 时 Popover 用 bounds 定位 anchored child。
+    ///
+    /// **注意**：此处不调 `cx.notify()`。每帧由 prepaint 自然写入即可；
+    /// 若加 notify 会触发帧循环（每帧 bounds 写入 → 重渲染 → 再 prepaint → 再写入）。
     pub fn set_trigger_bounds(&mut self, bounds: Bounds<Pixels>) {
         self.trigger_bounds = Some(bounds);
     }
