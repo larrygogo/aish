@@ -1,13 +1,17 @@
-//! Card — 卡片容器。header / body / footer / actions 四 slot。
+//! Card — 卡片容器。header / body / footer 三 slot + variant + on_click。
 //!
 //! `AnyElement` 不可 Clone，Card 走 `#[derive(IntoElement)] + RenderOnce`
 //! 一次性消费（与 Dialog body 同模式）。每帧调用方通过 builder 重新构造。
+//!
+//! **关于"hover 才显示的浮层"（如编辑/删除按钮）**：Card 不内置 actions
+//! 浮层（之前尝试用 absolute + group_hover 内置但定位歧义大）。需要这种效果
+//! 时，调用方自己在 body 内安排：body 容器 `.relative()` + `.group(name)`，
+//! 浮层 `.absolute().opacity(0).group_hover(name, |s| s.opacity(1.0))`。
 
 use std::rc::Rc;
 
 use gpui::{
-    div, prelude::*, AnyElement, App, ElementId, IntoElement, MouseButton, MouseDownEvent,
-    SharedString, Window,
+    div, prelude::*, AnyElement, App, ElementId, IntoElement, MouseButton, MouseDownEvent, Window,
 };
 
 use crate::theme::theme;
@@ -27,7 +31,6 @@ pub struct Card {
     header: Option<AnyElement>,
     body: Option<AnyElement>,
     footer: Option<AnyElement>,
-    actions: Option<AnyElement>,
     variant: CardVariant,
     on_click: Option<ClickHandler>,
 }
@@ -39,7 +42,6 @@ impl Card {
             header: None,
             body: None,
             footer: None,
-            actions: None,
             variant: CardVariant::Default,
             on_click: None,
         }
@@ -57,11 +59,6 @@ impl Card {
 
     pub fn footer(mut self, f: impl IntoElement) -> Self {
         self.footer = Some(f.into_any_element());
-        self
-    }
-
-    pub fn actions(mut self, a: impl IntoElement) -> Self {
-        self.actions = Some(a.into_any_element());
         self
     }
 
@@ -90,26 +87,15 @@ impl Card {
 impl RenderOnce for Card {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let t = theme(cx);
-        let id = self.id;
-        let variant = self.variant;
-        let on_click = self.on_click;
-        let header = self.header;
-        let body = self.body;
-        let footer = self.footer;
-        let actions = self.actions;
-
-        let group_name = SharedString::from(format!("card-group-{:?}", id));
 
         let mut el = div()
-            .id(id)
-            .group(group_name.clone())
-            .relative()
+            .id(self.id)
             .flex()
             .flex_col()
             .bg(t.colors.card)
             .rounded(t.radius.lg);
 
-        match variant {
+        match self.variant {
             CardVariant::Default => {}
             CardVariant::Outlined => {
                 el = el.border_1().border_color(t.colors.border);
@@ -119,7 +105,7 @@ impl RenderOnce for Card {
             }
         }
 
-        if let Some(handler) = on_click {
+        if let Some(handler) = self.on_click {
             let accent = t.colors.accent;
             el = el
                 .cursor_pointer()
@@ -129,26 +115,9 @@ impl RenderOnce for Card {
                 });
         }
 
-        el = el
-            .when_some(header, |d, h| d.child(div().child(h)))
-            .when_some(body, |d, b| d.child(div().flex_1().child(b)))
-            .when_some(footer, |d, f| d.child(div().child(f)));
-
-        if let Some(a) = actions {
-            // wrapper 自己负责 absolute + 右上角定位，caller 只传 actions 内容
-            // （通常是 flex_row + buttons）。caller 不要在 actions 上再加 absolute。
-            el = el.child(
-                div()
-                    .absolute()
-                    .top(t.spacing.px_2)
-                    .right(t.spacing.px_2)
-                    .opacity(0.0)
-                    .group_hover(group_name, |s| s.opacity(1.0))
-                    .child(a),
-            );
-        }
-
-        el
+        el.when_some(self.header, |d, h| d.child(div().child(h)))
+            .when_some(self.body, |d, b| d.child(div().flex_1().child(b)))
+            .when_some(self.footer, |d, f| d.child(div().child(f)))
     }
 }
 
@@ -163,7 +132,6 @@ mod tests {
         assert!(c.header.is_none());
         assert!(c.body.is_none());
         assert!(c.footer.is_none());
-        assert!(c.actions.is_none());
         assert!(c.on_click.is_none());
     }
 
@@ -178,12 +146,10 @@ mod tests {
         let c = Card::new("a")
             .header(gpui::div())
             .body(gpui::div())
-            .footer(gpui::div())
-            .actions(gpui::div());
+            .footer(gpui::div());
         assert!(c.header.is_some());
         assert!(c.body.is_some());
         assert!(c.footer.is_some());
-        assert!(c.actions.is_some());
     }
 
     #[test]

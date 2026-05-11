@@ -327,7 +327,12 @@ impl Render for HomeView {
                     .child("›");
 
                 // ───── 卡片主体 row ─────
+                // 用 .relative() + .group(name) 让浮层 actions 相对 body row 定位
+                // + hover 时显示。group_name 用 host id 派生避免多卡片相互影响。
+                let group_name = gpui::SharedString::from(format!("host-card-row-{}", id));
                 let body_row = div()
+                    .relative()
+                    .group(group_name.clone())
                     .flex()
                     .flex_row()
                     .items_center()
@@ -398,19 +403,24 @@ impl Render for HomeView {
                     },
                 ));
 
-                // actions 内容 — Card 内部 wrapper 自己负责 absolute + 右上角定位 +
-                // hover 显隐，caller 只传 row 内容
-                let actions = div()
+                // actions 浮层：absolute 贴 body row 右上角，hover 时显示
+                let actions_overlay = div()
+                    .absolute()
+                    .top_2()
+                    .right_2()
+                    .opacity(0.0)
+                    .group_hover(group_name, |s| s.opacity(1.0))
                     .flex()
                     .flex_row()
                     .gap_1()
                     .child(edit_btn)
                     .child(delete_btn);
 
+                let body_with_actions = body_row.child(actions_overlay);
+
                 // ───── 整张卡片 - 用 aish_ui::Card ─────
                 aish_ui::Card::new(gpui::SharedString::from(format!("host-card-{}", id)))
-                    .body(body_row)
-                    .actions(actions)
+                    .body(body_with_actions)
                     .on_click(cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
                         this.handle_card_click(id, cx);
                     }))
