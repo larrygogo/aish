@@ -26,6 +26,13 @@ pub struct ColorTokens {
     pub ring: Hsla,
     pub success: Hsla,
     pub warning: Hsla,
+    // M15 新加：按 variant 的 hover / active 状态色
+    pub primary_hover: Hsla,
+    pub primary_active: Hsla,
+    pub secondary_hover: Hsla,
+    pub secondary_active: Hsla,
+    pub destructive_hover: Hsla,
+    pub destructive_active: Hsla,
 }
 
 #[derive(Clone, Copy)]

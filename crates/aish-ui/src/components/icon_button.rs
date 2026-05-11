@@ -3,7 +3,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    div, prelude::*, px, App, ElementId, IntoElement, MouseButton, MouseDownEvent, Pixels, Window,
+    div, point, prelude::*, px, App, BoxShadow, ElementId, FocusHandle, IntoElement, MouseButton,
+    MouseDownEvent, Pixels, Window,
 };
 
 use crate::components::ButtonVariant;
@@ -41,6 +42,7 @@ pub struct IconButton {
     size: IconButtonSize,
     disabled: bool,
     on_click: Option<ClickHandler>,
+    focus_handle: Option<FocusHandle>,
 }
 
 impl IconButton {
@@ -52,6 +54,7 @@ impl IconButton {
             size: IconButtonSize::Md,
             disabled: false,
             on_click: None,
+            focus_handle: None,
         }
     }
 
@@ -102,24 +105,65 @@ impl IconButton {
         self.on_click = Some(Rc::new(handler));
         self
     }
+
+    pub fn focus_handle(mut self, h: FocusHandle) -> Self {
+        self.focus_handle = Some(h);
+        self
+    }
 }
 
 impl RenderOnce for IconButton {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let t = theme(cx);
         let disabled = self.disabled;
-        let (bg, fg) = if disabled {
-            (t.colors.muted, t.colors.muted_foreground)
+
+        // (idle_bg, hover_bg, active_bg, fg)
+        let (idle_bg, hover_bg, active_bg, fg) = if disabled {
+            // disabled 状态下面 `if !disabled { hover/active }` 不挂，
+            // hover_bg / active_bg 这两个值实际不会被消费，三写仅占位。
+            (
+                t.colors.muted,
+                t.colors.muted,
+                t.colors.muted,
+                t.colors.muted_foreground,
+            )
         } else {
             match self.variant {
-                ButtonVariant::Primary => (t.colors.primary, t.colors.primary_foreground),
-                ButtonVariant::Secondary => (t.colors.secondary, t.colors.secondary_foreground),
-                ButtonVariant::Destructive => {
-                    (t.colors.destructive, t.colors.destructive_foreground)
-                }
-                ButtonVariant::Ghost => (gpui::transparent_black(), t.colors.foreground),
+                ButtonVariant::Primary => (
+                    t.colors.primary,
+                    t.colors.primary_hover,
+                    t.colors.primary_active,
+                    t.colors.primary_foreground,
+                ),
+                ButtonVariant::Secondary => (
+                    t.colors.secondary,
+                    t.colors.secondary_hover,
+                    t.colors.secondary_active,
+                    t.colors.secondary_foreground,
+                ),
+                ButtonVariant::Destructive => (
+                    t.colors.destructive,
+                    t.colors.destructive_hover,
+                    t.colors.destructive_active,
+                    t.colors.destructive_foreground,
+                ),
+                ButtonVariant::Ghost => (
+                    gpui::transparent_black(),
+                    t.colors.accent,
+                    // Ghost active 故意与 hover 同色（M15 决策：Ghost 不引入 accent_active token，
+                    // 保持简单。idle 透明 → hover/active 同色 accent 已有足够对比）
+                    t.colors.accent,
+                    t.colors.foreground,
+                ),
             }
         };
+
+        let ring = t.colors.ring;
+        let is_focused = self
+            .focus_handle
+            .as_ref()
+            .map(|h| h.is_focused(window))
+            .unwrap_or(false);
 
         let bs = self.size.box_size();
         let isz = self.size.icon_size();
@@ -132,12 +176,27 @@ impl RenderOnce for IconButton {
             .items_center()
             .justify_center()
             .rounded(t.radius.sm)
-            .bg(bg)
+            .bg(idle_bg)
             .child(icon(self.icon_name).size(isz).text_color(fg));
 
+        if let Some(ref handle) = self.focus_handle {
+            el = el.track_focus(handle);
+        }
+
+        if is_focused {
+            el = el.shadow(vec![BoxShadow {
+                color: ring,
+                offset: point(px(0.0), px(0.0)),
+                blur_radius: px(0.0),
+                spread_radius: px(2.0),
+            }]);
+        }
+
         if !disabled {
-            let hover_bg = t.colors.accent;
-            el = el.cursor_pointer().hover(move |s| s.bg(hover_bg));
+            el = el
+                .cursor_pointer()
+                .hover(move |s| s.bg(hover_bg))
+                .active(move |s| s.bg(active_bg));
             if let Some(handler) = self.on_click {
                 el = el.on_mouse_down(MouseButton::Left, move |ev, window, cx| {
                     handler(ev, window, cx);
@@ -181,5 +240,17 @@ mod tests {
             IconButtonSize::Md.icon_size(),
             IconButtonSize::Md.box_size() - px(8.0)
         );
+    }
+
+    #[test]
+    fn focus_handle_default_none() {
+        let b = IconButton::new("close", IconName::X);
+        assert!(b.focus_handle.is_none());
+    }
+
+    #[test]
+    fn focus_handle_field_exists() {
+        let b = IconButton::new("close", IconName::X);
+        let _: &Option<FocusHandle> = &b.focus_handle;
     }
 }
