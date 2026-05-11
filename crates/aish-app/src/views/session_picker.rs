@@ -15,9 +15,7 @@ use std::sync::Arc;
 
 use aish_types::ConnectionId;
 use aish_ui::{theme, Dialog};
-use gpui::{
-    div, prelude::*, Context, Entity, IntoElement, MouseButton, MouseDownEvent, Window,
-};
+use gpui::{div, prelude::*, Context, Entity, IntoElement, MouseButton, MouseDownEvent, Window};
 
 use crate::bridge::Bridge;
 use crate::state::{AppState, SessionCommand, SshEvent, TmuxState};
