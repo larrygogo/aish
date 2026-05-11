@@ -143,6 +143,7 @@ impl Render for HomeView {
 
         // ───── Quick Actions 顶部栏 ─────
         let add_btn = div()
+            .id("home-add-host-btn")
             .px_4()
             .py_2()
             .text_size(font_size.sm)
