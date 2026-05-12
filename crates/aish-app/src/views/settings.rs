@@ -1,8 +1,20 @@
-//! SettingsView：M4b 静态三段 + M12 加 Appearance section（Switch 演示位）。
+//! SettingsView — Card 分组布局（2026-05-12 UI-polish 重写）。
+//!
+//! 原版（M4b 静态三段 + M12 加 Switch 演示位）问题：
+//!   - 全部 section 平铺无分组，section header 11px 灰字识别度低
+//!   - 行高 py(2~4px) 过密
+//!   - SETTINGS 主标题 20px 后跟 1px border 显得突兀
+//!
+//! 重写后：每个 section 用 aish_ui::Card outlined 包裹（header = section
+//! title），section 间 gap_4 间距；行内统一 px_4 / py_3 内边距；shortcut
+//! 表格化 grid 风格（左列固定 200px）。
+//!
+//! 注：keyboard shortcuts 当前仍是**文档级**展示（无实际键盘绑定代码），
+//! Ctrl+1/2/3 路由到 sidebar tab 等留 backlog。
 
-use aish_ui::theme::ColorTokens;
-use aish_ui::{theme, toast_warning, Switch};
-use gpui::{div, prelude::*, px, Context, Hsla, Window};
+use aish_ui::theme::{ColorTokens, FontSize};
+use aish_ui::{theme, toast_warning, Card, Switch};
+use gpui::{div, prelude::*, px, AnyElement, Context, IntoElement, SharedString, Window};
 
 pub struct SettingsView {
     /// Dark mode toggle 状态。M12：实际不真切 theme（Light 未实现），
@@ -22,41 +34,153 @@ impl Default for SettingsView {
     }
 }
 
-fn section_header(title: &'static str, muted: Hsla) -> impl IntoElement {
+/// section card 的 header：粗体 14px + px/py 一致内边距 + 底部 border。
+fn section_header(title: &'static str, colors: ColorTokens, fs: FontSize) -> AnyElement {
     div()
-        .pt_4()
-        .pb_1()
-        .text_size(px(11.0))
-        .text_color(muted)
+        .px_4()
+        .py_3()
+        .text_size(fs.sm)
+        .text_color(colors.foreground)
+        .border_b_1()
+        .border_color(colors.border)
         .child(title)
+        .into_any_element()
 }
 
-fn shortcut_row(key: &'static str, action: &'static str, colors: ColorTokens) -> impl IntoElement {
+/// 两列行：左 200px 固定，右自然宽。用于 shortcut / info pair。
+fn two_column_row(left: &str, right: &str, colors: ColorTokens, fs: FontSize) -> AnyElement {
     div()
         .flex()
         .flex_row()
-        .py(px(2.0))
+        .items_center()
+        .px_4()
+        .py(px(8.0))
         .child(
             div()
-                .w(px(180.0))
-                .text_size(px(14.0))
+                .w(px(200.0))
+                .text_size(fs.sm)
                 .text_color(colors.secondary_foreground)
-                .child(key),
+                .child(SharedString::from(left.to_string())),
         )
         .child(
             div()
-                .text_size(px(14.0))
+                .flex_1()
+                .text_size(fs.sm)
                 .text_color(colors.foreground)
-                .child(action),
+                .child(SharedString::from(right.to_string())),
         )
+        .into_any_element()
+}
+
+/// 标签 + 控件横向行（用于 Appearance 的 Dark mode 这种 label + Switch）。
+fn control_row(
+    label: &'static str,
+    control: AnyElement,
+    colors: ColorTokens,
+    fs: FontSize,
+) -> AnyElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .justify_between()
+        .px_4()
+        .py(px(10.0))
+        .child(
+            div()
+                .text_size(fs.sm)
+                .text_color(colors.foreground)
+                .child(label),
+        )
+        .child(control)
+        .into_any_element()
 }
 
 impl Render for SettingsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let version = env!("CARGO_PKG_VERSION");
-        let colors = theme(cx).colors;
+        let t = theme(cx);
+        let colors = t.colors;
+        let fs = t.font_size;
         let dark = self.dark_mode;
 
+        // ───── 页面标题 ─────
+        let page_title = div()
+            .pb_6()
+            .text_size(px(24.0))
+            .text_color(colors.foreground)
+            .child("Settings");
+
+        // ───── Appearance ─────
+        let dark_switch = Switch::new("settings-dark-mode")
+            .checked(dark)
+            .on_change(cx.listener(|this, new_value: &bool, _w, cx| {
+                if !*new_value {
+                    // 切到 Light：未实现，弹 toast + Switch 视觉回弹
+                    toast_warning(cx, "Light theme not yet implemented");
+                    // 不更新 this.dark_mode → 下一帧 render 时
+                    // Switch 用 dark=true 自动回弹到 on。
+                    cx.notify();
+                } else {
+                    this.dark_mode = true;
+                    cx.notify();
+                }
+            }))
+            .into_any_element();
+
+        let appearance_card = Card::new("settings-appearance")
+            .outlined()
+            .header(section_header("Appearance", colors, fs))
+            .body(
+                div()
+                    .flex()
+                    .flex_col()
+                    .child(control_row("Dark mode", dark_switch, colors, fs)),
+            );
+
+        // ───── Keyboard Shortcuts ─────
+        // 当前仅文档级展示（实际键盘路由 backlog）。Inbox 删除后顺序：
+        // Ctrl+1=Home / Ctrl+2=Terminal / Ctrl+3=Settings。
+        let shortcuts_card = Card::new("settings-shortcuts")
+            .outlined()
+            .header(section_header("Keyboard Shortcuts", colors, fs))
+            .body(
+                div()
+                    .flex()
+                    .flex_col()
+                    .child(two_column_row("Ctrl+Shift+V", "粘贴", colors, fs))
+                    .child(two_column_row("Ctrl+W", "关闭 tab", colors, fs))
+                    .child(two_column_row("Ctrl+T", "新 tab", colors, fs))
+                    .child(two_column_row("Ctrl+1", "Home", colors, fs))
+                    .child(two_column_row("Ctrl+2", "Terminal", colors, fs))
+                    .child(two_column_row("Ctrl+3", "Settings", colors, fs)),
+            );
+
+        // ───── About（合并原 APP INFO + ABOUT）─────
+        let about_card = Card::new("settings-about")
+            .outlined()
+            .header(section_header("About", colors, fs))
+            .body(
+                div()
+                    .flex()
+                    .flex_col()
+                    .child(two_column_row(
+                        "Version",
+                        &format!("aish v{}", version),
+                        colors,
+                        fs,
+                    ))
+                    .child(two_column_row("Build date", "2026-05-08", colors, fs))
+                    .child(two_column_row(
+                        "Repository",
+                        "github.com/larrygogo/aish",
+                        colors,
+                        fs,
+                    ))
+                    .child(two_column_row("License", "MIT", colors, fs)),
+            );
+
+        // ───── 整页布局 ─────
         div()
             .id("settings-scroll")
             .size_full()
@@ -64,94 +188,15 @@ impl Render for SettingsView {
             .overflow_y_scroll()
             .px_8()
             .py_6()
-            // 页面标题
-            .child(
-                div()
-                    .text_size(px(20.0))
-                    .text_color(colors.foreground)
-                    .child("SETTINGS"),
-            )
-            .child(div().h(px(1.0)).my_3().bg(colors.border))
-            // APPEARANCE — M12 新增
-            .child(section_header("APPEARANCE", colors.muted_foreground))
+            .child(page_title)
             .child(
                 div()
                     .flex()
-                    .flex_row()
-                    .items_center()
-                    .justify_between()
-                    .py(px(4.0))
-                    .child(
-                        div()
-                            .text_size(px(14.0))
-                            .text_color(colors.foreground)
-                            .child("Dark mode"),
-                    )
-                    .child(
-                        Switch::new("settings-dark-mode")
-                            .checked(dark)
-                            .on_change(cx.listener(
-                                |this, new_value: &bool, _w, cx| {
-                                    if !*new_value {
-                                        // 切到 Light：未实现，弹 toast + Switch 视觉回弹
-                                        toast_warning(
-                                            cx,
-                                            "Light theme not yet implemented",
-                                        );
-                                        // 不更新 this.dark_mode → 下一帧 render 时
-                                        // Switch 用 dark=true 自动回弹到 on。
-                                        cx.notify();
-                                    } else {
-                                        this.dark_mode = true;
-                                        cx.notify();
-                                    }
-                                },
-                            )),
-                    ),
-            )
-            // APP INFO
-            .child(section_header("APP INFO", colors.muted_foreground))
-            .child(
-                div()
-                    .py(px(2.0))
-                    .text_size(px(14.0))
-                    .text_color(colors.foreground)
-                    .child(format!("aish  v{}", version)),
-            )
-            .child(
-                div()
-                    .py(px(2.0))
-                    .text_size(px(14.0))
-                    .text_color(colors.secondary_foreground)
-                    .child("Built 2026-05-08"),
-            )
-            // KEYBOARD SHORTCUTS
-            .child(section_header(
-                "KEYBOARD SHORTCUTS",
-                colors.muted_foreground,
-            ))
-            .child(shortcut_row("Ctrl+Shift+V", "粘贴", colors))
-            .child(shortcut_row("Ctrl+W", "关闭 tab", colors))
-            .child(shortcut_row("Ctrl+T", "新 tab", colors))
-            .child(shortcut_row("Ctrl+1", "Home", colors))
-            .child(shortcut_row("Ctrl+2", "Terminal", colors))
-            .child(shortcut_row("Ctrl+3", "Inbox", colors))
-            .child(shortcut_row("Ctrl+4", "Settings", colors))
-            // ABOUT
-            .child(section_header("ABOUT", colors.muted_foreground))
-            .child(
-                div()
-                    .py(px(2.0))
-                    .text_size(px(14.0))
-                    .text_color(colors.foreground)
-                    .child("github.com/larrygogo/aish"),
-            )
-            .child(
-                div()
-                    .py(px(2.0))
-                    .text_size(px(14.0))
-                    .text_color(colors.secondary_foreground)
-                    .child("MIT License"),
+                    .flex_col()
+                    .gap_4()
+                    .child(appearance_card)
+                    .child(shortcuts_card)
+                    .child(about_card),
             )
     }
 }
