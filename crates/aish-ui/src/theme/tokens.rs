@@ -33,6 +33,8 @@ pub struct ColorTokens {
     pub secondary_active: Hsla,
     pub destructive_hover: Hsla,
     pub destructive_active: Hsla,
+    // M17 新加：accent 系列容器按下反馈
+    pub accent_active: Hsla,
 }
 
 #[derive(Clone, Copy)]

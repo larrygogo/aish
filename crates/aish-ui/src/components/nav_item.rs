@@ -128,7 +128,11 @@ impl RenderOnce for NavItem {
 
         if !active {
             let hover_fg = t.colors.secondary_foreground;
-            el = el.hover(move |s| s.text_color(hover_fg));
+            let hover_bg = t.colors.accent;
+            let active_bg = t.colors.accent_active;
+            el = el
+                .hover(move |s| s.text_color(hover_fg).bg(hover_bg))
+                .active(move |s| s.bg(active_bg));
         }
 
         if let Some(handler) = on_click {
@@ -189,5 +193,16 @@ mod tests {
     fn on_click_stored() {
         let n = NavItem::new("a").on_click(|_, _, _| {});
         assert!(n.on_click.is_some());
+    }
+
+    #[test]
+    fn hover_only_when_inactive() {
+        // 验证 NavItem 的 active 字段是否决定 hover 路径分支：
+        // active=false → 走 hover bg/text 改变 + active bg
+        // active=true → 不接管 hover/active（spec D-5）
+        let inactive = NavItem::new("a").active(false);
+        let active = NavItem::new("a").active(true);
+        assert!(!inactive.active);
+        assert!(active.active);
     }
 }

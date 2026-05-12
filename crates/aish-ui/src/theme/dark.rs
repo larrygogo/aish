@@ -34,6 +34,8 @@ impl Theme {
                 secondary_active: hex(0x444460),
                 destructive_hover: hex(0xff8aa1),
                 destructive_active: hex(0xff9cb5),
+                // M17 新加：accent 按下反馈，比 accent 更深（lightness 与 M15 系列方向相反）
+                accent_active: hex(0x4a7099),
             },
             radius: Radius::default(),
             spacing: Spacing::default(),
@@ -101,5 +103,12 @@ mod tests {
     fn dark_destructive_active_is_lighter_than_hover() {
         let t = Theme::dark();
         assert!(t.colors.destructive_active.l > t.colors.destructive_hover.l);
+    }
+
+    #[test]
+    fn dark_accent_active_is_darker_than_accent() {
+        let t = Theme::dark();
+        // M17：accent_active 比 accent 更深（容器按下"沉下去"，与 M15 系列变亮方向相反）
+        assert!(t.colors.accent_active.l < t.colors.accent.l);
     }
 }
