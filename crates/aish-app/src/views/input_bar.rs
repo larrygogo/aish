@@ -33,9 +33,13 @@ impl InputBarView {
         let weak_self = cx.weak_entity();
         input.update(cx, |i, _cx| {
             i.placeholder("输入文字（Enter 发送）");
-            i.on_submit(move |_text, window, cx| {
+            // 把 callback 收到的 text 直接传给 send，避免 send 内再
+            // self.input.read(cx) —— Enter 调用链里 TextInput entity 已被
+            // listener mut-borrow，read 同一 entity 会触发 double_lease panic。
+            i.on_submit(move |text, window, cx| {
+                let text = text.to_string();
                 if let Some(this) = weak_self.upgrade() {
-                    this.update(cx, |this, cx| this.send(window, cx));
+                    this.update(cx, move |this, cx| this.send(text, window, cx));
                 }
             });
         });
@@ -102,8 +106,11 @@ impl InputBarView {
         .detach();
     }
 
-    fn send(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        let text = self.input.read(cx).text().trim().to_string();
+    /// `text` 由调用方传入 —— 发送按钮 click 路径在 listener 内 read 自己
+    /// input 是安全的；Enter 路径必须从 on_submit callback 参数拿（见 new()
+    /// 注释）。本函数内**不再** self.input.read(cx)，避免 double_lease panic。
+    fn send(&mut self, text: String, _window: &mut Window, cx: &mut Context<Self>) {
+        let text = text.trim().to_string();
 
         let conn = match self.state.read(cx).current_connection() {
             Some(c) => c,
@@ -276,7 +283,10 @@ impl Render for InputBarView {
                     .label("发送")
                     .primary()
                     .on_click(cx.listener(|this, _ev: &gpui::MouseDownEvent, window, cx| {
-                        this.send(window, cx);
+                        // 按钮 click 路径不嵌套（InputBarView listener，
+                        // input 是别的 entity，read 是首次借用 OK）
+                        let text = this.input.read(cx).text().to_string();
+                        this.send(text, window, cx);
                     })),
             );
 
