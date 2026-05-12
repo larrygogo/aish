@@ -1,4 +1,8 @@
-//! Host avatar 调色板：按 string hash 选色，保证同一 host label 总是同色。
+//! Host avatar：
+//! - 调色板版（按 string hash 选色 + 首字母）：未探测到 OS 时 fallback
+//! - 发行版品牌色版：探测到 os_kind 后用品牌色背景 +（真 SVG logo 或单字母）
+
+use aish_ui::IconName;
 
 const AVATAR_PALETTE: &[u32] = &[
     0x6366f1, // indigo
@@ -19,40 +23,90 @@ pub fn avatar_color_for(label: &str) -> u32 {
     AVATAR_PALETTE[(sum as usize) % AVATAR_PALETTE.len()]
 }
 
-/// 把 `/etc/os-release` 的 ID 字段（小写）映射到 Nerd Font glyph + 推荐色。
+/// Host 卡片 avatar 内容模式：
+/// - `Svg`：内嵌 simpleicons.org logo（白色 svg on 品牌色背景）
+/// - `Letter`：未提供 SVG 的发行版用单字母 + 品牌色（视觉与首字母 fallback
+///   一致，区别只是背景色用发行版品牌色而非 hash 调色板）
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OsAvatar {
+    Svg { icon: IconName, bg: u32 },
+    Letter { letter: char, bg: u32 },
+}
+
+/// 把 `/etc/os-release` 的 ID 字段（小写）映射到 avatar 内容。
+/// 返回 None 表示未识别的 distro，调用方继续 fallback 到 host label 首字母
+/// + palette 色。
 ///
-/// 返回 `(glyph, bg_color)` —— bg_color 是 logo 背景方块的色（按发行版品牌色，
-/// 与首字母 avatar 的 palette 解耦）。未知 ID 返回 None，调用方 fallback 首字母。
-///
-/// Nerd Font v3 nf-linux-* 系列 codepoint：
-///   ubuntu  U+F31B  debian  U+F306  arch    U+F303  alpine  U+F300
-///   centos  U+F304  fedora  U+F30A  redhat  U+F316  rocky   U+F32B
-///   mint    U+F30E  manjaro U+F312  nixos   U+F313  gentoo  U+F30D
-///   opensuse U+F314 raspbian U+F315  elementary U+F309
-///   tux fallback U+F17C (Linux 企鹅，未明确发行版时用)
-pub fn os_logo_for(os_kind: &str) -> Option<(&'static str, u32)> {
+/// 已支持 SVG 的发行版（7 个常用）：ubuntu / debian / arch / alpine /
+/// centos / fedora / rhel(redhat)
+/// 仅有品牌色 + 字母的发行版：rocky / mint / manjaro / nixos / gentoo /
+/// opensuse / raspbian / elementary
+pub fn os_avatar_for(os_kind: &str) -> Option<OsAvatar> {
     let kind = os_kind.trim().to_ascii_lowercase();
     match kind.as_str() {
-        "ubuntu" => Some(("\u{f31b}", 0xe95420)),
-        "debian" => Some(("\u{f306}", 0xa81d33)),
-        "arch" => Some(("\u{f303}", 0x1793d1)),
-        "alpine" => Some(("\u{f300}", 0x0d597f)),
-        "centos" => Some(("\u{f304}", 0x932279)),
-        "fedora" => Some(("\u{f30a}", 0x294172)),
-        "rhel" | "redhat" => Some(("\u{f316}", 0xee0000)),
-        "rocky" => Some(("\u{f32b}", 0x10b981)),
-        "linuxmint" | "mint" => Some(("\u{f30e}", 0x86be3c)),
-        "manjaro" => Some(("\u{f312}", 0x35bf5c)),
-        "nixos" => Some(("\u{f313}", 0x5277c3)),
-        "gentoo" => Some(("\u{f30d}", 0x54487a)),
+        "ubuntu" => Some(OsAvatar::Svg {
+            icon: IconName::DistroUbuntu,
+            bg: 0xe95420,
+        }),
+        "debian" => Some(OsAvatar::Svg {
+            icon: IconName::DistroDebian,
+            bg: 0xa81d33,
+        }),
+        "arch" => Some(OsAvatar::Svg {
+            icon: IconName::DistroArch,
+            bg: 0x1793d1,
+        }),
+        "alpine" => Some(OsAvatar::Svg {
+            icon: IconName::DistroAlpine,
+            bg: 0x0d597f,
+        }),
+        "centos" => Some(OsAvatar::Svg {
+            icon: IconName::DistroCentos,
+            bg: 0x932279,
+        }),
+        "fedora" => Some(OsAvatar::Svg {
+            icon: IconName::DistroFedora,
+            bg: 0x294172,
+        }),
+        "rhel" | "redhat" => Some(OsAvatar::Svg {
+            icon: IconName::DistroRedhat,
+            bg: 0xee0000,
+        }),
+        "rocky" => Some(OsAvatar::Letter {
+            letter: 'R',
+            bg: 0x10b981,
+        }),
+        "linuxmint" | "mint" => Some(OsAvatar::Letter {
+            letter: 'M',
+            bg: 0x86be3c,
+        }),
+        "manjaro" => Some(OsAvatar::Letter {
+            letter: 'M',
+            bg: 0x35bf5c,
+        }),
+        "nixos" => Some(OsAvatar::Letter {
+            letter: 'N',
+            bg: 0x5277c3,
+        }),
+        "gentoo" => Some(OsAvatar::Letter {
+            letter: 'G',
+            bg: 0x54487a,
+        }),
         "opensuse" | "opensuse-leap" | "opensuse-tumbleweed" | "suse" | "sles" => {
-            Some(("\u{f314}", 0x73ba25))
+            Some(OsAvatar::Letter {
+                letter: 'S',
+                bg: 0x73ba25,
+            })
         }
-        "raspbian" => Some(("\u{f315}", 0xa22846)),
-        "elementary" => Some(("\u{f309}", 0x64baff)),
-        // 兜底：任何未列出的 Linux 发行版（如 amzn / ol / clear-linux 等）
-        // 用通用 Tux 企鹅图标 + 中性灰
-        _ => Some(("\u{f17c}", 0x6b7280)),
+        "raspbian" => Some(OsAvatar::Letter {
+            letter: 'P',
+            bg: 0xa22846,
+        }),
+        "elementary" => Some(OsAvatar::Letter {
+            letter: 'E',
+            bg: 0x64baff,
+        }),
+        _ => None,
     }
 }
 
@@ -61,27 +115,36 @@ mod tests {
     use super::*;
 
     #[test]
-    fn os_logo_for_ubuntu_returns_ubuntu_glyph() {
-        let (glyph, _bg) = os_logo_for("ubuntu").unwrap();
-        assert_eq!(glyph, "\u{f31b}");
+    fn os_avatar_for_ubuntu_returns_svg() {
+        match os_avatar_for("ubuntu") {
+            Some(OsAvatar::Svg { icon, .. }) => assert_eq!(icon, IconName::DistroUbuntu),
+            other => panic!("expected Svg(Ubuntu), got {:?}", other),
+        }
     }
 
     #[test]
-    fn os_logo_for_case_insensitive() {
-        assert!(os_logo_for("UBUNTU").is_some());
-        assert!(os_logo_for(" Debian ").is_some());
+    fn os_avatar_for_nixos_returns_letter_n() {
+        match os_avatar_for("nixos") {
+            Some(OsAvatar::Letter { letter, .. }) => assert_eq!(letter, 'N'),
+            other => panic!("expected Letter('N'), got {:?}", other),
+        }
     }
 
     #[test]
-    fn os_logo_for_unknown_id_falls_back_to_tux() {
-        let (glyph, _) = os_logo_for("some-future-distro").unwrap();
-        assert_eq!(glyph, "\u{f17c}");
+    fn os_avatar_for_case_insensitive() {
+        assert!(os_avatar_for("UBUNTU").is_some());
+        assert!(os_avatar_for(" Debian ").is_some());
     }
 
     #[test]
-    fn os_logo_for_aliases_match() {
-        assert_eq!(os_logo_for("redhat"), os_logo_for("rhel"));
-        assert_eq!(os_logo_for("mint"), os_logo_for("linuxmint"));
-        assert_eq!(os_logo_for("opensuse"), os_logo_for("suse"));
+    fn os_avatar_for_unknown_returns_none() {
+        assert!(os_avatar_for("some-future-distro").is_none());
+    }
+
+    #[test]
+    fn os_avatar_aliases_match() {
+        assert_eq!(os_avatar_for("redhat"), os_avatar_for("rhel"));
+        assert_eq!(os_avatar_for("mint"), os_avatar_for("linuxmint"));
+        assert_eq!(os_avatar_for("opensuse"), os_avatar_for("suse"));
     }
 }

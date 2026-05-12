@@ -286,12 +286,15 @@ impl Render for HomeView {
                 // 该 host 的活跃连接数
                 let active_count = app.connections.values().filter(|c| c.host_id == id).count();
 
-                // ───── 左侧 avatar ─────
-                // os_kind 已探测：用 Nerd Font 发行版 logo + 品牌色背景
-                // 未探测 / 探测失败：fallback 首字母 + 调色板色
-                let os_logo = h.os_kind.as_deref().and_then(crate::avatar::os_logo_for);
-                let avatar = if let Some((glyph, bg)) = os_logo {
-                    div()
+                // ───── 左侧 avatar：三种模式 ─────
+                // 1. os_kind 已探测且 simpleicons SVG 已内置 → SVG + 品牌色
+                //    (ubuntu/debian/arch/alpine/centos/fedora/redhat 7 个)
+                // 2. os_kind 已探测但仅品牌色支持 → 单字母 + 品牌色
+                //    (rocky/mint/manjaro/nixos/gentoo/opensuse/raspbian/elementary)
+                // 3. os_kind 未探测 / 完全未识别 → fallback host label 首字母 + palette 色
+                let os_avatar = h.os_kind.as_deref().and_then(crate::avatar::os_avatar_for);
+                let avatar: gpui::AnyElement = match os_avatar {
+                    Some(crate::avatar::OsAvatar::Svg { icon, bg }) => div()
                         .w(px(40.0))
                         .h(px(40.0))
                         .flex()
@@ -299,29 +302,41 @@ impl Render for HomeView {
                         .justify_center()
                         .bg(rgb(bg))
                         .rounded_xl()
-                        .text_color(colors.primary_foreground)
-                        .font_family(crate::terminal::font::FONT_NAME)
-                        .text_size(px(20.0))
-                        .child(glyph)
-                } else {
-                    let initial = label
-                        .chars()
-                        .next()
-                        .unwrap_or('?')
-                        .to_uppercase()
-                        .to_string();
-                    let avatar_bg = crate::avatar::avatar_color_for(&label);
-                    div()
+                        .child(aish_ui::icon(icon).size(px(22.0)).text_color(gpui::white()))
+                        .into_any_element(),
+                    Some(crate::avatar::OsAvatar::Letter { letter, bg }) => div()
                         .w(px(40.0))
                         .h(px(40.0))
                         .flex()
                         .items_center()
                         .justify_center()
-                        .bg(rgb(avatar_bg))
+                        .bg(rgb(bg))
                         .rounded_xl()
-                        .text_color(colors.primary_foreground)
+                        .text_color(gpui::white())
                         .text_size(font_size.lg)
-                        .child(initial)
+                        .child(letter.to_string())
+                        .into_any_element(),
+                    None => {
+                        let initial = label
+                            .chars()
+                            .next()
+                            .unwrap_or('?')
+                            .to_uppercase()
+                            .to_string();
+                        let avatar_bg = crate::avatar::avatar_color_for(&label);
+                        div()
+                            .w(px(40.0))
+                            .h(px(40.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .bg(rgb(avatar_bg))
+                            .rounded_xl()
+                            .text_color(colors.primary_foreground)
+                            .text_size(font_size.lg)
+                            .child(initial)
+                            .into_any_element()
+                    }
                 };
 
                 // ───── SSH chip ─────

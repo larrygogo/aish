@@ -30,6 +30,17 @@ pub enum IconName {
     Settings,
     Trash,
     Pencil,
+    // Linux 发行版 logo（来源：simpleicons.org，单色 path，由 svg
+    // text_color 注入颜色；调用方在 host 卡片 avatar 用"品牌色背景 + 白色
+    // logo"组合渲染）。其他识别但未列入这里的发行版（mint/manjaro 等）
+    // 走 avatar::os_avatar_for 的 Letter 分支（首字母 + 品牌色）。
+    DistroUbuntu,
+    DistroDebian,
+    DistroArch,
+    DistroAlpine,
+    DistroCentos,
+    DistroFedora,
+    DistroRedhat,
 }
 
 impl IconName {
@@ -52,6 +63,13 @@ impl IconName {
         IconName::Settings,
         IconName::Trash,
         IconName::Pencil,
+        IconName::DistroUbuntu,
+        IconName::DistroDebian,
+        IconName::DistroArch,
+        IconName::DistroAlpine,
+        IconName::DistroCentos,
+        IconName::DistroFedora,
+        IconName::DistroRedhat,
     ];
 
     /// AssetSource 加载用的 path（对应 assets/icons/ 内文件名）。
@@ -73,6 +91,13 @@ impl IconName {
             IconName::Settings => "icons/settings.svg",
             IconName::Trash => "icons/trash.svg",
             IconName::Pencil => "icons/pencil.svg",
+            IconName::DistroUbuntu => "icons/distros/ubuntu.svg",
+            IconName::DistroDebian => "icons/distros/debian.svg",
+            IconName::DistroArch => "icons/distros/arch.svg",
+            IconName::DistroAlpine => "icons/distros/alpine.svg",
+            IconName::DistroCentos => "icons/distros/centos.svg",
+            IconName::DistroFedora => "icons/distros/fedora.svg",
+            IconName::DistroRedhat => "icons/distros/redhat.svg",
         }
     }
 
@@ -95,6 +120,25 @@ impl IconName {
             IconName::Settings => include_bytes!("../../assets/icons/settings.svg"),
             IconName::Trash => include_bytes!("../../assets/icons/trash.svg"),
             IconName::Pencil => include_bytes!("../../assets/icons/pencil.svg"),
+            IconName::DistroUbuntu => {
+                include_bytes!("../../assets/icons/distros/ubuntu.svg")
+            }
+            IconName::DistroDebian => {
+                include_bytes!("../../assets/icons/distros/debian.svg")
+            }
+            IconName::DistroArch => include_bytes!("../../assets/icons/distros/arch.svg"),
+            IconName::DistroAlpine => {
+                include_bytes!("../../assets/icons/distros/alpine.svg")
+            }
+            IconName::DistroCentos => {
+                include_bytes!("../../assets/icons/distros/centos.svg")
+            }
+            IconName::DistroFedora => {
+                include_bytes!("../../assets/icons/distros/fedora.svg")
+            }
+            IconName::DistroRedhat => {
+                include_bytes!("../../assets/icons/distros/redhat.svg")
+            }
         }
     }
 }
