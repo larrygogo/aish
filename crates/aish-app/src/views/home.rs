@@ -326,7 +326,12 @@ impl Render for HomeView {
                     .text_size(font_size.lg)
                     .child("›");
 
-                // ───── 编辑 / 删除按钮（始终可见，inline 在 row 末尾）─────
+                // ───── 编辑 / 删除按钮（hover 才显形）─────
+                // group/group_hover：body_row 标记 `.group(g)`，actions 子树
+                // 默认 opacity(0)，body_row hover 时 actions opacity(1)。
+                // 视觉上 default 仅 chevron，hover 多出 ✏ ⌫，chevron 位置不变
+                // （actions 仍占 flex layout 空间，只是透明）。
+                let group_name = gpui::SharedString::from(format!("host-card-row-{}", id));
                 let edit_btn = aish_ui::IconButton::new(
                     gpui::SharedString::from(format!("host-edit-{}", id)),
                     aish_ui::IconName::Pencil,
@@ -340,12 +345,14 @@ impl Render for HomeView {
                     },
                 ));
 
+                // delete 也走 ghost：destructive 红色 X 始终可见过于扎眼，
+                // hover 才显形已经达到"操作可发现"目的，配色不需要再加 destructive
                 let delete_btn = aish_ui::IconButton::new(
                     gpui::SharedString::from(format!("host-delete-{}", id)),
                     aish_ui::IconName::X,
                 )
                 .small()
-                .destructive()
+                .ghost()
                 .on_click(cx.listener(
                     move |this, _ev: &MouseDownEvent, _w, cx| {
                         cx.stop_propagation();
@@ -357,14 +364,18 @@ impl Render for HomeView {
                     .flex()
                     .flex_row()
                     .gap_1()
+                    .opacity(0.0)
+                    .group_hover(group_name.clone(), |s| s.opacity(1.0))
                     .child(edit_btn)
                     .child(delete_btn);
 
                 // ───── 卡片主体 row ─────
                 // M13 简化：放弃 absolute hover overlay（GPUI/Taffy absolute 子元素
                 // 的 inset 在 flex container 内行为与 CSS 不一致，定位飘移），改为
-                // actions 始终可见放在 row 末尾、chevron 之前。
+                // actions inline 但透明，body_row 标记 group → actions
+                // group_hover 显形。
                 let body_row = div()
+                    .group(group_name)
                     .flex()
                     .flex_row()
                     .items_center()
