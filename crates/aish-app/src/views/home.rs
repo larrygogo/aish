@@ -142,9 +142,10 @@ impl Render for HomeView {
         let font_size = theme.font_size;
 
         // ───── Quick Actions 顶部栏 ─────
+        // 顶部主 CTA → primary（绿色突出），与 Settings 等次要按钮区分
         let add_btn = aish_ui::Button::new("home-add-host-btn")
             .label("+ 添加 host")
-            .secondary()
+            .primary()
             .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| this.handle_add_click(cx)));
 
         let header = div()
@@ -407,6 +408,7 @@ impl Render for HomeView {
                 // 的 inset 在 flex container 内行为与 CSS 不一致，定位飘移），改为
                 // actions inline 但透明，body_row 标记 group → actions
                 // group_hover 显形。
+                // B1: py_4 (16px) 替代 py_3p5 (14px) 给卡片更舒展的内部呼吸
                 let body_row = div()
                     .group(group_name)
                     .flex()
@@ -414,7 +416,7 @@ impl Render for HomeView {
                     .items_center()
                     .gap_3()
                     .px_4()
-                    .py_3p5()
+                    .py_4()
                     .child(avatar)
                     .child(
                         div()
@@ -429,9 +431,13 @@ impl Render for HomeView {
                                     .gap_2()
                                     .items_center()
                                     .child(
+                                        // D2: label 改 xl + semibold，让 host 名作为主信息
+                                        // 突出（之前 lg 与下方 host_text sm 字号差不大，
+                                        // hierarchy 弱）
                                         div()
                                             .text_color(colors.foreground)
-                                            .text_size(font_size.lg)
+                                            .text_size(font_size.xl)
+                                            .font_weight(gpui::FontWeight::SEMIBOLD)
                                             .child(label),
                                     )
                                     .child(chip)

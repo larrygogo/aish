@@ -32,9 +32,11 @@ impl Theme {
                 // destructive 保留 Tokyo Night 红粉（警示色与绿成对比）
                 destructive: hex(0xf7768e),
                 destructive_foreground: hex(0x050505),
-                // border / input 中性深灰
+                // border / input 中性深灰。input 略亮于 background（#050505），
+                // 让输入框"凸出"而非凹陷（之前 #0a0a0a 比 background 还深，
+                // 视觉像"洞"，与用户对 input 的直觉相反）
                 border: hex(0x1f1f1f),
-                input: hex(0x0a0a0a),
+                input: hex(0x0d0d0d),
                 // focus ring 独立保持鲜绿（与 accent 解耦：accent 已暗化做容器 hover，
                 // focus 时仍需高对比的"光圈"感）
                 ring: hex(0x00cc33),
@@ -44,9 +46,10 @@ impl Theme {
                 // primary 绿色系：#00cc33 → #00e63a → #00ff41（logo 原色）
                 primary_hover: hex(0x00e63a),
                 primary_active: hex(0x00ff41),
-                // secondary 中性灰阶梯
+                // secondary 中性灰阶梯（active 与 hover 拉开档差，按下反馈更清晰；
+                // 旧 #333333 与 hover #2a2a2a 仅 9 亮度差用户感知不到）
                 secondary_hover: hex(0x2a2a2a),
-                secondary_active: hex(0x333333),
+                secondary_active: hex(0x404040),
                 // destructive 保留 Tokyo Night 阶梯
                 destructive_hover: hex(0xff8aa1),
                 destructive_active: hex(0xff9cb5),
