@@ -26,17 +26,18 @@ impl Theme {
                 secondary_foreground: hex(0xbfbfbf),
                 muted: hex(0x1f1f1f),
                 muted_foreground: hex(0x808080),
-                // accent 浅绿，作为容器 hover bg
-                accent: hex(0x66e082),
-                accent_foreground: hex(0x050505), // 浅绿底深字
+                // accent 暗中绿，作为容器 hover bg（s~40% l~31%，避免大面积 fill 反客为主）
+                accent: hex(0x2f6e3e),
+                accent_foreground: hex(0xe0e0e0), // 暗绿底配浅白文字
                 // destructive 保留 Tokyo Night 红粉（警示色与绿成对比）
                 destructive: hex(0xf7768e),
                 destructive_foreground: hex(0x050505),
                 // border / input 中性深灰
                 border: hex(0x1f1f1f),
                 input: hex(0x0a0a0a),
-                // focus ring = accent（CRT 绿光圈）
-                ring: hex(0x66e082),
+                // focus ring 独立保持鲜绿（与 accent 解耦：accent 已暗化做容器 hover，
+                // focus 时仍需高对比的"光圈"感）
+                ring: hex(0x00cc33),
                 success: hex(0x9ece6a),
                 warning: hex(0xe0af68),
                 // M15 阶梯（lightness 单调递增 idle→hover→active）
@@ -50,8 +51,8 @@ impl Theme {
                 destructive_hover: hex(0xff8aa1),
                 destructive_active: hex(0xff9cb5),
                 // M17：accent 按下反馈，比 accent 更深（与 M15 方向相反）
-                // accent 绿色系：#66e082 → #4fcc6b
-                accent_active: hex(0x4fcc6b),
+                // accent 暗绿系：#2f6e3e → #1f4a2c
+                accent_active: hex(0x1f4a2c),
             },
             radius: Radius::default(),
             spacing: Spacing::default(),
