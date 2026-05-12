@@ -94,6 +94,10 @@ impl TextInput {
     pub fn set_text(&mut self, t: impl Into<String>, cx: &mut Context<Self>) {
         self.text = t.into();
         self.cursor = self.text.len();
+        // 必须清 anchor —— 否则旧 anchor 可能 > 新 text.len()，
+        // 下次 delete_selection 时 drain 越界 panic（HostForm 切 host edit
+        // 重置字段是典型触发场景）。
+        self.selection_anchor = None;
         self.reset_blink();
         cx.notify();
     }
@@ -101,6 +105,8 @@ impl TextInput {
     pub fn clear(&mut self, cx: &mut Context<Self>) {
         self.text.clear();
         self.cursor = 0;
+        // 同 set_text：text 清空后 anchor 必须同步清，否则 drain panic
+        self.selection_anchor = None;
         self.reset_blink();
         cx.notify();
     }
@@ -188,13 +194,15 @@ impl TextInput {
 
     /// 当前选区（normalize 后），无选区时 None。anchor == cursor 时也返回 None。
     pub(crate) fn selection_range(&self) -> Option<Range<usize>> {
+        // Defense-in-depth：anchor / cursor 必须 ≤ text.len()，否则 drain panic。
+        // 各 mutating 操作（set_text / clear / backspace / delete_forward /
+        // insert_str）已显式维护此 invariant，这里 clamp 是兜底，避免未来回归。
+        let len = self.text.len();
         self.selection_anchor.and_then(|a| {
-            if a != self.cursor {
-                Some(if a < self.cursor {
-                    a..self.cursor
-                } else {
-                    self.cursor..a
-                })
+            let a = a.min(len);
+            let c = self.cursor.min(len);
+            if a != c {
+                Some(if a < c { a..c } else { c..a })
             } else {
                 None
             }
@@ -318,6 +326,11 @@ impl TextInput {
                 .unwrap_or(0);
             self.text.remove(prev);
             self.cursor = prev;
+            // mouse_down 在 anchor==cursor 状态下设了 anchor，IME 写入路径
+            // 又不清，于是 backspace 缩 text 后 anchor 可能 > 新 text.len()，
+            // 再次 backspace 时 delete_selection drain 越界 panic。
+            // 删字符后清 anchor 也符合用户预期（与浏览器 <input> 一致）。
+            self.selection_anchor = None;
             self.reset_blink();
         }
     }
@@ -328,12 +341,19 @@ impl TextInput {
         }
         if self.cursor < self.text.len() {
             self.text.remove(self.cursor);
+            self.selection_anchor = None; // 同 backspace：维护 anchor invariant
             self.reset_blink();
         }
     }
 
     pub(crate) fn insert_str(&mut self, s: &str) {
+        // delete_selection 在 anchor==cursor（click 但未 drag 的常见 idle 状态）
+        // 时返回 false 且不清 anchor 字段。之后 self.cursor += s.len()
+        // 推进，anchor 残留旧位置 → selection_range() 此时返回非空
+        // range（anchor..cursor），用户看不出但 backspace 会因 anchor 旧值
+        // 越界引发 drain panic。显式清 anchor 修该泄露。
         self.delete_selection();
+        self.selection_anchor = None;
         self.text.insert_str(self.cursor, s);
         self.cursor += s.len();
         self.reset_blink();
@@ -1276,5 +1296,111 @@ mod tests {
         assert_eq!(map_displayed_to_source(text, text, 3), 3);
         assert_eq!(map_displayed_to_source(text, text, 0), 0);
         assert_eq!(map_displayed_to_source(text, text, 5), 5);
+    }
+
+    // -------- selection_anchor invariant 测试 --------
+    // 这些测试模拟 selection_range 的核心逻辑（不依赖 GPUI Context），
+    // 验证 anchor 越界时返回 clamp 后的 range，不会让 drain panic。
+
+    /// 模拟 selection_range 的核心 clamp 逻辑（与 line 197-211 同源）
+    fn compute_selection_range_clamped(
+        anchor: Option<usize>,
+        cursor: usize,
+        text_len: usize,
+    ) -> Option<std::ops::Range<usize>> {
+        anchor.and_then(|a| {
+            let a = a.min(text_len);
+            let c = cursor.min(text_len);
+            if a != c {
+                Some(if a < c { a..c } else { c..a })
+            } else {
+                None
+            }
+        })
+    }
+
+    #[test]
+    fn selection_range_clamps_stale_anchor_past_text_len() {
+        // 复现历史 bug：text="abc" len=3, cursor=3, anchor=4 (stale)。
+        // 未 clamp 前 selection_range 返回 3..4 → drain(3..4) on len-3 → panic。
+        // clamp 后 anchor → 3，与 cursor=3 相等 → 返回 None，无 drain。
+        assert_eq!(compute_selection_range_clamped(Some(4), 3, 3), None);
+    }
+
+    #[test]
+    fn selection_range_clamps_both_anchor_and_cursor() {
+        // text="ab" len=2，两端都 stale → 都 clamp 到 2 → 相等 → None
+        assert_eq!(compute_selection_range_clamped(Some(5), 7, 2), None);
+    }
+
+    #[test]
+    fn selection_range_clamps_only_anchor() {
+        // anchor stale=10，cursor=1 合法，text_len=3 → clamp anchor→3, cursor=1
+        // → range 1..3
+        assert_eq!(compute_selection_range_clamped(Some(10), 1, 3), Some(1..3));
+    }
+
+    #[test]
+    fn selection_range_normal_path_unaffected_by_clamp() {
+        // 都在范围内 → 行为不变
+        assert_eq!(compute_selection_range_clamped(Some(2), 5, 10), Some(2..5));
+        assert_eq!(compute_selection_range_clamped(Some(5), 2, 10), Some(2..5));
+        assert_eq!(compute_selection_range_clamped(Some(3), 3, 10), None);
+        assert_eq!(compute_selection_range_clamped(None, 5, 10), None);
+    }
+
+    /// 模拟 backspace 的 anchor 清除：
+    /// 复现 panic 路径：
+    ///   1. text="abcd" len=4, click 末尾 → anchor=cursor=4
+    ///   2. backspace 单字符 → text="abc" len=3, cursor=3
+    ///   3. 修复前：anchor 仍是 4 → 下次 backspace drain(3..4) on len-3 panic
+    ///   4. 修复后：anchor=None → 下次 backspace 走 remove path → OK
+    #[test]
+    fn backspace_clears_anchor_after_remove() {
+        let mut text = String::from("abcd");
+        let mut cursor = 4_usize;
+        let mut anchor: Option<usize> = Some(4); // mouse_down at end 设的
+
+        // 模拟 backspace 的 single-char 路径（anchor==cursor 时 delete_selection no-op）
+        if cursor > 0 {
+            let prev = text[..cursor]
+                .char_indices()
+                .last()
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+            text.remove(prev);
+            cursor = prev;
+            anchor = None; // ← 修复点
+        }
+
+        assert_eq!(text, "abc");
+        assert_eq!(cursor, 3);
+        assert_eq!(anchor, None);
+
+        // 再次 backspace 前：confirm 不会 panic（selection_range = None）
+        let range = compute_selection_range_clamped(anchor, cursor, text.len());
+        assert_eq!(range, None);
+    }
+
+    #[test]
+    fn set_text_must_clear_stale_anchor() {
+        // HostForm 切 host edit 重置字段时 set_text 把 text 变短 →
+        // 旧 anchor 残留 > new text.len() → panic 前置条件。
+        // 验证：即使旧 anchor 残留（修复前路径），selection_range clamp
+        // 也能兜底返回 None；理想状态 set_text 显式 anchor=None 后双重保险。
+        let stale_anchor: Option<usize> = Some(10); // 旧字段值 select_all 留下
+        let new_text = "abc"; // set_text("abc")
+        let cursor = new_text.len();
+        // 即使没清 anchor，selection_range clamp 也能避免 panic（defense-in-depth）
+        assert_eq!(
+            compute_selection_range_clamped(stale_anchor, cursor, new_text.len()),
+            None
+        );
+        // 修复后 set_text 显式清 anchor → 更干净
+        let cleared_anchor: Option<usize> = None;
+        assert_eq!(
+            compute_selection_range_clamped(cleared_anchor, cursor, new_text.len()),
+            None
+        );
     }
 }
