@@ -107,9 +107,11 @@ impl RenderOnce for Card {
 
         if let Some(handler) = self.on_click {
             let accent = t.colors.accent;
+            let accent_active = t.colors.accent_active;
             el = el
                 .cursor_pointer()
                 .hover(move |s| s.bg(accent))
+                .active(move |s| s.bg(accent_active))
                 .on_mouse_down(MouseButton::Left, move |ev, window, cx| {
                     handler(ev, window, cx);
                 });
