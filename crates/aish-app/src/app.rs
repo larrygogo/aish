@@ -9,7 +9,9 @@ use gpui::{
 use gpui_platform::application;
 
 use crate::bridge::{Bridge, EventChannel};
-use crate::state::{AppState, SessionCommand, SidebarTab, SshEvent};
+use crate::state::{
+    AppState, DisconnectReason, SessionCommand, SidebarTab, SshErrorKind, SshEvent,
+};
 
 pub fn run() {
     let bridge_owner = Arc::new(Bridge::start().expect("tokio runtime 启动失败"));
@@ -56,12 +58,40 @@ pub fn run() {
                             state.feed_bytes(conn, &bytes);
                             cx.notify();
                         }
-                        SshEvent::Disconnected { conn, reason: _ } => {
+                        SshEvent::Disconnected { conn, reason } => {
+                            // UserRequested / RemoteExited 静默（用户自己断开 / shell exit
+                            // 是常规流程，提示反而干扰）；NetworkError 才弹 toast。
+                            if let DisconnectReason::NetworkError(ref e) = reason {
+                                let label = state
+                                    .connections
+                                    .get(&conn)
+                                    .map(|c| c.label.clone())
+                                    .unwrap_or_else(|| "未知连接".to_string());
+                                aish_ui::toast_error(cx, format!("{}: 连接中断 — {}", label, e));
+                            }
                             state.drop_session(conn);
                             cx.notify();
                         }
-                        SshEvent::Error { conn, kind: _, msg } => {
-                            tracing::error!(?conn, msg, "SSH error");
+                        SshEvent::Error { conn, kind, msg } => {
+                            let label = state
+                                .connections
+                                .get(&conn)
+                                .map(|c| c.label.clone())
+                                .unwrap_or_else(|| "未知连接".to_string());
+                            tracing::error!(?conn, label = %label, ?kind, msg = %msg, "SSH error");
+                            let user_msg = match kind {
+                                SshErrorKind::ConnectFailed => {
+                                    format!("{}: 连接失败 — {}", label, msg)
+                                }
+                                SshErrorKind::AuthFailed => {
+                                    format!("{}: 登录失败 — {}", label, msg)
+                                }
+                                SshErrorKind::Io => format!("{}: IO 错误 — {}", label, msg),
+                                SshErrorKind::Protocol => {
+                                    format!("{}: 协议错误 — {}", label, msg)
+                                }
+                            };
+                            aish_ui::toast_error(cx, user_msg);
                             state.drop_session(conn);
                             cx.notify();
                         }
