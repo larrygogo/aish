@@ -698,7 +698,12 @@ impl Render for TextInput {
 
         let focus_for_ime = self.focus_handle.clone();
         let weak_view = cx.weak_entity();
-        let focused = self.focus_handle.is_focused(window);
+        // window 失焦时（用户切到别的应用），即使 focus_handle 仍是 TextInput
+        // 的，GPUI 也保留 focus 状态不清；视觉上 cursor 继续闪、border 仍是
+        // ring 高亮 —— 与系统其他 app 不一致。AND 上 window.is_window_active()
+        // 让失焦时立即视觉降级。blink timer 仍每 100ms notify，状态变化在
+        // 下一帧体现（延迟 <= 100ms）。
+        let focused = self.focus_handle.is_focused(window) && window.is_window_active();
         let show_cursor = focused && self.cursor_visible_now();
 
         let t = theme(cx);
