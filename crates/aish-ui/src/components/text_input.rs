@@ -130,6 +130,33 @@ impl TextInput {
         self.bounds_map.clear();
     }
 
+    /// 鼠标 click 像素位置 → self.text 的 byte offset（**source space**）。
+    ///
+    /// bounds_map 里的 byte 来自 render 中 glyph_div 的 `byte` 参数，
+    /// 而 glyph_div 接收的是 displayed_text 的 byte（mask 模式下显示串与
+    /// 原文 byte 数不同：'•' 在 UTF-8 中 3 字节，ASCII char 1 字节 ——
+    /// 直接把 displayed byte 设进 self.cursor 会让 cursor 超出 self.text.len()，
+    /// 下次按 backspace/delete 时 `self.text[..self.cursor]` slice 越界 panic）。
+    ///
+    /// 这里在 mouse_down / mouse_move 把 displayed-space byte 映射回
+    /// source-space byte（中转 char index）。非 mask 时 identity（避免无意义的
+    /// 重复 chars().count() 遍历）。
+    pub(crate) fn cursor_from_click(&self, click_x: Pixels) -> usize {
+        if self.mask_char.is_none() {
+            // displayed_text == self.text，bounds_map 的 byte 就是 source byte
+            return byte_offset_at_x(&self.bounds_map, click_x, self.text.len());
+        }
+        let displayed_text: String = self.text.chars().map(|_| self.mask_char.unwrap()).collect();
+        let displayed_byte = byte_offset_at_x(&self.bounds_map, click_x, displayed_text.len());
+        // displayed_byte → char index → source byte
+        let char_idx = displayed_text[..displayed_byte].chars().count();
+        self.text
+            .char_indices()
+            .nth(char_idx)
+            .map(|(b, _)| b)
+            .unwrap_or(self.text.len())
+    }
+
     /// 把原文 byte offset (self.cursor) 转成显示文本 byte offset，用于 mask 时切片。
     /// 非 mask 时原样返回。mask 时按 char index 在 displayed 中找对应 byte。
     fn cursor_for_display(&self, displayed: &str) -> usize {
@@ -769,7 +796,9 @@ impl Render for TextInput {
                     // M16 T2: 用 bounds_map（上一帧 prepaint 写入）算 click x → byte。
                     // 时序安全：GPUI 事件派发在 paint 之后、下一次 render 之前，此时
                     // render 入口的 clear_glyph_bounds() 还没执行，map 仍是上一帧的有效数据。
-                    let byte = byte_offset_at_x(&this.bounds_map, ev.position.x, this.text.len());
+                    // cursor_from_click 把 displayed-space byte 映射回 source-space
+                    // byte（mask 模式必要，否则 cursor 超过 self.text.len() 引发 panic）。
+                    let byte = this.cursor_from_click(ev.position.x);
                     this.is_dragging = true; // M16 T3: 开始 drag
                     this.handle_mouse_down_at(byte, cx);
                 }),
@@ -782,7 +811,7 @@ impl Render for TextInput {
                 if !this.is_dragging {
                     return;
                 }
-                let byte = byte_offset_at_x(&this.bounds_map, ev.position.x, this.text.len());
+                let byte = this.cursor_from_click(ev.position.x);
                 if byte != this.cursor {
                     this.cursor = byte;
                     this.reset_blink();
@@ -1187,5 +1216,65 @@ mod tests {
         let mut dragging = true;
         dragging = false; // 模拟 mouse_up listener
         assert!(!dragging);
+    }
+
+    /// 模拟 cursor_from_click 在 mask 模式下的 displayed→source 转换核心逻辑：
+    /// displayed_byte → char_idx → source_byte。
+    /// 不依赖 GPUI 类型，便于断言数学正确性。
+    fn map_displayed_to_source(text: &str, displayed: &str, displayed_byte: usize) -> usize {
+        let char_idx = displayed[..displayed_byte].chars().count();
+        text.char_indices()
+            .nth(char_idx)
+            .map(|(b, _)| b)
+            .unwrap_or(text.len())
+    }
+
+    #[test]
+    fn mask_mode_click_maps_displayed_byte_to_source_byte() {
+        // self.text = "abc" (3 bytes ASCII), displayed = "•••" (9 bytes, '•' = 3B)
+        // 点击第 3 个 '•' 起点 (displayed_byte = 6) → 应该返回 source byte 2
+        let text = "abc";
+        let displayed: String = text.chars().map(|_| '•').collect();
+        assert_eq!(displayed.len(), 9);
+        assert_eq!(map_displayed_to_source(text, &displayed, 6), 2);
+    }
+
+    #[test]
+    fn mask_mode_click_at_displayed_start_maps_to_zero() {
+        let text = "hello";
+        let displayed: String = text.chars().map(|_| '•').collect();
+        assert_eq!(map_displayed_to_source(text, &displayed, 0), 0);
+    }
+
+    #[test]
+    fn mask_mode_click_past_displayed_end_clamps_to_source_len() {
+        // displayed_byte = displayed.len() (超出末尾) → 返回 text.len()
+        let text = "hi";
+        let displayed: String = text.chars().map(|_| '•').collect();
+        assert_eq!(displayed.len(), 6);
+        assert_eq!(map_displayed_to_source(text, &displayed, 6), 2);
+    }
+
+    #[test]
+    fn mask_mode_with_cjk_source_text() {
+        // 即使原文是中文（3B/char），mask 后 displayed 也是 '•••...' （3B/char），
+        // 仍然按 char_idx 中转
+        let text = "中文";
+        let displayed: String = text.chars().map(|_| '•').collect();
+        assert_eq!(text.len(), 6);
+        assert_eq!(displayed.len(), 6);
+        // 点第 2 个 '•' 起点 → source byte 3 (= 第 2 个中文 char 起点)
+        assert_eq!(map_displayed_to_source(text, &displayed, 3), 3);
+    }
+
+    #[test]
+    fn non_mask_mode_displayed_equals_source_identity_property() {
+        // 非 mask 时 displayed_text == self.text；cursor_from_click 走 identity 分支，
+        // 等价于 byte_offset_at_x 直接返回 displayed_byte。验证 char_idx 中转在
+        // identity 情况下也是恒等（避免回归时误删 fast path 仍能 work）。
+        let text = "hello";
+        assert_eq!(map_displayed_to_source(text, text, 3), 3);
+        assert_eq!(map_displayed_to_source(text, text, 0), 0);
+        assert_eq!(map_displayed_to_source(text, text, 5), 5);
     }
 }
