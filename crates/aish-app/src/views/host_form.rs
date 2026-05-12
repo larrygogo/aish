@@ -110,7 +110,7 @@ impl HostFormModal {
         });
         let password_input = cx.new(|cx| {
             let mut i = TextInput::new(cx);
-            i.placeholder("password");
+            i.placeholder("password").mask_char(Some('•'));
             i
         });
 

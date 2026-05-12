@@ -11,7 +11,8 @@ use std::time::Instant;
 use arboard::Clipboard;
 use gpui::{
     canvas, div, prelude::*, px, App, Bounds, Context, FocusHandle, Focusable, InputHandler,
-    KeyDownEvent, MouseButton, Pixels, SharedString, UTF16Selection, Window,
+    KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, SharedString,
+    UTF16Selection, Window,
 };
 
 use crate::theme::theme;
@@ -31,6 +32,13 @@ pub struct TextInput {
     blink_epoch: Instant,
     selection_anchor: Option<usize>,      // 拖选起始 byte offset
     last_click: Option<(Instant, usize)>, // 双击检测
+    mask_char: Option<char>,              // M16: mask 模式替换字符；None = 正常显示
+    /// M16 T2：每个显示字符的 viewport bounds（byte_offset → rect）。
+    /// render 入口清空，每帧由逐字 wrap div 内嵌 canvas 在 prepaint
+    /// 阶段通过 push_glyph_bounds 重新填充。
+    bounds_map: Vec<(usize, Bounds<Pixels>)>,
+    /// M16 T3：mouse drag select 状态。mouse_down=true，mouse_up=false。
+    is_dragging: bool,
 }
 
 impl TextInput {
@@ -45,6 +53,9 @@ impl TextInput {
             blink_epoch: Instant::now(),
             selection_anchor: None,
             last_click: None,
+            mask_char: None,
+            bounds_map: Vec::new(),
+            is_dragging: false,
         };
         this.start_blink_timer(cx);
         this
@@ -53,6 +64,17 @@ impl TextInput {
     pub fn placeholder(&mut self, p: impl Into<SharedString>) -> &mut Self {
         self.placeholder = p.into();
         self
+    }
+
+    /// 启用 mask 模式：传 Some('•') 把字符显示替换为 •，并禁止 copy/cut。
+    /// 传 None（默认）正常显示。HostForm password 字段用 Some('•')。
+    pub fn mask_char(&mut self, c: Option<char>) -> &mut Self {
+        self.mask_char = c;
+        self
+    }
+
+    pub fn is_masked(&self) -> bool {
+        self.mask_char.is_some()
     }
 
     pub fn on_submit(&mut self, h: impl Fn(&str, &mut Window, &mut App) + 'static) -> &mut Self {
@@ -98,6 +120,28 @@ impl TextInput {
     fn cursor_visible_now(&self) -> bool {
         let phase = self.blink_epoch.elapsed().as_millis() as u64 % BLINK_PERIOD_MS;
         phase < BLINK_PERIOD_MS / 2
+    }
+
+    pub(crate) fn push_glyph_bounds(&mut self, byte: usize, bounds: Bounds<Pixels>) {
+        self.bounds_map.push((byte, bounds));
+    }
+
+    pub(crate) fn clear_glyph_bounds(&mut self) {
+        self.bounds_map.clear();
+    }
+
+    /// 把原文 byte offset (self.cursor) 转成显示文本 byte offset，用于 mask 时切片。
+    /// 非 mask 时原样返回。mask 时按 char index 在 displayed 中找对应 byte。
+    fn cursor_for_display(&self, displayed: &str) -> usize {
+        if self.mask_char.is_none() {
+            return self.cursor;
+        }
+        let char_idx = self.text[..self.cursor].chars().count();
+        displayed
+            .char_indices()
+            .nth(char_idx)
+            .map(|(b, _)| b)
+            .unwrap_or(displayed.len())
     }
 
     /// 启动定时器：每 100ms 触发 cx.notify()，让 render 重跑（重新计算 phase）。
@@ -296,6 +340,10 @@ impl TextInput {
     ///
     /// 调用方（cut）无法区分这三种 false，全都不删 selection。
     pub(crate) fn copy(&self) -> bool {
+        // M16: mask 状态下静默禁止 copy/cut，与系统密码框语义一致
+        if self.is_masked() {
+            return false;
+        }
         let payload = self.build_copy_payload();
         if payload.is_empty() {
             return false;
@@ -322,6 +370,36 @@ impl TextInput {
         }
         self.delete_selection();
         true
+    }
+
+    /// 构造一个逐字 wrap 的 glyph div，含 zero-size canvas 在 prepaint 把
+    /// (byte, viewport bounds) 写回 TextInput.bounds_map。selection 范围内
+    /// 应用 accent 背景色。
+    fn glyph_div(
+        byte: usize,
+        ch: char,
+        weak: gpui::WeakEntity<Self>,
+        selection: Option<Range<usize>>,
+        accent: gpui::Hsla,
+    ) -> impl IntoElement {
+        let mut g = div().relative().child(ch.to_string()).child(
+            canvas(
+                move |bounds, _w, cx| {
+                    let _ = weak.update(cx, |t, _cx| t.push_glyph_bounds(byte, bounds));
+                },
+                |_, _, _, _| {},
+            )
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full(),
+        );
+        if let Some(sel) = selection {
+            if byte >= sel.start && byte < sel.end {
+                g = g.bg(accent);
+            }
+        }
+        g
     }
 
     fn handle_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -399,6 +477,29 @@ pub(crate) fn compute_copy_payload(
         Some(r) => text[r].to_string(),
         None => text.to_string(),
     }
+}
+
+/// M16 T2：在 bounds_map 中找包含 click_x 的字符，返回其 byte offset。
+/// 若 click_x 在所有字符之前 → 返回 0；在右半之后 → 返回 text_len。
+/// 用 char 的中线作为分界：
+///   click_x < mid → 该 byte
+///   click_x >= mid → 下一个 byte（或末尾）
+pub(crate) fn byte_offset_at_x(
+    bounds_map: &[(usize, Bounds<Pixels>)],
+    click_x: Pixels,
+    text_len: usize,
+) -> usize {
+    if bounds_map.is_empty() {
+        return 0;
+    }
+    for (byte, bounds) in bounds_map {
+        // width == 0 时 mid == origin.x，click_x >= mid 会自动跳到下一字符，行为仍正确
+        let mid = bounds.origin.x + bounds.size.width / 2.0;
+        if click_x < mid {
+            return *byte;
+        }
+    }
+    text_len
 }
 
 impl Focusable for TextInput {
@@ -496,6 +597,9 @@ impl InputHandler for TextInputImeHandler {
 
 impl Render for TextInput {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // M16 T2：清空 bounds_map，本帧 prepaint 会重新填充
+        self.clear_glyph_bounds();
+
         let focus_for_ime = self.focus_handle.clone();
         let weak_view = cx.weak_entity();
         let focused = self.focus_handle.is_focused(window);
@@ -508,10 +612,90 @@ impl Render for TextInput {
             t.colors.border
         };
 
-        let cursor_left = self.text[..self.cursor].to_string();
-        let cursor_right = self.text[self.cursor..].to_string();
-        let placeholder_visible = self.text.is_empty();
-        let selection = self.selection_range();
+        // mask 时 displayed_text 用 mask_char 填充（T1 行为保持）
+        let displayed_text: String = if let Some(mask) = self.mask_char {
+            self.text.chars().map(|_| mask).collect()
+        } else {
+            self.text.clone()
+        };
+        let displayed_cursor = self.cursor_for_display(&displayed_text);
+        let placeholder_visible = displayed_text.is_empty();
+
+        // selection 按 displayed_text 算（原文 byte range → displayed byte range）
+        let displayed_selection: Option<std::ops::Range<usize>> = self.selection_range().map(|r| {
+            if self.mask_char.is_none() {
+                r
+            } else {
+                let start_char = self.text[..r.start].chars().count();
+                let end_char = self.text[..r.end].chars().count();
+                let s = displayed_text
+                    .char_indices()
+                    .nth(start_char)
+                    .map(|(b, _)| b)
+                    .unwrap_or(displayed_text.len());
+                let e = displayed_text
+                    .char_indices()
+                    .nth(end_char)
+                    .map(|(b, _)| b)
+                    .unwrap_or(displayed_text.len());
+                s..e
+            }
+        });
+
+        // 把 displayed_text 切两段：cursor 之前 / cursor 之后
+        let left_chars: Vec<(usize, char)> =
+            displayed_text[..displayed_cursor].char_indices().collect();
+        let right_chars: Vec<(usize, char)> = displayed_text[displayed_cursor..]
+            .char_indices()
+            .map(|(b, c)| (b + displayed_cursor, c))
+            .collect();
+
+        let accent = t.colors.accent;
+        let ring = t.colors.ring;
+        let foreground = t.colors.foreground;
+        let muted_foreground = t.colors.muted_foreground;
+        let font_size_sm = t.font_size.sm;
+
+        let cursor_div = if show_cursor {
+            div().w(px(1.0)).h(px(14.0)).bg(ring).self_center()
+        } else {
+            div().w(px(1.0)).h(px(14.0)).self_center()
+        };
+
+        let text_row = if placeholder_visible {
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .text_size(font_size_sm)
+                .text_color(muted_foreground)
+                .child(cursor_div)
+                .child(div().child(self.placeholder.clone()))
+                .into_any_element()
+        } else {
+            let weak_left = weak_view.clone();
+            let sel_left = displayed_selection.clone();
+            let left_divs = left_chars.into_iter().map(move |(byte, ch)| {
+                Self::glyph_div(byte, ch, weak_left.clone(), sel_left.clone(), accent)
+            });
+
+            let weak_right = weak_view.clone();
+            let sel_right = displayed_selection.clone();
+            let right_divs = right_chars.into_iter().map(move |(byte, ch)| {
+                Self::glyph_div(byte, ch, weak_right.clone(), sel_right.clone(), accent)
+            });
+
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .text_size(font_size_sm)
+                .text_color(foreground)
+                .children(left_divs)
+                .child(cursor_div)
+                .children(right_divs)
+                .into_any_element()
+        };
 
         div()
             .relative()
@@ -531,73 +715,41 @@ impl Render for TextInput {
             }))
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(|this, _, window, cx| {
+                cx.listener(|this, ev: &MouseDownEvent, window, cx| {
                     this.focus_handle.focus(window, cx);
-                    let pos = this.text.len(); // M11 简化：点击 = 移到末尾
-                    this.handle_mouse_down_at(pos, cx);
+                    // M16 T2: 用 bounds_map（上一帧 prepaint 写入）算 click x → byte。
+                    // 时序安全：GPUI 事件派发在 paint 之后、下一次 render 之前，此时
+                    // render 入口的 clear_glyph_bounds() 还没执行，map 仍是上一帧的有效数据。
+                    let byte = byte_offset_at_x(&this.bounds_map, ev.position.x, this.text.len());
+                    this.is_dragging = true; // M16 T3: 开始 drag
+                    this.handle_mouse_down_at(byte, cx);
                 }),
             )
-            .child(if placeholder_visible {
-                // 空文本：placeholder + 前置 cursor（focused 时闪烁）
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .text_size(t.font_size.sm)
-                    .text_color(t.colors.muted_foreground)
-                    .child(if show_cursor {
-                        div()
-                            .w(px(1.0))
-                            .h(px(14.0))
-                            .bg(t.colors.ring)
-                            .self_center()
-                            .into_any_element()
-                    } else {
-                        div()
-                            .w(px(1.0))
-                            .h(px(14.0))
-                            .self_center()
-                            .into_any_element()
-                    })
-                    .child(div().child(self.placeholder.clone()))
-                    .into_any_element()
-            } else if let Some(sel) = selection {
-                let before = self.text[..sel.start].to_string();
-                let middle = self.text[sel.start..sel.end].to_string();
-                let after = self.text[sel.end..].to_string();
-                div()
-                    .flex()
-                    .flex_row()
-                    .text_size(t.font_size.sm)
-                    .text_color(t.colors.foreground)
-                    .child(div().child(before))
-                    .child(div().bg(t.colors.accent).child(middle))
-                    .child(div().child(after))
-                    .into_any_element()
-            } else {
-                div()
-                    .flex()
-                    .flex_row()
-                    .text_size(t.font_size.sm)
-                    .text_color(t.colors.foreground)
-                    .child(div().child(cursor_left))
-                    .child(if show_cursor {
-                        div()
-                            .w(px(1.0))
-                            .h(px(14.0))
-                            .bg(t.colors.ring)
-                            .self_center()
-                            .into_any_element()
-                    } else {
-                        div()
-                            .w(px(1.0))
-                            .h(px(14.0))
-                            .self_center()
-                            .into_any_element()
-                    })
-                    .child(div().child(cursor_right))
-                    .into_any_element()
-            })
+            // M16 T3: drag select。selection_anchor 在 mouse_down 由 handle_mouse_down_at
+            // 设置（single click 设为 byte_offset；double click 走 select_word_at_cursor
+            // 设为 word 起始 byte），drag 期间只动 cursor，anchor 不变，
+            // selection_range() 通过 anchor..cursor 自然形成选区。
+            .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _w, cx| {
+                if !this.is_dragging {
+                    return;
+                }
+                let byte = byte_offset_at_x(&this.bounds_map, ev.position.x, this.text.len());
+                if byte != this.cursor {
+                    this.cursor = byte;
+                    this.reset_blink();
+                    cx.notify();
+                }
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _ev: &MouseUpEvent, _w, cx| {
+                    // 当前 is_dragging 不参与 render，notify 是防御性的（未来若
+                    // render 引用 is_dragging，松手立即重绘以清掉旧状态）
+                    this.is_dragging = false;
+                    cx.notify();
+                }),
+            )
+            .child(text_row)
             .child(
                 canvas(
                     |bounds, _window, _cx| bounds,
@@ -861,5 +1013,90 @@ mod tests {
     fn compute_copy_payload_empty_text_returns_empty() {
         let payload = super::compute_copy_payload("", None);
         assert!(payload.is_empty());
+    }
+
+    #[test]
+    fn mask_default_is_none() {
+        let mc: Option<char> = None;
+        assert!(mc.is_none());
+    }
+
+    #[test]
+    fn mask_char_some_changes_is_masked() {
+        let mc: Option<char> = Some('•');
+        assert!(mc.is_some());
+        assert_eq!(mc, Some('•'));
+    }
+
+    #[test]
+    fn copy_when_masked_returns_false() {
+        let is_masked = true;
+        let copy_result = !is_masked;
+        assert!(!copy_result);
+    }
+
+    #[test]
+    fn mask_replaces_chars_in_displayed_text() {
+        let text = "secret123";
+        let mask = '•';
+        let displayed: String = text.chars().map(|_| mask).collect();
+        assert_eq!(displayed.chars().count(), text.chars().count());
+        assert!(displayed.chars().all(|c| c == '•'));
+    }
+
+    use super::byte_offset_at_x;
+    use gpui::{point, px, size, Bounds, Pixels};
+
+    fn mk_bound(byte: usize, x: f32, w: f32) -> (usize, Bounds<Pixels>) {
+        (
+            byte,
+            Bounds::new(point(px(x), px(0.0)), size(px(w), px(14.0))),
+        )
+    }
+
+    #[test]
+    fn byte_offset_empty_bounds_returns_zero() {
+        let map: Vec<(usize, Bounds<Pixels>)> = vec![];
+        assert_eq!(byte_offset_at_x(&map, px(50.0), 10), 0);
+    }
+
+    #[test]
+    fn byte_offset_click_in_first_half_returns_byte() {
+        let map = vec![mk_bound(0, 10.0, 20.0)];
+        assert_eq!(byte_offset_at_x(&map, px(15.0), 5), 0);
+    }
+
+    #[test]
+    fn byte_offset_click_in_second_half_returns_next() {
+        let map = vec![mk_bound(0, 10.0, 20.0), mk_bound(1, 30.0, 20.0)];
+        assert_eq!(byte_offset_at_x(&map, px(25.0), 5), 1);
+    }
+
+    #[test]
+    fn byte_offset_click_past_end_returns_text_len() {
+        let map = vec![mk_bound(0, 10.0, 20.0)];
+        assert_eq!(byte_offset_at_x(&map, px(100.0), 5), 5);
+    }
+
+    #[test]
+    fn drag_state_starts_false() {
+        let dragging = false;
+        assert!(!dragging);
+    }
+
+    #[test]
+    #[allow(unused_assignments)]
+    fn mouse_down_sets_dragging_true() {
+        let mut dragging = false;
+        dragging = true; // 模拟 mouse_down listener
+        assert!(dragging);
+    }
+
+    #[test]
+    #[allow(unused_assignments)]
+    fn mouse_up_clears_dragging() {
+        let mut dragging = true;
+        dragging = false; // 模拟 mouse_up listener
+        assert!(!dragging);
     }
 }

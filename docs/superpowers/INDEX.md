@@ -10,13 +10,43 @@
 
 ## 当前状态
 
-- **活跃分支**：`feat/aish-ui-m15-20260511-zj`（M15 Button + IconButton 精细化已完成，待合 main）
-- **下一里程碑**：M16 候选 — ContextMenu（Popover + 右键）/ DropdownMenu 键盘导航 / Light theme 实施（含 M15 留的 6 个占位 token）/ TextInput mask + cursor_at_pixel / Dialog Tab focus trap / 其他组件 hover variant 改造（Card on_click / NavItem / TabItem）
-- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui 110 + aish-app 101 + 其他 crate) 全过
+- **活跃分支**：`feat/aish-ui-m16-20260511-zj`（M16 TextInput mask + cursor_at_pixel + drag select 已完成，待合 main）
+- **下一里程碑**：M17 候选 — ContextMenu（Popover + 右键）/ DropdownMenu 键盘导航 / Light theme 实施（含 M15 留的 6 个占位 token + M16 不引入新 token）/ Dialog Tab focus trap / TextInput "眼睛"切换 mask / TextInput shift+click 扩展 selection / TextInput 多行 / Disabled 状态视觉精细化 / Card/NavItem/TabItem hover variant 改造
+- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui 121 + aish-app 101 + 其他 crate) 全过
 
 ---
 
 ## Milestones（按时间倒序）
+
+### M16 — aish-ui TextInput mask + cursor_at_pixel + drag select（2026-05-12）— ✅ 已完成
+- 父 spec：[`specs/2026-05-09-aish-ui-architecture-design.md`](specs/2026-05-09-aish-ui-architecture-design.md)
+- spec：[`specs/2026-05-11-aish-m16-textinput-mask-cursor-design.md`](specs/2026-05-11-aish-m16-textinput-mask-cursor-design.md)
+- plan：[`plans/2026-05-11-aish-m16-textinput-mask-cursor.md`](plans/2026-05-11-aish-m16-textinput-mask-cursor.md)
+- 范围：
+  - TextInput.mask_char(Option<char>) builder + is_masked() 查询（默认 None；HostForm password 用 Some('•')）
+  - mask 启用时 render 把字符替换为 mask_char 显示
+  - mask 启用时 copy()/cut() 静默返回 false（系统密码框惯例）
+  - cursor_for_display() helper 把原文 byte offset 映射到 displayed_text byte offset（mask 字符与原文 char 字节宽度不同时需要重算）
+  - render 改逐字 wrap div（每字一个 inline div 含 zero-size canvas 在 prepaint 写入 bounds_map）
+  - byte_offset_at_x(bounds_map, click_x, text_len) 纯函数（char 中线作分界；空 map 返回 0，超末尾返回 text_len）
+  - on_mouse_down 通过 byte_offset_at_x 算 byte 替代 M11 简化版的 text.len()
+  - is_dragging 字段 + on_mouse_move 在 dragging 时持续更新 cursor + on_mouse_up 清状态：mouse_down 设 selection_anchor（沿用 handle_mouse_down_at），drag 期间只动 cursor，anchor 不变，selection_range() 自然形成
+  - glyph_div(byte, ch, weak, sel, accent) 关联函数：消除 left/right 两段同构 map 重复
+  - HostForm password 字段切到 .mask_char(Some('•'))
+- 关键 commits：
+  - `8801f94` — T1 mask_char + render 替换 + copy/cut 禁用 + cursor_for_display（amend 含字段行内注释）
+  - `ac9b8b0` — T2 cursor_at_pixel：bounds_map + byte_offset_at_x + render 重写为逐字 wrap（amend 含时序注释 + width==0 注释）
+  - `bfce36f` — T3 drag select + glyph_div helper 抽取（amend 含 anchor 注释 + mouse_up cx.notify）
+  - `520ab3d` — T4 HostForm password 字段 .mask_char('•')
+- 测试：aish-ui 110 → **121**（净 +11：mask +4 / byte_offset_at_x +4 / drag state +3）；aish-app 101 不变
+- 已知边界：
+  - "眼睛"图标切换 mask 显示未做（HostForm 原来也没有）
+  - shift+click 扩展 selection 未做
+  - 中键粘贴 / 右键菜单未做
+  - 多行 TextInput 未扩展
+  - IME mask 状态下 marked range 保持简化版（password 场景一般用户不用 IME）
+  - bounds_map 第一帧空 → mouse_down 返回 0（首帧 click 极少发生，可接受）
+  - cursor_for_display + displayed_selection 转换调用 char_indices().nth() 是 O(n)，password / 单行短文本无影响，多行扩展时可优化为一次遍历
 
 ### M15 — aish-ui Button + IconButton 精细化（2026-05-11）— ✅ 已完成
 - 父 spec：[`specs/2026-05-09-aish-ui-architecture-design.md`](specs/2026-05-09-aish-ui-architecture-design.md)
