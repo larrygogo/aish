@@ -372,6 +372,39 @@ impl TextInput {
         true
     }
 
+    /// 粘贴：从系统 clipboard 读文本，截到首行（单行 input 不接受换行），
+    /// 调用 insert_str 插入到当前 cursor（自动删 selection）。
+    ///
+    /// **返回值语义**：
+    /// - Clipboard 初始化失败 / get_text 失败 → false（log warn）
+    /// - clipboard 为空或 normalize 后为空 → false（不算错）
+    /// - 成功插入 → true
+    ///
+    /// **mask 处理**：与系统密码框一致，masked 状态下仍允许 paste
+    /// （浏览器 `<input type=password>` 和 macOS 密码框都允许粘贴，
+    /// 只禁 copy/cut 避免泄露已输入内容）。
+    pub(crate) fn paste(&mut self) -> bool {
+        let raw = match Clipboard::new() {
+            Ok(mut cb) => match cb.get_text() {
+                Ok(t) => t,
+                Err(e) => {
+                    tracing::warn!("text_input: clipboard get_text 失败: {}", e);
+                    return false;
+                }
+            },
+            Err(e) => {
+                tracing::warn!("text_input: clipboard 初始化失败: {}", e);
+                return false;
+            }
+        };
+        let payload = compute_paste_payload(&raw);
+        if payload.is_empty() {
+            return false;
+        }
+        self.insert_str(&payload);
+        true
+    }
+
     /// 构造一个逐字 wrap 的 glyph div，含 zero-size canvas 在 prepaint 把
     /// (byte, viewport bounds) 写回 TextInput.bounds_map。selection 范围内
     /// 应用 accent 背景色。
@@ -450,6 +483,12 @@ impl TextInput {
                     self.fire_change(window, cx);
                 }
             }
+            "v" if event.keystroke.modifiers.control => {
+                if self.paste() {
+                    cx.notify();
+                    self.fire_change(window, cx);
+                }
+            }
             "escape" => {
                 self.clear_selection();
                 cx.notify();
@@ -476,6 +515,16 @@ pub(crate) fn compute_copy_payload(
     match selection {
         Some(r) => text[r].to_string(),
         None => text.to_string(),
+    }
+}
+
+/// 计算粘贴 payload 的纯函数：单行 TextInput 把多行剪贴板内容截到首行
+/// （遇到首个 \r 或 \n 截断），与浏览器 `<input>` 行为一致。
+/// 不 trim 前后空格 —— 用户可能有意粘前导空格。
+pub(crate) fn compute_paste_payload(raw: &str) -> String {
+    match raw.find(['\n', '\r']) {
+        Some(idx) => raw[..idx].to_string(),
+        None => raw.to_string(),
     }
 }
 
@@ -1013,6 +1062,46 @@ mod tests {
     fn compute_copy_payload_empty_text_returns_empty() {
         let payload = super::compute_copy_payload("", None);
         assert!(payload.is_empty());
+    }
+
+    #[test]
+    fn compute_paste_payload_single_line_passthrough() {
+        assert_eq!(super::compute_paste_payload("hello"), "hello");
+    }
+
+    #[test]
+    fn compute_paste_payload_truncates_at_lf() {
+        assert_eq!(super::compute_paste_payload("line1\nline2"), "line1");
+    }
+
+    #[test]
+    fn compute_paste_payload_truncates_at_crlf() {
+        // \r\n 中的 \r 先被命中，截到 \r 之前 —— 同样得到首行内容
+        assert_eq!(super::compute_paste_payload("line1\r\nline2"), "line1");
+    }
+
+    #[test]
+    fn compute_paste_payload_truncates_at_lone_cr() {
+        // macOS classic / 部分 SSH 终端的 \r-only 换行
+        assert_eq!(super::compute_paste_payload("line1\rline2"), "line1");
+    }
+
+    #[test]
+    fn compute_paste_payload_preserves_leading_whitespace() {
+        // 不 trim：用户可能有意粘带前导空格的内容
+        assert_eq!(super::compute_paste_payload("  hello"), "  hello");
+    }
+
+    #[test]
+    fn compute_paste_payload_empty_clipboard_returns_empty() {
+        assert!(super::compute_paste_payload("").is_empty());
+    }
+
+    #[test]
+    fn compute_paste_payload_pure_newline_returns_empty() {
+        // 剪贴板只有换行时，截到首行 = 空串
+        assert!(super::compute_paste_payload("\n").is_empty());
+        assert!(super::compute_paste_payload("\r\n").is_empty());
     }
 
     #[test]
