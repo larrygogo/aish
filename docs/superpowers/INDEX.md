@@ -10,9 +10,9 @@
 
 ## 当前状态
 
-- **活跃分支**：`feat/aish-ui-m17-20260512-zj`（M17 Card / NavItem / TabItem hover 改造 + accent_active 已完成，待合 main）
+- **活跃分支**：`fix/textinput-ctrl-v-paste-20260512-zj`（M16 漏的 Ctrl+V 键盘粘贴补完，待合 main）；上游 `feat/aish-ui-m17-20260512-zj`（M17 已完成，待合 main）
 - **下一里程碑**：M18 候选 — Button/IconButton Ghost variant 接 accent_active（M17 留的，兑现 M15 D-2 回退）/ ContextMenu（Popover + 右键）/ DropdownMenu 键盘导航 / Light theme 实施（含 M15/M17 共 7 个占位 token）/ Dialog Tab focus trap / TextInput "眼睛"切换 mask / TextInput shift+click 扩展 selection / TextInput 多行 / Disabled 状态视觉精细化
-- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui 124 + aish-app 101 + 其他 crate) 全过
+- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **132** + aish-app 101 + 其他 crate) 全过
 
 ---
 
@@ -64,10 +64,11 @@
   - `bfce36f` — T3 drag select + glyph_div helper 抽取（amend 含 anchor 注释 + mouse_up cx.notify）
   - `520ab3d` — T4 HostForm password 字段 .mask_char('•')
 - 测试：aish-ui 110 → **121**（净 +11：mask +4 / byte_offset_at_x +4 / drag state +3）；aish-app 101 不变
+- 后续修复：commit `2034d2d`（2026-05-12）补 Ctrl+V 键盘粘贴 —— M16 漏掉、fallback `!ctrl && !alt` 守卫把 Ctrl+V 也吞了。加 paste() + compute_paste_payload（多行截到首行）+ 7 个单测；masked 状态允许 paste（密码框惯例）。
 - 已知边界：
   - "眼睛"图标切换 mask 显示未做（HostForm 原来也没有）
   - shift+click 扩展 selection 未做
-  - 中键粘贴 / 右键菜单未做
+  - 中键粘贴 / 右键菜单未做（Ctrl+V 已补）
   - 多行 TextInput 未扩展
   - IME mask 状态下 marked range 保持简化版（password 场景一般用户不用 IME）
   - bounds_map 第一帧空 → mouse_down 返回 0（首帧 click 极少发生，可接受）
