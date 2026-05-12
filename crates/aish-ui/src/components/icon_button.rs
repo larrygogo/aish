@@ -149,10 +149,10 @@ impl RenderOnce for IconButton {
                 ),
                 ButtonVariant::Ghost => (
                     gpui::transparent_black(),
-                    // Ghost hover/active 走 secondary 灰阶（与 Card / TabItem 等大容器
-                    // 一致），不再用 accent 暗绿 —— 详见 button.rs 同处注释
-                    t.colors.secondary_hover,
+                    // Ghost hover/active 比"大容器 hover"亮一档（详见 button.rs 同
+                    // 处注释）：hover=secondary_active 容器 hover+1 档，active 再+1
                     t.colors.secondary_active,
+                    gpui::rgb(0x525252).into(),
                     t.colors.foreground,
                 ),
             }
