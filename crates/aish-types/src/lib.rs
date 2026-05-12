@@ -173,6 +173,11 @@ pub struct HostConfig {
     pub user: String,
     pub auth: SshAuth,
     pub env_profile: Option<ProfileId>,
+    /// 远程系统 /etc/os-release 的 ID 字段（如 "ubuntu" / "debian" / "centos" /
+    /// "alpine" / "arch" / "fedora"...）。首次连上后由 ssh_actor 探测填入；
+    /// 用于 Host 卡片显示发行版 logo。`None` = 还未探测过或探测失败。
+    #[serde(default)]
+    pub os_kind: Option<String>,
 }
 
 #[cfg(test)]
@@ -253,6 +258,7 @@ mod tests {
                 path: PathBuf::from("/home/larry/.ssh/id_ed25519"),
             },
             env_profile: Some(ProfileId::new("default")),
+            os_kind: None,
         };
         let json = serde_json::to_string(&cfg).unwrap();
         let parsed: HostConfig = serde_json::from_str(&json).unwrap();

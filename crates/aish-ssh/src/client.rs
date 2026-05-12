@@ -242,6 +242,7 @@ mod tests {
             user: "test".into(),
             auth,
             env_profile: None,
+            os_kind: None,
         }
     }
 

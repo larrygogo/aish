@@ -146,6 +146,17 @@ pub(crate) async fn connection_task(
     let tx_for_query = event_tx.clone();
     tokio::spawn(tmux_query_task(conn, session_for_query, tx_for_query));
 
+    // 3.5 spawn 后台 OS 探测（独立 SSH channel，与 list-sessions 并行）
+    let session_for_os = session.clone();
+    let tx_for_os = event_tx.clone();
+    let host_id_for_os = host_id;
+    tokio::spawn(os_detect_task(
+        conn,
+        host_id_for_os,
+        session_for_os,
+        tx_for_os,
+    ));
+
     // 4. 主循环：raw shell 单一模式。tmux attach 不再切换协议，只是往 channel
     //    发送 `tmux attach -t '<sess>'\r` 字节，让远端 tmux 接管 PTY 渲染。
     loop {
@@ -402,6 +413,45 @@ fn parse_session_list(stdout: &[u8]) -> Vec<RemoteSession> {
 }
 
 /// 在独立 SSH channel 跑 tmux list-sessions，结果通过 SshEvent 推回。
+/// 解析 /etc/os-release 输出，提取 `ID=...` 字段（小写、去引号）。
+/// 返回 `Some("ubuntu")` / `Some("debian")` / `None`（找不到 ID 行）。
+fn parse_os_release(stdout: &[u8]) -> Option<String> {
+    let s = std::str::from_utf8(stdout).ok()?;
+    for line in s.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("ID=") {
+            // 去掉两端引号
+            let val = rest.trim().trim_matches(|c| c == '"' || c == '\'');
+            if !val.is_empty() {
+                return Some(val.to_ascii_lowercase());
+            }
+        }
+    }
+    None
+}
+
+async fn os_detect_task(
+    conn: ConnectionId,
+    host_id: aish_types::HostId,
+    client: aish_ssh::SshClient,
+    event_tx: mpsc::Sender<SshEvent>,
+) {
+    // /etc/os-release 是 systemd 标准（Ubuntu/Debian/CentOS/Fedora/Arch/Alpine 等都有）。
+    // macOS 没该文件，cat 会 fail，os_kind = None，UI 走 fallback 首字母 avatar。
+    let result = client.exec_command("cat /etc/os-release 2>/dev/null").await;
+    let os_kind = match result {
+        Ok(r) if r.exit_code == 0 => parse_os_release(&r.stdout),
+        _ => None,
+    };
+    let _ = event_tx
+        .send(SshEvent::OsDetected {
+            conn,
+            host_id,
+            os_kind,
+        })
+        .await;
+}
+
 async fn tmux_query_task(
     conn: ConnectionId,
     client: aish_ssh::SshClient,
@@ -489,6 +539,48 @@ mod tests {
         assert_eq!(result[1].name, "work");
     }
 
+    #[test]
+    fn parse_os_release_ubuntu() {
+        let s = b"NAME=\"Ubuntu\"\nVERSION=\"24.04 LTS\"\nID=ubuntu\nID_LIKE=debian\n";
+        assert_eq!(parse_os_release(s).as_deref(), Some("ubuntu"));
+    }
+
+    #[test]
+    fn parse_os_release_unquoted_id() {
+        let s = b"NAME=Arch Linux\nID=arch\n";
+        assert_eq!(parse_os_release(s).as_deref(), Some("arch"));
+    }
+
+    #[test]
+    fn parse_os_release_single_quoted_id() {
+        let s = b"ID='alpine'\n";
+        assert_eq!(parse_os_release(s).as_deref(), Some("alpine"));
+    }
+
+    #[test]
+    fn parse_os_release_lowercases() {
+        let s = b"ID=CentOS\n";
+        assert_eq!(parse_os_release(s).as_deref(), Some("centos"));
+    }
+
+    #[test]
+    fn parse_os_release_no_id_line_returns_none() {
+        let s = b"NAME=\"Ubuntu\"\nVERSION=\"24.04\"\n";
+        assert_eq!(parse_os_release(s), None);
+    }
+
+    #[test]
+    fn parse_os_release_empty_returns_none() {
+        assert_eq!(parse_os_release(b""), None);
+    }
+
+    #[test]
+    fn parse_os_release_ignores_id_like() {
+        // ID_LIKE 不应该被误匹配（必须严格前缀 "ID="）
+        let s = b"ID_LIKE=debian\nID=ubuntu\n";
+        assert_eq!(parse_os_release(s).as_deref(), Some("ubuntu"));
+    }
+
     #[tokio::test]
     async fn password_empty_no_keyring_entry_emits_auth_error() {
         // password 为空 + keyring 无该 host 条目 → 期望立即 emit AuthFailed Error
@@ -504,6 +596,7 @@ mod tests {
                 password: String::new(),
             },
             env_profile: None,
+            os_kind: None,
         };
         let conn = ConnectionId::new();
 

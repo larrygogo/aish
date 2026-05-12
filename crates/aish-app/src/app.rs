@@ -95,6 +95,29 @@ pub fn run() {
                             state.drop_session(conn);
                             cx.notify();
                         }
+                        SshEvent::OsDetected {
+                            conn: _,
+                            host_id,
+                            os_kind,
+                        } => {
+                            // 写入对应 HostConfig.os_kind + 持久化 hosts.json
+                            // 失败时仅 log warning，不打扰用户（探测本身就是 best-effort）。
+                            let mut changed = false;
+                            if let Some(host) =
+                                state.hosts.iter_mut().find(|h| h.id == host_id)
+                            {
+                                if host.os_kind != os_kind {
+                                    host.os_kind = os_kind;
+                                    changed = true;
+                                }
+                            }
+                            if changed {
+                                if let Err(e) = crate::persistence::save_hosts(&state.hosts) {
+                                    tracing::warn!("save hosts.json after os detect: {}", e);
+                                }
+                                cx.notify();
+                            }
+                        }
                         SshEvent::TmuxQueryStarted { conn } => {
                             state
                                 .tmux_state

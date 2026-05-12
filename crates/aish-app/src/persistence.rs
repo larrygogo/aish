@@ -133,6 +133,7 @@ mod tests {
                 path: PathBuf::from("/home/me/.ssh/id_ed25519"),
             },
             env_profile: None,
+            os_kind: None,
         }
     }
 
@@ -228,6 +229,7 @@ mod tests {
                 password: password.into(),
             },
             env_profile: None,
+            os_kind: None,
         }
     }
 

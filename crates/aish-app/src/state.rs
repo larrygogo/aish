@@ -72,6 +72,14 @@ pub enum SshEvent {
         conn: ConnectionId,
         msg: String,
     },
+    /// 探测到远程系统类型（解析 /etc/os-release 的 ID 字段）。app.rs 收到
+    /// 后写入对应 HostConfig.os_kind 并 persist。`None` = 探测失败 / macOS
+    /// 没该文件 / 命令 exec 出错，仍走事件让 UI 不再无限等待。
+    OsDetected {
+        conn: ConnectionId,
+        host_id: aish_types::HostId,
+        os_kind: Option<String>,
+    },
     /// 批量上传进度：每张图（无论成败）完成后发一次。done/total 用于 UI 进度展示。
     BatchProgress {
         conn: ConnectionId,
@@ -285,6 +293,7 @@ impl HostFormDraft {
             user: self.user.trim().into(),
             auth,
             env_profile: None,
+            os_kind: None,
         })
     }
 }
@@ -642,6 +651,7 @@ mod tests {
                 path: PathBuf::from("/tmp/k"),
             },
             env_profile: None,
+            os_kind: None,
         }
     }
 
@@ -988,6 +998,7 @@ mod tests {
                 password: "this-should-be-ignored".into(),
             },
             env_profile: None,
+            os_kind: None,
         };
         let draft = HostFormDraft::from_config(&host);
         assert_eq!(draft.auth_kind, AuthKind::Password);

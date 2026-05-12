@@ -950,6 +950,7 @@ mod tests {
                 path: std::path::PathBuf::from("/tmp/k"),
             },
             env_profile: None,
+            os_kind: None,
         };
         let id = cfg.id;
         (AppState::with_hosts(vec![cfg]), id)
