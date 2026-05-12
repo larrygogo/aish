@@ -127,9 +127,10 @@ impl RenderOnce for NavItem {
         }
 
         if !active {
+            // 大容器 hover 用 secondary 灰阶提亮（不换色调），accent 留给小元素强调
             let hover_fg = t.colors.secondary_foreground;
-            let hover_bg = t.colors.accent;
-            let active_bg = t.colors.accent_active;
+            let hover_bg = t.colors.secondary_hover;
+            let active_bg = t.colors.secondary_active;
             el = el
                 .hover(move |s| s.text_color(hover_fg).bg(hover_bg))
                 .active(move |s| s.bg(active_bg));
