@@ -11,7 +11,7 @@ use std::time::Instant;
 use arboard::Clipboard;
 use gpui::{
     canvas, div, prelude::*, px, App, Bounds, Context, FocusHandle, Focusable, InputHandler,
-    KeyDownEvent, MouseButton, Pixels, SharedString, UTF16Selection, Window,
+    KeyDownEvent, MouseButton, MouseDownEvent, Pixels, SharedString, UTF16Selection, Window,
 };
 
 use crate::theme::theme;
@@ -32,6 +32,10 @@ pub struct TextInput {
     selection_anchor: Option<usize>,      // 拖选起始 byte offset
     last_click: Option<(Instant, usize)>, // 双击检测
     mask_char: Option<char>,              // M16: mask 模式替换字符；None = 正常显示
+    /// M16 T2：每个显示字符的 viewport bounds（byte_offset → rect）。
+    /// render 入口清空，每帧由逐字 wrap div 内嵌 canvas 在 prepaint
+    /// 阶段通过 push_glyph_bounds 重新填充。
+    bounds_map: Vec<(usize, Bounds<Pixels>)>,
 }
 
 impl TextInput {
@@ -47,6 +51,7 @@ impl TextInput {
             selection_anchor: None,
             last_click: None,
             mask_char: None,
+            bounds_map: Vec::new(),
         };
         this.start_blink_timer(cx);
         this
@@ -111,6 +116,14 @@ impl TextInput {
     fn cursor_visible_now(&self) -> bool {
         let phase = self.blink_epoch.elapsed().as_millis() as u64 % BLINK_PERIOD_MS;
         phase < BLINK_PERIOD_MS / 2
+    }
+
+    pub(crate) fn push_glyph_bounds(&mut self, byte: usize, bounds: Bounds<Pixels>) {
+        self.bounds_map.push((byte, bounds));
+    }
+
+    pub(crate) fn clear_glyph_bounds(&mut self) {
+        self.bounds_map.clear();
     }
 
     /// 把原文 byte offset (self.cursor) 转成显示文本 byte offset，用于 mask 时切片。
@@ -432,6 +445,29 @@ pub(crate) fn compute_copy_payload(
     }
 }
 
+/// M16 T2：在 bounds_map 中找包含 click_x 的字符，返回其 byte offset。
+/// 若 click_x 在所有字符之前 → 返回 0；在右半之后 → 返回 text_len。
+/// 用 char 的中线作为分界：
+///   click_x < mid → 该 byte
+///   click_x >= mid → 下一个 byte（或末尾）
+pub(crate) fn byte_offset_at_x(
+    bounds_map: &[(usize, Bounds<Pixels>)],
+    click_x: Pixels,
+    text_len: usize,
+) -> usize {
+    if bounds_map.is_empty() {
+        return 0;
+    }
+    for (byte, bounds) in bounds_map {
+        // width == 0 时 mid == origin.x，click_x >= mid 会自动跳到下一字符，行为仍正确
+        let mid = bounds.origin.x + bounds.size.width / 2.0;
+        if click_x < mid {
+            return *byte;
+        }
+    }
+    text_len
+}
+
 impl Focusable for TextInput {
     fn focus_handle(&self, _cx: &App) -> FocusHandle {
         self.focus_handle.clone()
@@ -527,6 +563,9 @@ impl InputHandler for TextInputImeHandler {
 
 impl Render for TextInput {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // M16 T2：清空 bounds_map，本帧 prepaint 会重新填充
+        self.clear_glyph_bounds();
+
         let focus_for_ime = self.focus_handle.clone();
         let weak_view = cx.weak_entity();
         let focused = self.focus_handle.is_focused(window);
@@ -539,17 +578,126 @@ impl Render for TextInput {
             t.colors.border
         };
 
-        // M16: mask 时把字符替换为 mask_char 显示（按 char 等长填充）
+        // mask 时 displayed_text 用 mask_char 填充（T1 行为保持）
         let displayed_text: String = if let Some(mask) = self.mask_char {
             self.text.chars().map(|_| mask).collect()
         } else {
             self.text.clone()
         };
         let displayed_cursor = self.cursor_for_display(&displayed_text);
-        let cursor_left = displayed_text[..displayed_cursor].to_string();
-        let cursor_right = displayed_text[displayed_cursor..].to_string();
         let placeholder_visible = displayed_text.is_empty();
-        let selection = self.selection_range();
+
+        // selection 按 displayed_text 算（原文 byte range → displayed byte range）
+        let displayed_selection: Option<std::ops::Range<usize>> = self.selection_range().map(|r| {
+            if self.mask_char.is_none() {
+                r
+            } else {
+                let start_char = self.text[..r.start].chars().count();
+                let end_char = self.text[..r.end].chars().count();
+                let s = displayed_text
+                    .char_indices()
+                    .nth(start_char)
+                    .map(|(b, _)| b)
+                    .unwrap_or(displayed_text.len());
+                let e = displayed_text
+                    .char_indices()
+                    .nth(end_char)
+                    .map(|(b, _)| b)
+                    .unwrap_or(displayed_text.len());
+                s..e
+            }
+        });
+
+        // 把 displayed_text 切两段：cursor 之前 / cursor 之后
+        let left_chars: Vec<(usize, char)> =
+            displayed_text[..displayed_cursor].char_indices().collect();
+        let right_chars: Vec<(usize, char)> = displayed_text[displayed_cursor..]
+            .char_indices()
+            .map(|(b, c)| (b + displayed_cursor, c))
+            .collect();
+
+        let accent = t.colors.accent;
+        let ring = t.colors.ring;
+        let foreground = t.colors.foreground;
+        let muted_foreground = t.colors.muted_foreground;
+        let font_size_sm = t.font_size.sm;
+
+        let cursor_div = if show_cursor {
+            div().w(px(1.0)).h(px(14.0)).bg(ring).self_center()
+        } else {
+            div().w(px(1.0)).h(px(14.0)).self_center()
+        };
+
+        let text_row = if placeholder_visible {
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .text_size(font_size_sm)
+                .text_color(muted_foreground)
+                .child(cursor_div)
+                .child(div().child(self.placeholder.clone()))
+                .into_any_element()
+        } else {
+            let weak_left = weak_view.clone();
+            let sel_left = displayed_selection.clone();
+            let left_divs = left_chars.into_iter().map(move |(byte, ch)| {
+                let weak = weak_left.clone();
+                let mut g = div().relative().child(ch.to_string()).child(
+                    canvas(
+                        move |bounds, _w, cx| {
+                            let _ = weak.update(cx, |t, _cx| t.push_glyph_bounds(byte, bounds));
+                        },
+                        |_, _, _, _| {},
+                    )
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .size_full(),
+                );
+                if let Some(ref sel) = sel_left {
+                    if byte >= sel.start && byte < sel.end {
+                        g = g.bg(accent);
+                    }
+                }
+                g
+            });
+
+            let weak_right = weak_view.clone();
+            let sel_right = displayed_selection.clone();
+            let right_divs = right_chars.into_iter().map(move |(byte, ch)| {
+                let weak = weak_right.clone();
+                let mut g = div().relative().child(ch.to_string()).child(
+                    canvas(
+                        move |bounds, _w, cx| {
+                            let _ = weak.update(cx, |t, _cx| t.push_glyph_bounds(byte, bounds));
+                        },
+                        |_, _, _, _| {},
+                    )
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .size_full(),
+                );
+                if let Some(ref sel) = sel_right {
+                    if byte >= sel.start && byte < sel.end {
+                        g = g.bg(accent);
+                    }
+                }
+                g
+            });
+
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .text_size(font_size_sm)
+                .text_color(foreground)
+                .children(left_divs)
+                .child(cursor_div)
+                .children(right_divs)
+                .into_any_element()
+        };
 
         div()
             .relative()
@@ -569,73 +717,16 @@ impl Render for TextInput {
             }))
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(|this, _, window, cx| {
+                cx.listener(|this, ev: &MouseDownEvent, window, cx| {
                     this.focus_handle.focus(window, cx);
-                    let pos = this.text.len(); // M11 简化：点击 = 移到末尾
-                    this.handle_mouse_down_at(pos, cx);
+                    // M16 T2: 用 bounds_map（上一帧 prepaint 写入）算 click x → byte。
+                    // 时序安全：GPUI 事件派发在 paint 之后、下一次 render 之前，此时
+                    // render 入口的 clear_glyph_bounds() 还没执行，map 仍是上一帧的有效数据。
+                    let byte = byte_offset_at_x(&this.bounds_map, ev.position.x, this.text.len());
+                    this.handle_mouse_down_at(byte, cx);
                 }),
             )
-            .child(if placeholder_visible {
-                // 空文本：placeholder + 前置 cursor（focused 时闪烁）
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .text_size(t.font_size.sm)
-                    .text_color(t.colors.muted_foreground)
-                    .child(if show_cursor {
-                        div()
-                            .w(px(1.0))
-                            .h(px(14.0))
-                            .bg(t.colors.ring)
-                            .self_center()
-                            .into_any_element()
-                    } else {
-                        div()
-                            .w(px(1.0))
-                            .h(px(14.0))
-                            .self_center()
-                            .into_any_element()
-                    })
-                    .child(div().child(self.placeholder.clone()))
-                    .into_any_element()
-            } else if let Some(sel) = selection.filter(|_| self.mask_char.is_none()) {
-                let before = self.text[..sel.start].to_string();
-                let middle = self.text[sel.start..sel.end].to_string();
-                let after = self.text[sel.end..].to_string();
-                div()
-                    .flex()
-                    .flex_row()
-                    .text_size(t.font_size.sm)
-                    .text_color(t.colors.foreground)
-                    .child(div().child(before))
-                    .child(div().bg(t.colors.accent).child(middle))
-                    .child(div().child(after))
-                    .into_any_element()
-            } else {
-                div()
-                    .flex()
-                    .flex_row()
-                    .text_size(t.font_size.sm)
-                    .text_color(t.colors.foreground)
-                    .child(div().child(cursor_left))
-                    .child(if show_cursor {
-                        div()
-                            .w(px(1.0))
-                            .h(px(14.0))
-                            .bg(t.colors.ring)
-                            .self_center()
-                            .into_any_element()
-                    } else {
-                        div()
-                            .w(px(1.0))
-                            .h(px(14.0))
-                            .self_center()
-                            .into_any_element()
-                    })
-                    .child(div().child(cursor_right))
-                    .into_any_element()
-            })
+            .child(text_row)
             .child(
                 canvas(
                     |bounds, _window, _cx| bounds,
@@ -928,5 +1019,39 @@ mod tests {
         let displayed: String = text.chars().map(|_| mask).collect();
         assert_eq!(displayed.chars().count(), text.chars().count());
         assert!(displayed.chars().all(|c| c == '•'));
+    }
+
+    use super::byte_offset_at_x;
+    use gpui::{point, px, size, Bounds, Pixels};
+
+    fn mk_bound(byte: usize, x: f32, w: f32) -> (usize, Bounds<Pixels>) {
+        (
+            byte,
+            Bounds::new(point(px(x), px(0.0)), size(px(w), px(14.0))),
+        )
+    }
+
+    #[test]
+    fn byte_offset_empty_bounds_returns_zero() {
+        let map: Vec<(usize, Bounds<Pixels>)> = vec![];
+        assert_eq!(byte_offset_at_x(&map, px(50.0), 10), 0);
+    }
+
+    #[test]
+    fn byte_offset_click_in_first_half_returns_byte() {
+        let map = vec![mk_bound(0, 10.0, 20.0)];
+        assert_eq!(byte_offset_at_x(&map, px(15.0), 5), 0);
+    }
+
+    #[test]
+    fn byte_offset_click_in_second_half_returns_next() {
+        let map = vec![mk_bound(0, 10.0, 20.0), mk_bound(1, 30.0, 20.0)];
+        assert_eq!(byte_offset_at_x(&map, px(25.0), 5), 1);
+    }
+
+    #[test]
+    fn byte_offset_click_past_end_returns_text_len() {
+        let map = vec![mk_bound(0, 10.0, 20.0)];
+        assert_eq!(byte_offset_at_x(&map, px(100.0), 5), 5);
     }
 }
