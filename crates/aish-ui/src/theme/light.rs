@@ -2,11 +2,12 @@
 
 use super::tokens::Theme;
 
-// TODO(light-theme): M15 给 `ColorTokens` 加了 6 个 hover/active 字段
-// （primary_hover/_active、secondary_hover/_active、destructive_hover/_active）。
-// 当前 `light()` 整体是 unimplemented! stub，未构造 struct literal，6 个新字段
-// 也没有对应值。下个 light theme milestone 真正实现 `light()` 时，需要按 light
-// 配色手挑这 6 个 hover/active 色（dark 那 6 个的对照参考在 theme/dark.rs）。
+// TODO(light-theme): M15 / M17 给 `ColorTokens` 加的 hover/active 字段
+// （primary_hover/_active、secondary_hover/_active、destructive_hover/_active、
+// accent_active）。当前 `light()` 整体是 unimplemented! stub，未构造 struct literal，
+// 这些新字段也没有对应值。下个 light theme milestone 真正实现 `light()` 时，需要按 light
+// 配色手挑这些 hover/active 色（dark 那批对照参考在 theme/dark.rs）。
+// 注：M16（TextInput mask + cursor_at_pixel）未给 ColorTokens 加字段，与本注释无关。
 impl Theme {
     /// **未实现**：M11 范围外。调用会 panic。
     pub fn light() -> Self {
