@@ -15,7 +15,10 @@ use std::sync::Arc;
 
 use aish_types::ConnectionId;
 use aish_ui::{theme, Dialog};
-use gpui::{div, prelude::*, Context, Entity, IntoElement, MouseButton, MouseDownEvent, Window};
+use gpui::{
+    div, prelude::*, Context, Entity, IntoElement, MouseButton, MouseDownEvent, SharedString,
+    Window,
+};
 
 use crate::bridge::Bridge;
 use crate::state::{AppState, SessionCommand, SshEvent, TmuxState};
@@ -119,9 +122,9 @@ impl Render for SessionPickerView {
             _ => Vec::new(),
         };
 
-        let (colors, font_size, spacing) = {
+        let (colors, font_size, spacing, radius) = {
             let t = theme(cx);
-            (t.colors, t.font_size, t.spacing)
+            (t.colors, t.font_size, t.spacing, t.radius)
         };
 
         let rows: Vec<_> = sessions
@@ -129,24 +132,38 @@ impl Render for SessionPickerView {
             .map(|s| {
                 let sid = s.id.clone();
                 let name = s.name.clone();
+                // M17 一致性：大容器 hover 用 secondary 灰阶（与 Card / TabItem
+                // 同源），不再用 accent 染色（accent 暗绿 #2f6e3e fill 整行
+                // 视觉过冲）。row 之间用 gap 替代 border-b，每行 rounded 让
+                // hover 高亮成块状而不是横条。
+                let hover_bg = colors.secondary_hover;
+                let active_bg = colors.secondary_active;
+                // .active() 要求 stateful div → 必须 .id()，否则 compile 失败
                 div()
+                    .id(SharedString::from(format!("session-row-{}", sid)))
                     .px(spacing.px_3)
                     .py(spacing.px_2)
                     .flex()
                     .flex_row()
                     .items_center()
                     .gap(spacing.px_3)
-                    .border_b_1()
-                    .border_color(colors.border)
+                    .rounded(radius.md)
                     .cursor_pointer()
-                    .hover(move |st| st.bg(colors.accent))
+                    .hover(move |st| st.bg(hover_bg))
+                    .active(move |st| st.bg(active_bg))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
                             this.handle_pick(conn, sid.clone(), cx);
                         }),
                     )
-                    .child(div().text_color(colors.success).child("●"))
+                    // success 绿点缩小到 xs，避免与 row hover 颜色互相干扰
+                    .child(
+                        div()
+                            .text_color(colors.success)
+                            .text_size(font_size.xs)
+                            .child("●"),
+                    )
                     .child(
                         div()
                             .flex_1()
@@ -171,7 +188,12 @@ impl Render for SessionPickerView {
                 .child("(无 session — 关闭弹窗回到 raw shell)")
                 .into_any_element()
         } else {
-            div().flex().flex_col().children(rows).into_any_element()
+            div()
+                .flex()
+                .flex_col()
+                .gap(spacing.px_1)
+                .children(rows)
+                .into_any_element()
         };
 
         self.dialog.update(cx, |d, _cx| {
