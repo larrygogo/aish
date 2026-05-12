@@ -106,12 +106,14 @@ impl RenderOnce for Card {
         }
 
         if let Some(handler) = self.on_click {
-            let accent = t.colors.accent;
-            let accent_active = t.colors.accent_active;
+            // 大容器 hover 用 secondary 灰阶提亮（modern UI 通用：hover 不换色调，
+            // 只提亮一档）。accent 太染色，会让 Card 反客为主
+            let hover_bg = t.colors.secondary_hover;
+            let active_bg = t.colors.secondary_active;
             el = el
                 .cursor_pointer()
-                .hover(move |s| s.bg(accent))
-                .active(move |s| s.bg(accent_active))
+                .hover(move |s| s.bg(hover_bg))
+                .active(move |s| s.bg(active_bg))
                 .on_mouse_down(MouseButton::Left, move |ev, window, cx| {
                     handler(ev, window, cx);
                 });

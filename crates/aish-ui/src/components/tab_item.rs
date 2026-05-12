@@ -90,8 +90,9 @@ impl RenderOnce for TabItem {
             .cursor_pointer();
 
         if !active {
-            let hover_bg = t.colors.accent;
-            let active_bg = t.colors.accent_active;
+            // 大容器 hover 用 secondary 灰阶提亮（不换色调），accent 留给小元素强调
+            let hover_bg = t.colors.secondary_hover;
+            let active_bg = t.colors.secondary_active;
             el = el
                 .hover(move |s| s.bg(hover_bg))
                 .active(move |s| s.bg(active_bg));
