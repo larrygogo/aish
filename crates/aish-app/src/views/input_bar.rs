@@ -81,13 +81,34 @@ impl InputBarView {
         }
     }
 
+    /// 把 `input.clear()` 延后到下一轮 event loop。
+    ///
+    /// **必要性**：send() 可能从 TextInput 自己的 on_submit 回调（enter 键）
+    /// 触发，此时 TextInput entity 的 listener mut-borrow 还活着（在
+    /// handle_key → fire_submit → on_submit callback 调用链里）。如果在这条
+    /// 路径上同步调 `self.input.update(...)` → GPUI 检测到同一 entity 的
+    /// 嵌套 update → borrow_mut 失败 panic（"shell 底部输入框按回车死程序"）。
+    ///
+    /// 发送按钮 click 路径本来不会嵌套（InputBarView 的 listener，cx 是
+    /// 自己的 Context，与 input 不同 entity），但为了一致性 + 防御未来类似
+    /// bug，所有 clear 都走 defer 路径。
+    fn defer_clear_input(&self, cx: &mut Context<Self>) {
+        let input = self.input.clone();
+        cx.spawn(async move |_view, cx| {
+            // input 是 Entity（strong ref），update 在 async cx 上返回 ()
+            // 而非 Result（entity 一直 alive）；clippy 因此抱怨 let_unit_value
+            input.update(cx, |i, cx| i.clear(cx));
+        })
+        .detach();
+    }
+
     fn send(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let text = self.input.read(cx).text().trim().to_string();
 
         let conn = match self.state.read(cx).current_connection() {
             Some(c) => c,
             None => {
-                self.input.update(cx, |i, cx| i.clear(cx));
+                self.defer_clear_input(cx);
                 self.images.clear();
                 cx.notify();
                 return;
@@ -103,7 +124,7 @@ impl InputBarView {
                     });
                 }
             }
-            self.input.update(cx, |i, cx| i.clear(cx));
+            self.defer_clear_input(cx);
             cx.notify();
             return;
         }
@@ -145,7 +166,7 @@ impl InputBarView {
         }
 
         self.images.clear();
-        self.input.update(cx, |i, cx| i.clear(cx));
+        self.defer_clear_input(cx);
         cx.notify();
     }
 }
