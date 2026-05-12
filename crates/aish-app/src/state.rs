@@ -299,13 +299,12 @@ pub struct Connection {
     pub opened_at: SystemTime,
 }
 
-/// 顶层 4-tab 导航当前选中项（M4a 信息架构）。
+/// 顶层 3-tab 导航当前选中项（M4a 信息架构；Inbox 在 2026-05-12 删除）。
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum SidebarTab {
     #[default]
     Home,
     Terminal,
-    Inbox,
     Settings,
 }
 

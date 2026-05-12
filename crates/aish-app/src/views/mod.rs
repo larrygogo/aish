@@ -2,7 +2,6 @@
 
 #![allow(dead_code)]
 
-mod coming_soon;
 mod empty_terminal;
 mod home;
 mod host_form;
@@ -16,7 +15,6 @@ mod terminal_view;
 #[allow(dead_code)]
 mod tmux_sidebar;
 
-pub use coming_soon::{ComingSoonKind, ComingSoonView};
 pub use empty_terminal::EmptyTerminalGuideView;
 pub use home::HomeView;
 pub use host_form::HostFormModal;

@@ -231,7 +231,6 @@ struct RootView {
     home: Entity<crate::views::HomeView>,
     terminal: Entity<crate::views::TerminalView>,
     empty_terminal: Entity<crate::views::EmptyTerminalGuideView>,
-    inbox: Entity<crate::views::ComingSoonView>,
     settings: Entity<crate::views::SettingsView>,
     host_form: Entity<crate::views::HostFormModal>,
     session_picker: Entity<crate::views::SessionPickerView>,
@@ -258,8 +257,6 @@ impl RootView {
         });
         let empty_terminal =
             cx.new(|cx| crate::views::EmptyTerminalGuideView::new(state.clone(), cx));
-        let inbox =
-            cx.new(|_cx| crate::views::ComingSoonView::new(crate::views::ComingSoonKind::Inbox));
         let settings = cx.new(|_cx| crate::views::SettingsView::new());
         let host_form = cx.new(|cx| {
             crate::views::HostFormModal::new(state.clone(), bridge.clone(), tx.clone(), cx)
@@ -279,7 +276,6 @@ impl RootView {
             home,
             terminal,
             empty_terminal,
-            inbox,
             settings,
             host_form,
             session_picker,
@@ -315,7 +311,6 @@ impl Render for RootView {
                         .into_any_element()
                 }
             }
-            SidebarTab::Inbox => self.inbox.clone().into_any_element(),
             SidebarTab::Settings => self.settings.clone().into_any_element(),
         };
 

@@ -59,7 +59,6 @@ impl Render for SidebarNavView {
             .border_color(colors.border)
             .child(make_item(SidebarTab::Home, "\u{f015}", "home", cx))
             .child(make_item(SidebarTab::Terminal, "\u{f120}", "terminal", cx))
-            .child(make_item(SidebarTab::Inbox, "\u{f01c}", "inbox", cx))
             .child(
                 div()
                     .flex_1()
