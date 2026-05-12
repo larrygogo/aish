@@ -1,9 +1,9 @@
 //! 默认 dark 主题。
 //!
-//! 色板：Tokyo Night 深色容器底 + logo CRT 终端绿点缀（primary / accent / ring
-//! 一系列绿色，primary_active 直接用 logo 原色 #00FF41 作为按下高光）。
-//! background / card / popover / secondary / destructive / success / warning 等
-//! 保留 Tokyo Night 原值。
+//! 色板：黑底 CRT 终端风。background / card / popover / secondary / muted /
+//! border / input 全用中性黑灰阶（去 Tokyo Night 蓝调），primary / accent /
+//! ring 走 logo 终端绿系（primary_active 直接用 logo 原色 #00ff41 作为按下
+//! 高光）。destructive / success / warning 保留鲜艳警示色作对比。
 
 use super::tokens::{hex, ColorTokens, FontSize, Radius, Spacing, Theme};
 
@@ -11,24 +11,31 @@ impl Theme {
     pub fn dark() -> Self {
         Self {
             colors: ColorTokens {
-                background: hex(0x1a1b26),
-                foreground: hex(0xc0caf5),
-                card: hex(0x1f2030),
-                card_foreground: hex(0xc0caf5),
-                popover: hex(0x24253a),
-                popover_foreground: hex(0xc0caf5),
+                // 黑底 + 中性灰阶（去蓝调）
+                background: hex(0x050505),
+                foreground: hex(0xe0e0e0),
+                card: hex(0x0d0d0d),
+                card_foreground: hex(0xe0e0e0),
+                popover: hex(0x161616),
+                popover_foreground: hex(0xe0e0e0),
+                // primary 走 logo 终端绿
                 primary: hex(0x00cc33),
-                primary_foreground: hex(0xc0caf5),
-                secondary: hex(0x2d2d3f),
-                secondary_foreground: hex(0xa9b1d6),
-                muted: hex(0x2d2d3f),
-                muted_foreground: hex(0x565f89),
+                primary_foreground: hex(0x050505), // 绿底深字，对比清晰
+                // secondary / muted 中性灰
+                secondary: hex(0x1f1f1f),
+                secondary_foreground: hex(0xbfbfbf),
+                muted: hex(0x1f1f1f),
+                muted_foreground: hex(0x808080),
+                // accent 浅绿，作为容器 hover bg
                 accent: hex(0x66e082),
-                accent_foreground: hex(0x1a1b26),
+                accent_foreground: hex(0x050505), // 浅绿底深字
+                // destructive 保留 Tokyo Night 红粉（警示色与绿成对比）
                 destructive: hex(0xf7768e),
-                destructive_foreground: hex(0x1a1b26),
-                border: hex(0x2d2d3f),
-                input: hex(0x16161e),
+                destructive_foreground: hex(0x050505),
+                // border / input 中性深灰
+                border: hex(0x1f1f1f),
+                input: hex(0x0a0a0a),
+                // focus ring = accent（CRT 绿光圈）
                 ring: hex(0x66e082),
                 success: hex(0x9ece6a),
                 warning: hex(0xe0af68),
@@ -36,9 +43,10 @@ impl Theme {
                 // primary 绿色系：#00cc33 → #00e63a → #00ff41（logo 原色）
                 primary_hover: hex(0x00e63a),
                 primary_active: hex(0x00ff41),
-                // secondary / destructive 保留 Tokyo Night 阶梯
-                secondary_hover: hex(0x3a3a52),
-                secondary_active: hex(0x444460),
+                // secondary 中性灰阶梯
+                secondary_hover: hex(0x2a2a2a),
+                secondary_active: hex(0x333333),
+                // destructive 保留 Tokyo Night 阶梯
                 destructive_hover: hex(0xff8aa1),
                 destructive_active: hex(0xff9cb5),
                 // M17：accent 按下反馈，比 accent 更深（与 M15 方向相反）
@@ -75,6 +83,13 @@ mod tests {
     fn dark_background_is_very_dark() {
         let t = Theme::dark();
         assert!(t.colors.background.l < 0.15);
+    }
+
+    #[test]
+    fn dark_background_is_neutral_no_hue() {
+        let t = Theme::dark();
+        // #050505 是中性灰阶，saturation 应该极低（远离原 Tokyo Night #1a1b26 的蓝调）
+        assert!(t.colors.background.s < 0.05);
     }
 
     #[test]
