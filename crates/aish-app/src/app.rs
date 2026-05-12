@@ -188,6 +188,11 @@ pub fn run() {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 titlebar: Some(TitlebarOptions {
                     title: Some(SharedString::from("aish")),
+                    // 隐掉系统原生 titlebar 内容（macOS/Windows），由 RootView
+                    // 顶部自绘 36px strip：aish 标识 + 拖拽区 + 三按钮。
+                    // 注意：启用后必须保证自绘按钮逻辑正确（remove_window 等），
+                    // 否则用户无法关窗口。
+                    appears_transparent: true,
                     ..Default::default()
                 }),
                 app_id: Some("aish".to_string()), // Linux WM_CLASS，与 .desktop 匹配
@@ -285,6 +290,7 @@ impl Render for RootView {
         let sidebar = app.sidebar;
         let modal_open = app.modal.is_some();
         let picker_open = app.pending_session_picker.is_some();
+        let colors = aish_ui::theme(cx).colors;
         let tabs_empty = app.tabs.is_empty();
         let _ = app;
 
@@ -317,7 +323,115 @@ impl Render for RootView {
             .child(self.sidebar_nav.clone())
             .child(div().flex_1().child(main_body));
 
-        let mut root = div().relative().size_full().child(main);
+        // ───── 自绘 titlebar（36px strip）─────
+        // appears_transparent=true 后系统不画 titlebar，必须自己提供拖拽区 + 窗口
+        // 控件。布局：左 logo+标题 / 中拖拽区 / 右 minimize+maximize+close。
+        // 整个 titlebar bg=card（与 tab bar 同色无缝衔接）。
+        // logo + 标题（Nerd Font 终端 + "aish"）
+        let titlebar_left = div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(8.0))
+            .px(px(12.0))
+            .child(
+                div()
+                    .font_family(crate::terminal::font::FONT_NAME)
+                    .text_size(px(14.0))
+                    .text_color(colors.primary)
+                    .child("\u{f120}"), // nf-fa-terminal
+            )
+            .child(
+                div()
+                    .text_size(px(12.0))
+                    .text_color(colors.foreground)
+                    .child("aish"),
+            );
+
+        // 中部拖拽区 —— flex_1 撑满，mouse_down 调 window.start_window_move()
+        let titlebar_drag_area = div()
+            .flex_1()
+            .h_full()
+            .on_mouse_down(gpui::MouseButton::Left, |_ev, window, _cx| {
+                window.start_window_move()
+            });
+
+        // 窗口控件按钮（minimize / maximize / close）
+        // hover bg：minimize/maximize 用 secondary_hover；close 用 destructive
+        // 闭包 + impl trait 泛型避免 Box<dyn> 类型复杂度（clippy::type_complexity）
+        fn titlebar_btn<F>(
+            id: &'static str,
+            glyph: &'static str,
+            base_fg: gpui::Hsla,
+            hover_bg: gpui::Hsla,
+            hover_fg: gpui::Hsla,
+            on_click: F,
+        ) -> impl IntoElement
+        where
+            F: Fn(&mut Window, &mut App) + 'static,
+        {
+            div()
+                .id(id)
+                .h_full()
+                .w(px(46.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .cursor_pointer()
+                .text_size(px(11.0))
+                .text_color(base_fg)
+                .hover(move |s| s.bg(hover_bg).text_color(hover_fg))
+                .on_mouse_down(gpui::MouseButton::Left, move |_ev, window, cx| {
+                    on_click(window, cx);
+                })
+                .child(glyph)
+        }
+
+        let titlebar = div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .h(px(36.0))
+            .w_full()
+            .bg(colors.card)
+            .border_b_1()
+            .border_color(colors.border)
+            .child(titlebar_left)
+            .child(titlebar_drag_area)
+            .child(titlebar_btn(
+                "tb-min",
+                "\u{2014}", // em dash
+                colors.muted_foreground,
+                colors.secondary_hover,
+                colors.foreground,
+                |window, _cx| window.minimize_window(),
+            ))
+            .child(titlebar_btn(
+                "tb-max",
+                "\u{25A2}", // white square with rounded corners
+                colors.muted_foreground,
+                colors.secondary_hover,
+                colors.foreground,
+                |window, _cx| window.zoom_window(),
+            ))
+            .child(titlebar_btn(
+                "tb-close",
+                "\u{2715}", // multiplication x
+                colors.muted_foreground,
+                colors.destructive,
+                colors.destructive_foreground,
+                |window, _cx| window.remove_window(),
+            ));
+
+        // 把 titlebar 放在 root 顶部，main 在下面
+        let root_with_titlebar = div()
+            .flex()
+            .flex_col()
+            .size_full()
+            .child(titlebar)
+            .child(div().flex_1().child(main));
+
+        let mut root = div().relative().size_full().child(root_with_titlebar);
 
         if picker_open {
             root = root.child(self.session_picker.clone());
