@@ -297,24 +297,36 @@ impl Render for TabBarView {
             })
             .collect();
 
-        // 末尾 + 按钮新建默认页：
-        // - 用 1px 高 20px 的垂直分隔线把 + 与 tab 区隔开（与 tab 间的 close 按钮
-        //   小 ghost 视觉重量更轻不混淆）
-        // - 左右各 8px padding，让 + 不再紧贴最后一个 tab 末尾
-        // - 改用 medium size（24px → 32px），略大于 tab 内 close 按钮，
-        //   突出"新建 tab"独立操作的语义
-        let plus_btn = aish_ui::IconButton::new("tab-new", aish_ui::IconName::Plus)
-            .ghost()
-            .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| this.handle_new_tab(cx)));
-        let plus_divider = div().w(px(1.0)).h(px(20.0)).bg(colors.border);
-        let plus_section = div()
+        // 末尾 + 按钮新建默认页：Chrome 风格 mini-tab 外观
+        // - 全高 40px 与 TabItem 一致，与 tab 同一 baseline 不悬浮
+        // - 宽 40px 方形，比 tab 窄，但与 tab 视觉同源
+        // - bg(card) 与 tab bar 同色（idle 时几乎隐形，只露 + icon）
+        // - hover bg secondary_hover、active bg secondary_active，
+        //   与 TabItem hover/active 完全一致的视觉反馈
+        // - 不用 IconButton 包装：IconButton 自带 rounded + 固定 padding，
+        //   与"和 tab 同 baseline 的方形区域"语义冲突；直接 div 更干净
+        let hover_bg = colors.secondary_hover;
+        let active_bg = colors.secondary_active;
+        let plus_btn = div()
+            .id("tab-new")
+            .h(px(40.0))
+            .w(px(40.0))
             .flex()
-            .flex_row()
             .items_center()
-            .gap(px(8.0))
-            .px(px(8.0))
-            .child(plus_divider)
-            .child(plus_btn);
+            .justify_center()
+            .cursor_pointer()
+            .bg(colors.card)
+            .hover(move |s| s.bg(hover_bg))
+            .active(move |s| s.bg(active_bg))
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(|this, _ev: &MouseDownEvent, _w, cx| this.handle_new_tab(cx)),
+            )
+            .child(
+                aish_ui::icon(aish_ui::IconName::Plus)
+                    .size(px(16.0))
+                    .text_color(colors.muted_foreground),
+            );
 
         div()
             .track_focus(&self.focus_handle)
@@ -330,6 +342,6 @@ impl Render for TabBarView {
             .border_color(colors.border)
             .h(px(40.0))
             .children(tab_items)
-            .child(plus_section)
+            .child(plus_btn)
     }
 }
