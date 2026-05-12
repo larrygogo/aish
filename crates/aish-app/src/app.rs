@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use gpui::{
     div, prelude::*, px, rgb, size, App, Bounds, Context, Entity, SharedString, TitlebarOptions,
-    Window, WindowBounds, WindowOptions,
+    Window, WindowBounds, WindowControlArea, WindowOptions,
 };
 use gpui_platform::application;
 
@@ -371,16 +371,27 @@ impl Render for RootView {
                     .child("aish"),
             );
 
-        // 中部拖拽区 —— flex_1 撑满，mouse_down 调 window.start_window_move()
+        // 中部拖拽区：
+        // - Windows：window_control_area(Drag) 让 WM_NCHITTEST 返回 HTCAPTION，
+        //   OS 接管拖拽 + Aero snap（拖到屏幕边缘自动 1/2 屏；之前自绘 mouse_down
+        //   走 start_window_move 触发的拖拽不走 NC 路径，没有 Aero snap）
+        // - macOS / Linux：fall-through 到 mouse_down，调 start_window_move
         let titlebar_drag_area = div()
             .flex_1()
             .h_full()
+            .window_control_area(WindowControlArea::Drag)
             .on_mouse_down(gpui::MouseButton::Left, |_ev, window, _cx| {
                 window.start_window_move()
             });
 
-        // 窗口控件按钮（minimize / maximize / close）
-        // hover bg：minimize/maximize 用 secondary_hover；close 用 destructive
+        // 窗口控件按钮（minimize / maximize / close）：
+        // - area 参数 → window_control_area(area)：Windows 上让 WM_NCHITTEST
+        //   返回对应 HTMINBUTTON / HTMAXBUTTON / HTCLOSE。Max 区 Win11 自动
+        //   hover 显示 snap layouts overlay（1/2 屏、四宫格等），系统接管点击。
+        // - 非 Windows 平台 window_control_area 是 no-op，fall-through 到
+        //   on_mouse_down 走 GPUI 通用 minimize/zoom/remove。
+        // - 注意 Windows 上 NC 区域 OS 已接管点击，on_mouse_down 不会触发；
+        //   两套 handler 并存兼容跨平台。
         // 闭包 + impl trait 泛型避免 Box<dyn> 类型复杂度（clippy::type_complexity）
         fn titlebar_btn<F>(
             id: &'static str,
@@ -388,6 +399,7 @@ impl Render for RootView {
             base_fg: gpui::Hsla,
             hover_bg: gpui::Hsla,
             hover_fg: gpui::Hsla,
+            area: WindowControlArea,
             on_click: F,
         ) -> impl IntoElement
         where
@@ -403,6 +415,7 @@ impl Render for RootView {
                 .cursor_pointer()
                 .text_size(px(11.0))
                 .text_color(base_fg)
+                .window_control_area(area)
                 .hover(move |s| s.bg(hover_bg).text_color(hover_fg))
                 .on_mouse_down(gpui::MouseButton::Left, move |_ev, window, cx| {
                     on_click(window, cx);
@@ -427,6 +440,7 @@ impl Render for RootView {
                 colors.muted_foreground,
                 colors.secondary_hover,
                 colors.foreground,
+                WindowControlArea::Min,
                 |window, _cx| window.minimize_window(),
             ))
             .child(titlebar_btn(
@@ -435,6 +449,7 @@ impl Render for RootView {
                 colors.muted_foreground,
                 colors.secondary_hover,
                 colors.foreground,
+                WindowControlArea::Max,
                 |window, _cx| window.zoom_window(),
             ))
             .child(titlebar_btn(
@@ -443,6 +458,7 @@ impl Render for RootView {
                 colors.muted_foreground,
                 colors.destructive,
                 colors.destructive_foreground,
+                WindowControlArea::Close,
                 |window, _cx| window.remove_window(),
             ));
 
