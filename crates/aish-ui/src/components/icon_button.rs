@@ -149,10 +149,10 @@ impl RenderOnce for IconButton {
                 ),
                 ButtonVariant::Ghost => (
                     gpui::transparent_black(),
-                    t.colors.accent,
-                    // Ghost active 故意与 hover 同色（M15 决策：Ghost 不引入 accent_active token，
-                    // 保持简单。idle 透明 → hover/active 同色 accent 已有足够对比）
-                    t.colors.accent,
+                    // Ghost hover/active 走 secondary 灰阶（与 Card / TabItem 等大容器
+                    // 一致），不再用 accent 暗绿 —— 详见 button.rs 同处注释
+                    t.colors.secondary_hover,
+                    t.colors.secondary_active,
                     t.colors.foreground,
                 ),
             }

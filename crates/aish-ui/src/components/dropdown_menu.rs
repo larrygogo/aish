@@ -95,7 +95,9 @@ impl RenderOnce for DropdownMenu {
             }
 
             if !is_disabled {
-                let hover_bg = t.colors.accent;
+                // hover 走 secondary 灰阶（与 Card / TabItem / Ghost button 等大容器
+                // 一致），不再用 accent 暗绿染色
+                let hover_bg = t.colors.secondary_hover;
                 row = row.cursor_pointer().hover(move |s| s.bg(hover_bg));
                 if let Some(handler) = on_select.clone() {
                     row = row.on_mouse_down(

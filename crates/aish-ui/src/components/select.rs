@@ -197,11 +197,14 @@ impl Render for Select {
                         } else {
                             t.colors.popover_foreground
                         })
+                        // selected 保留 accent 染色（"已选中"语义需要区别于 hover）；
+                        // hover 走 secondary_hover 与项目其他大容器一致，避免
+                        // hover/selected 同色用户分不清状态
                         .when(is_selected, |d| d.bg(t.colors.accent))
                         .cursor_pointer()
                         .hover({
-                            let accent = t.colors.accent;
-                            move |s| s.bg(accent)
+                            let hover_bg = t.colors.secondary_hover;
+                            move |s| s.bg(hover_bg)
                         })
                         .on_mouse_down(
                             MouseButton::Left,
