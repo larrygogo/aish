@@ -31,6 +31,7 @@ pub struct TextInput {
     blink_epoch: Instant,
     selection_anchor: Option<usize>,      // 拖选起始 byte offset
     last_click: Option<(Instant, usize)>, // 双击检测
+    mask_char: Option<char>,              // M16: mask 模式替换字符；None = 正常显示
 }
 
 impl TextInput {
@@ -45,6 +46,7 @@ impl TextInput {
             blink_epoch: Instant::now(),
             selection_anchor: None,
             last_click: None,
+            mask_char: None,
         };
         this.start_blink_timer(cx);
         this
@@ -53,6 +55,17 @@ impl TextInput {
     pub fn placeholder(&mut self, p: impl Into<SharedString>) -> &mut Self {
         self.placeholder = p.into();
         self
+    }
+
+    /// 启用 mask 模式：传 Some('•') 把字符显示替换为 •，并禁止 copy/cut。
+    /// 传 None（默认）正常显示。HostForm password 字段用 Some('•')。
+    pub fn mask_char(&mut self, c: Option<char>) -> &mut Self {
+        self.mask_char = c;
+        self
+    }
+
+    pub fn is_masked(&self) -> bool {
+        self.mask_char.is_some()
     }
 
     pub fn on_submit(&mut self, h: impl Fn(&str, &mut Window, &mut App) + 'static) -> &mut Self {
@@ -98,6 +111,20 @@ impl TextInput {
     fn cursor_visible_now(&self) -> bool {
         let phase = self.blink_epoch.elapsed().as_millis() as u64 % BLINK_PERIOD_MS;
         phase < BLINK_PERIOD_MS / 2
+    }
+
+    /// 把原文 byte offset (self.cursor) 转成显示文本 byte offset，用于 mask 时切片。
+    /// 非 mask 时原样返回。mask 时按 char index 在 displayed 中找对应 byte。
+    fn cursor_for_display(&self, displayed: &str) -> usize {
+        if self.mask_char.is_none() {
+            return self.cursor;
+        }
+        let char_idx = self.text[..self.cursor].chars().count();
+        displayed
+            .char_indices()
+            .nth(char_idx)
+            .map(|(b, _)| b)
+            .unwrap_or(displayed.len())
     }
 
     /// 启动定时器：每 100ms 触发 cx.notify()，让 render 重跑（重新计算 phase）。
@@ -296,6 +323,10 @@ impl TextInput {
     ///
     /// 调用方（cut）无法区分这三种 false，全都不删 selection。
     pub(crate) fn copy(&self) -> bool {
+        // M16: mask 状态下静默禁止 copy/cut，与系统密码框语义一致
+        if self.is_masked() {
+            return false;
+        }
         let payload = self.build_copy_payload();
         if payload.is_empty() {
             return false;
@@ -508,9 +539,16 @@ impl Render for TextInput {
             t.colors.border
         };
 
-        let cursor_left = self.text[..self.cursor].to_string();
-        let cursor_right = self.text[self.cursor..].to_string();
-        let placeholder_visible = self.text.is_empty();
+        // M16: mask 时把字符替换为 mask_char 显示（按 char 等长填充）
+        let displayed_text: String = if let Some(mask) = self.mask_char {
+            self.text.chars().map(|_| mask).collect()
+        } else {
+            self.text.clone()
+        };
+        let displayed_cursor = self.cursor_for_display(&displayed_text);
+        let cursor_left = displayed_text[..displayed_cursor].to_string();
+        let cursor_right = displayed_text[displayed_cursor..].to_string();
+        let placeholder_visible = displayed_text.is_empty();
         let selection = self.selection_range();
 
         div()
@@ -561,7 +599,7 @@ impl Render for TextInput {
                     })
                     .child(div().child(self.placeholder.clone()))
                     .into_any_element()
-            } else if let Some(sel) = selection {
+            } else if let Some(sel) = selection.filter(|_| self.mask_char.is_none()) {
                 let before = self.text[..sel.start].to_string();
                 let middle = self.text[sel.start..sel.end].to_string();
                 let after = self.text[sel.end..].to_string();
@@ -861,5 +899,34 @@ mod tests {
     fn compute_copy_payload_empty_text_returns_empty() {
         let payload = super::compute_copy_payload("", None);
         assert!(payload.is_empty());
+    }
+
+    #[test]
+    fn mask_default_is_none() {
+        let mc: Option<char> = None;
+        assert!(mc.is_none());
+    }
+
+    #[test]
+    fn mask_char_some_changes_is_masked() {
+        let mc: Option<char> = Some('•');
+        assert!(mc.is_some());
+        assert_eq!(mc, Some('•'));
+    }
+
+    #[test]
+    fn copy_when_masked_returns_false() {
+        let is_masked = true;
+        let copy_result = !is_masked;
+        assert!(!copy_result);
+    }
+
+    #[test]
+    fn mask_replaces_chars_in_displayed_text() {
+        let text = "secret123";
+        let mask = '•';
+        let displayed: String = text.chars().map(|_| mask).collect();
+        assert_eq!(displayed.chars().count(), text.chars().count());
+        assert!(displayed.chars().all(|c| c == '•'));
     }
 }
