@@ -10,13 +10,38 @@
 
 ## 当前状态
 
-- **活跃分支**：`feat/aish-ui-m16-20260511-zj`（M16 TextInput mask + cursor_at_pixel + drag select 已完成，待合 main）
-- **下一里程碑**：M17 候选 — ContextMenu（Popover + 右键）/ DropdownMenu 键盘导航 / Light theme 实施（含 M15 留的 6 个占位 token + M16 不引入新 token）/ Dialog Tab focus trap / TextInput "眼睛"切换 mask / TextInput shift+click 扩展 selection / TextInput 多行 / Disabled 状态视觉精细化 / Card/NavItem/TabItem hover variant 改造
-- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui 121 + aish-app 101 + 其他 crate) 全过
+- **活跃分支**：`feat/aish-ui-m17-20260512-zj`（M17 Card / NavItem / TabItem hover 改造 + accent_active 已完成，待合 main）
+- **下一里程碑**：M18 候选 — Button/IconButton Ghost variant 接 accent_active（M17 留的，兑现 M15 D-2 回退）/ ContextMenu（Popover + 右键）/ DropdownMenu 键盘导航 / Light theme 实施（含 M15/M17 共 7 个占位 token）/ Dialog Tab focus trap / TextInput "眼睛"切换 mask / TextInput shift+click 扩展 selection / TextInput 多行 / Disabled 状态视觉精细化
+- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui 124 + aish-app 101 + 其他 crate) 全过
 
 ---
 
 ## Milestones（按时间倒序）
+
+### M17 — aish-ui Card / NavItem / TabItem hover 改造 + accent_active token（2026-05-12）— ✅ 已完成
+- 父 spec：[`specs/2026-05-09-aish-ui-architecture-design.md`](specs/2026-05-09-aish-ui-architecture-design.md)
+- spec：[`specs/2026-05-12-aish-m17-card-nav-tab-hover-design.md`](specs/2026-05-12-aish-m17-card-nav-tab-hover-design.md)
+- plan：[`plans/2026-05-12-aish-m17-card-nav-tab-hover.md`](plans/2026-05-12-aish-m17-card-nav-tab-hover.md)
+- 范围：
+  - ColorTokens 加 `accent_active` 字段（M15 D-2 决策正式回退）
+  - Dark theme accent_active = #4a7099（比 accent #6c91c2 更深 / lightness ~45% vs ~56%；与 M15 系列变亮方向**相反**，因 accent 系列是容器 hover 不是 action）
+  - Light theme TODO 注释加 accent_active 字段名（M16 不涉及 ColorTokens 的事实也已澄清）
+  - Card on_click 路径加 `.active(accent_active)` mouse-down 反馈
+  - NavItem active=false 路径 hover 补 bg(accent)（与 Card/TabItem 视觉一致）+ `.active(accent_active)`
+  - TabItem active=false 路径加 `.active(accent_active)`
+  - NavItem / TabItem selected (active=true) 路径完全不动（保持现有 indicator 条 + bg）
+- 关键 commits：
+  - `a25cdeb` — T1 ColorTokens +accent_active + Dark 填值 + Light 占位 + 1 个 lightness 反向断言（amend 修 light.rs 误引 M16）
+  - `9e80471` — T2 Card on_click 加 .active(accent_active)
+  - `b556d2c` — T3 NavItem hover 补 bg + .active() + hover_only_when_inactive 测试
+  - `eb9ff47` — T4 TabItem .active() + hover_only_when_inactive 测试
+- 测试：aish-ui 121 → **124**（净 +3：dark.rs +1 / nav_item.rs +1 / tab_item.rs +1）；aish-app 101 不变
+- 命名 namespace 澄清：token 层 `_active` = "pressed"（GPUI `.active()` modifier）；组件 API 层 `.active(bool)` = "selected"。两个 namespace 在代码中不交叉
+- 已知边界：
+  - Button / IconButton Ghost variant **未同步**接 accent_active，仍走 hover=accent / active=accent（无区别）。M17 不动，留 M18+ 兑现
+  - NavItem hover 补 bg 后 sidebar 4 项视觉较前更"重"，手测后若问题严重可降级到 secondary token
+  - selected NavItem / TabItem hover/按下时无视觉变化（D-5 决策内在 trade-off）
+  - Light theme 7 个新 token 仍占位，真正色值留下个 light theme milestone
 
 ### M16 — aish-ui TextInput mask + cursor_at_pixel + drag select（2026-05-12）— ✅ 已完成
 - 父 spec：[`specs/2026-05-09-aish-ui-architecture-design.md`](specs/2026-05-09-aish-ui-architecture-design.md)
