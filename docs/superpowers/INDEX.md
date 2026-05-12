@@ -10,9 +10,9 @@
 
 ## 当前状态
 
-- **活跃分支**：`fix/textinput-ctrl-v-paste-20260512-zj`（M16 漏的 Ctrl+V 键盘粘贴补完，待合 main）；上游 `feat/aish-ui-m17-20260512-zj`（M17 已完成，待合 main）
+- **活跃分支**：main（2026-05-12 下午一次性合入 M16 后续 4 个 bug fix + 2 个 INDEX docs；待 push origin/main）
 - **下一里程碑**：M18 候选 — Button/IconButton Ghost variant 接 accent_active（M17 留的，兑现 M15 D-2 回退）/ ContextMenu（Popover + 右键）/ DropdownMenu 键盘导航 / Light theme 实施（含 M15/M17 共 7 个占位 token）/ Dialog Tab focus trap / TextInput "眼睛"切换 mask / TextInput shift+click 扩展 selection / TextInput 多行 / Disabled 状态视觉精细化
-- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **132** + aish-app 101 + 其他 crate) 全过
+- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **137** + aish-app 101 + 其他 crate) 全过
 
 ---
 
@@ -64,9 +64,11 @@
   - `bfce36f` — T3 drag select + glyph_div helper 抽取（amend 含 anchor 注释 + mouse_up cx.notify）
   - `520ab3d` — T4 HostForm password 字段 .mask_char('•')
 - 测试：aish-ui 110 → **121**（净 +11：mask +4 / byte_offset_at_x +4 / drag state +3）；aish-app 101 不变
-- 后续修复：
-  - commit `2034d2d`（2026-05-12）补 Ctrl+V 键盘粘贴 —— M16 漏掉、fallback `!ctrl && !alt` 守卫把 Ctrl+V 也吞了。加 paste() + compute_paste_payload（多行截到首行）+ 7 个单测；masked 状态允许 paste（密码框惯例）。
-  - commit `23229c0`（2026-05-12）修字符双输入 —— M16 render 改逐字 wrap div 后，IME canvas (prepaint 注册 InputHandler) 稳定触发 WM_CHAR → replace_text_in_range，而 handle_key default 分支也 insert_str，两侧都插入导致每字符变两个。删 KeyDown 普通字符路径，唯一交给 IME path（与 terminal_view.rs:214-223 同样模式）。
+- 后续修复（2026-05-12 下午一次性合入 main，cherry-pick 后 SHA 重写，下列原 SHA 见 reflog）：
+  - `70885dc` 补 Ctrl+V 键盘粘贴 —— M16 漏掉、fallback `!ctrl && !alt` 守卫把 Ctrl+V 也吞了。加 paste() + compute_paste_payload（多行截到首行）+ 7 个单测；masked 状态允许 paste（密码框惯例）。
+  - `aa6da68` 修字符双输入 —— M16 render 改逐字 wrap div 后，IME canvas (prepaint 注册 InputHandler) 稳定触发 WM_CHAR → replace_text_in_range，而 handle_key default 分支也 insert_str，两侧都插入导致每字符变两个。删 KeyDown 普通字符路径，唯一交给 IME path（与 terminal_view.rs:214-223 同样模式）。
+  - `74fe9f5` 修 mask 模式鼠标点击 + backspace panic —— bounds_map 写入的 byte 来自 displayed_text 空间（`•`=3B），mouse_down 直接当 self.cursor 用导致 cursor 超出 self.text.len()，下次按 backspace 时 `self.text[..self.cursor]` slice 越界。加 cursor_from_click 做 displayed→source 映射（与 cursor_for_display 反向，对称）+ 5 个单测。HostForm password 字段是最典型触发点。
+  - `217fd01` SSH 登录/连接失败弹 toast —— `app.rs` 收到 `SshEvent::Error` 原本只 `tracing::error!` + drop_session，UI 无任何反馈。按 SshErrorKind 分四类（连接/登录/IO/协议）调 `aish_ui::toast_error`，文案含 connection label。`SshEvent::Disconnected` 区分 reason：UserRequested/RemoteExited 静默，NetworkError 弹 toast。利用现有 ToastHandle global（无新组件）。
 - 已知边界：
   - "眼睛"图标切换 mask 显示未做（HostForm 原来也没有）
   - shift+click 扩展 selection 未做
