@@ -161,6 +161,19 @@ pub enum AuthKind {
     Password,
 }
 
+/// 单个连接的生命周期阶段。
+///
+/// 流程：register_session 时设 Connecting → SshEvent::Connected 设 Connected
+/// → Disconnected / Error 设 Disconnected{reason}。reopen 时回到 Connecting。
+/// connection 元数据 + scrollback Term 在 Disconnected 时**仍保留**，让用户能
+/// 看到断开前的输出 + 点击"重连"复用同一 ConnectionId 重启 actor。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConnectionPhase {
+    Connecting,
+    Connected,
+    Disconnected { reason: String },
+}
+
 /// 单个 host 的 tmux 状态。每次连接重置，断开清空。
 ///
 /// M3-archived（2026-05-07）：之前的 `Attaching` / `Attached { session_tree }`
@@ -369,6 +382,10 @@ pub struct AppState {
     /// input_bar 据此显示"上传中 (done/total)"提示 + disable "发送"按钮防止
     /// 重复发送；`BatchDone` 事件清掉。
     pub pending_uploads: HashMap<ConnectionId, (usize, usize)>,
+    /// 每连接生命周期阶段。register_session 设 Connecting，SshEvent::Connected
+    /// 转 Connected，Disconnected/Error 转 Disconnected{reason}。terminal_view
+    /// 根据本字段渲染 loading / reconnect overlay。
+    pub connection_phases: HashMap<ConnectionId, ConnectionPhase>,
 }
 
 impl Connection {
@@ -425,6 +442,7 @@ impl AppState {
             host_pty_dimensions: HashMap::new(),
             tmux_state: HashMap::new(),
             pending_uploads: HashMap::new(),
+            connection_phases: HashMap::new(),
         }
     }
 
@@ -530,13 +548,46 @@ impl AppState {
         self.sessions.insert(id, sender);
         self.host_pty_dimensions
             .insert(id, (DEFAULT_COLS, DEFAULT_ROWS));
+        // 注册即"正在尝试连接"，等 SshEvent::Connected 才转 Connected
+        self.connection_phases
+            .insert(id, ConnectionPhase::Connecting);
     }
 
     /// 关闭一个连接：清 actor sender + tmux_state，保留 host_pty_term（用户可能想看 scrollback）。
+    /// **phase 转 Disconnected{reason}**，让 UI 显示重连按钮（reason 由 caller 传入，
+    /// app.rs 收 Disconnected/Error 事件时调本方法时传入用户可读的原因文字）。
     /// 完全清理（含 Term + Connection meta）走 [`remove_connection`]。
-    pub fn drop_session(&mut self, id: ConnectionId) {
+    pub fn drop_session(&mut self, id: ConnectionId, reason: impl Into<String>) {
         self.sessions.remove(&id);
         self.tmux_state.remove(&id);
+        self.connection_phases.insert(
+            id,
+            ConnectionPhase::Disconnected {
+                reason: reason.into(),
+            },
+        );
+    }
+
+    /// 标记连接已成功（收到 SshEvent::Connected 时调）。
+    pub fn mark_connected(&mut self, id: ConnectionId) {
+        self.connection_phases
+            .insert(id, ConnectionPhase::Connected);
+    }
+
+    /// 重连：复用同一 ConnectionId，注册新 sender，phase 回到 Connecting。
+    /// 调用方先 spawn 新 actor 拿到 sender 再调本方法。返回值是该 conn 的
+    /// host_id（供 caller spawn actor 时拿配置用，可选 helper）。
+    pub fn reopen_connection(
+        &mut self,
+        id: ConnectionId,
+        sender: mpsc::Sender<SessionCommand>,
+    ) -> Option<HostId> {
+        let host_id = self.connections.get(&id).map(|c| c.host_id)?;
+        self.sessions.insert(id, sender);
+        self.tmux_state.remove(&id);
+        self.connection_phases
+            .insert(id, ConnectionPhase::Connecting);
+        Some(host_id)
     }
 
     /// 完全移除一个连接：从 connections 和所有 per-conn map 里删掉。
@@ -548,6 +599,8 @@ impl AppState {
         self.host_pty_processor.remove(&id);
         self.host_pty_dimensions.remove(&id);
         self.tmux_state.remove(&id);
+        self.connection_phases.remove(&id);
+        self.pending_uploads.remove(&id);
         let ids_to_close: Vec<TabId> = self
             .tabs
             .iter()
@@ -712,7 +765,7 @@ mod tests {
         let (tx, _rx) = mpsc::channel::<SessionCommand>(8);
         state.register_session(conn, tx);
         state.feed_bytes(conn, b"x");
-        state.drop_session(conn);
+        state.drop_session(conn, "test");
         assert!(state.host_pty_term.contains_key(&conn));
         assert!(!state.is_session_active(conn));
     }
@@ -1071,7 +1124,7 @@ mod tests {
         let (tx, _rx) = mpsc::channel::<SessionCommand>(8);
         state.register_session(conn, tx);
         state.tmux_state.insert(conn, TmuxState::NotChecked);
-        state.drop_session(conn);
+        state.drop_session(conn, "test");
         assert!(!state.tmux_state.contains_key(&conn));
     }
 

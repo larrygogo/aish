@@ -51,7 +51,8 @@ pub fn run() {
             cx.spawn(async move |cx| {
                 while let Some(event) = rx.recv().await {
                     state_for_loop.update(cx, |state, cx| match event {
-                        SshEvent::Connected { conn: _ } => {
+                        SshEvent::Connected { conn } => {
+                            state.mark_connected(conn);
                             cx.notify();
                         }
                         SshEvent::PaneOutput { conn, bytes } => {
@@ -61,6 +62,11 @@ pub fn run() {
                         SshEvent::Disconnected { conn, reason } => {
                             // UserRequested / RemoteExited 静默（用户自己断开 / shell exit
                             // 是常规流程，提示反而干扰）；NetworkError 才弹 toast。
+                            let reason_str = match &reason {
+                                DisconnectReason::UserRequested => "用户主动断开".to_string(),
+                                DisconnectReason::RemoteExited => "远端 shell 退出".to_string(),
+                                DisconnectReason::NetworkError(e) => format!("网络错误: {}", e),
+                            };
                             if let DisconnectReason::NetworkError(ref e) = reason {
                                 let label = state
                                     .connections
@@ -69,7 +75,7 @@ pub fn run() {
                                     .unwrap_or_else(|| "未知连接".to_string());
                                 aish_ui::toast_error(cx, format!("{}: 连接中断 — {}", label, e));
                             }
-                            state.drop_session(conn);
+                            state.drop_session(conn, reason_str);
                             cx.notify();
                         }
                         SshEvent::Error { conn, kind, msg } => {
@@ -79,20 +85,15 @@ pub fn run() {
                                 .map(|c| c.label.clone())
                                 .unwrap_or_else(|| "未知连接".to_string());
                             tracing::error!(?conn, label = %label, ?kind, msg = %msg, "SSH error");
-                            let user_msg = match kind {
-                                SshErrorKind::ConnectFailed => {
-                                    format!("{}: 连接失败 — {}", label, msg)
-                                }
-                                SshErrorKind::AuthFailed => {
-                                    format!("{}: 登录失败 — {}", label, msg)
-                                }
-                                SshErrorKind::Io => format!("{}: IO 错误 — {}", label, msg),
-                                SshErrorKind::Protocol => {
-                                    format!("{}: 协议错误 — {}", label, msg)
-                                }
+                            let kind_zh = match kind {
+                                SshErrorKind::ConnectFailed => "连接失败",
+                                SshErrorKind::AuthFailed => "登录失败",
+                                SshErrorKind::Io => "IO 错误",
+                                SshErrorKind::Protocol => "协议错误",
                             };
+                            let user_msg = format!("{}: {} — {}", label, kind_zh, msg);
                             aish_ui::toast_error(cx, user_msg);
-                            state.drop_session(conn);
+                            state.drop_session(conn, format!("{}: {}", kind_zh, msg));
                             cx.notify();
                         }
                         SshEvent::OsDetected {

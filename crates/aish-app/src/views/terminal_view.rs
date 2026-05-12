@@ -13,7 +13,7 @@ use gpui::{
 
 use crate::bridge::Bridge;
 use crate::ssh_actor::encode_key;
-use crate::state::{AppState, SessionCommand, SshEvent};
+use crate::state::{AppState, ConnectionPhase, SessionCommand, SshEvent};
 use crate::terminal::{
     cursor::{paint_cursor, CursorState},
     font,
@@ -652,6 +652,35 @@ impl TerminalView {
     /// 同时把 bounds 缓存到 `self.canvas_bounds` 供 mouse handler 用于 grid 坐标换算。
     ///
     /// 在 canvas prepaint 的下一帧回调中调用（通过 window.on_next_frame）。
+    /// 用户在 Disconnected 状态点击"重新连接"按钮时调用：
+    /// 在同一 ConnectionId 上 spawn 新 actor，phase 回到 Connecting。
+    /// 终端 scrollback / tab 等不重置（用户能继续看到断开前的输出）。
+    fn handle_reconnect(&mut self, cx: &mut Context<Self>) {
+        let conn = match self.state.read(cx).current_connection() {
+            Some(c) => c,
+            None => return,
+        };
+        let cfg = {
+            let app = self.state.read(cx);
+            app.connections
+                .get(&conn)
+                .map(|c| c.host_id)
+                .and_then(|hid| app.hosts.iter().find(|h| h.id == hid).cloned())
+        };
+        let cfg = match cfg {
+            Some(c) => c,
+            None => {
+                tracing::warn!(?conn, "reconnect: host config 已不存在");
+                return;
+            }
+        };
+        let sender = self.bridge.spawn_session(conn, cfg, self.tx.clone());
+        self.state.update(cx, |s, cx| {
+            s.reopen_connection(conn, sender);
+            cx.notify();
+        });
+    }
+
     fn check_resize(&mut self, bounds: Bounds<Pixels>, cx: &mut Context<Self>) {
         self.canvas_bounds = Some(bounds);
 
@@ -744,6 +773,93 @@ impl Render for TerminalView {
         let cursor_state = self.cursor_state;
         let state_entity = self.state.clone();
 
+        // 当前 conn 的 phase + label，用于渲染 connecting loading / disconnected
+        // reconnect overlay（Connected 状态不加 overlay，让终端正常显示）
+        let phase_overlay: Option<gpui::AnyElement> = conn.and_then(|c| {
+            let app = self.state.read(cx);
+            let phase = app.connection_phases.get(&c).cloned();
+            let label = app.connections.get(&c).map(|x| x.label.clone());
+            let colors = aish_ui::theme(cx).colors;
+            let fs = aish_ui::theme(cx).font_size;
+            match phase {
+                Some(ConnectionPhase::Connecting) => Some(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .right_0()
+                        .bottom_0()
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .justify_center()
+                        .gap_3()
+                        .bg(gpui::rgba(0x000000cc)) // 半透明黑遮罩
+                        .child(
+                            div()
+                                .text_size(fs.lg)
+                                .text_color(colors.foreground)
+                                .child(format!(
+                                    "正在连接 {} …",
+                                    label.clone().unwrap_or_default()
+                                )),
+                        )
+                        .child(
+                            div()
+                                .text_size(fs.sm)
+                                .text_color(colors.muted_foreground)
+                                .child("SSH 握手 + PTY 初始化 + tmux/OS 探测"),
+                        )
+                        .into_any_element(),
+                ),
+                Some(ConnectionPhase::Disconnected { reason }) => Some(
+                    div()
+                        .absolute()
+                        .left_0()
+                        .right_0()
+                        .bottom_0()
+                        .px_4()
+                        .py_3()
+                        .bg(colors.card)
+                        .border_t_1()
+                        .border_color(colors.border)
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_3()
+                        .child(
+                            div()
+                                .flex_1()
+                                .flex()
+                                .flex_col()
+                                .gap_0p5()
+                                .child(
+                                    div()
+                                        .text_size(fs.sm)
+                                        .text_color(colors.foreground)
+                                        .child("连接已断开"),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(fs.xs)
+                                        .text_color(colors.muted_foreground)
+                                        .child(reason),
+                                ),
+                        )
+                        .child(
+                            aish_ui::Button::new("terminal-reconnect")
+                                .label("重新连接")
+                                .primary()
+                                .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
+                                    this.handle_reconnect(cx);
+                                })),
+                        )
+                        .into_any_element(),
+                ),
+                _ => None,
+            }
+        });
+
         // 拿当前 view 的弱引用，用于在 on_next_frame 回调中调用 check_resize
         let weak_view = cx.weak_entity();
 
@@ -782,6 +898,8 @@ impl Render for TerminalView {
         };
 
         div()
+            // relative 让 phase overlay 的 absolute 子元素相对终端区定位
+            .relative()
             // 让 div 变 stateful — GPUI 对 stateful 元素的 scroll wheel 事件路由
             // 比 stateless 稳定（mouse_down 用 is_hovered 路径不依赖 stateful，
             // 但 scroll_wheel 走 should_handle_scroll → mouse_hit_test.ids，需要
@@ -877,6 +995,7 @@ impl Render for TerminalView {
                 )
                 .size_full(),
             )
+            .children(phase_overlay)
     }
 }
 
