@@ -297,11 +297,24 @@ impl Render for TabBarView {
             })
             .collect();
 
-        // 末尾 + 按钮新建默认页
+        // 末尾 + 按钮新建默认页：
+        // - 用 1px 高 20px 的垂直分隔线把 + 与 tab 区隔开（与 tab 间的 close 按钮
+        //   小 ghost 视觉重量更轻不混淆）
+        // - 左右各 8px padding，让 + 不再紧贴最后一个 tab 末尾
+        // - 改用 medium size（24px → 32px），略大于 tab 内 close 按钮，
+        //   突出"新建 tab"独立操作的语义
         let plus_btn = aish_ui::IconButton::new("tab-new", aish_ui::IconName::Plus)
-            .small()
             .ghost()
             .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| this.handle_new_tab(cx)));
+        let plus_divider = div().w(px(1.0)).h(px(20.0)).bg(colors.border);
+        let plus_section = div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(8.0))
+            .px(px(8.0))
+            .child(plus_divider)
+            .child(plus_btn);
 
         div()
             .track_focus(&self.focus_handle)
@@ -317,6 +330,6 @@ impl Render for TabBarView {
             .border_color(colors.border)
             .h(px(40.0))
             .children(tab_items)
-            .child(plus_btn)
+            .child(plus_section)
     }
 }
