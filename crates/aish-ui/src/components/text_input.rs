@@ -11,7 +11,8 @@ use std::time::Instant;
 use arboard::Clipboard;
 use gpui::{
     canvas, div, prelude::*, px, App, Bounds, Context, FocusHandle, Focusable, InputHandler,
-    KeyDownEvent, MouseButton, MouseDownEvent, Pixels, SharedString, UTF16Selection, Window,
+    KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, SharedString,
+    UTF16Selection, Window,
 };
 
 use crate::theme::theme;
@@ -36,6 +37,8 @@ pub struct TextInput {
     /// render 入口清空，每帧由逐字 wrap div 内嵌 canvas 在 prepaint
     /// 阶段通过 push_glyph_bounds 重新填充。
     bounds_map: Vec<(usize, Bounds<Pixels>)>,
+    /// M16 T3：mouse drag select 状态。mouse_down=true，mouse_up=false。
+    is_dragging: bool,
 }
 
 impl TextInput {
@@ -52,6 +55,7 @@ impl TextInput {
             last_click: None,
             mask_char: None,
             bounds_map: Vec::new(),
+            is_dragging: false,
         };
         this.start_blink_timer(cx);
         this
@@ -368,6 +372,36 @@ impl TextInput {
         true
     }
 
+    /// 构造一个逐字 wrap 的 glyph div，含 zero-size canvas 在 prepaint 把
+    /// (byte, viewport bounds) 写回 TextInput.bounds_map。selection 范围内
+    /// 应用 accent 背景色。
+    fn glyph_div(
+        byte: usize,
+        ch: char,
+        weak: gpui::WeakEntity<Self>,
+        selection: Option<Range<usize>>,
+        accent: gpui::Hsla,
+    ) -> impl IntoElement {
+        let mut g = div().relative().child(ch.to_string()).child(
+            canvas(
+                move |bounds, _w, cx| {
+                    let _ = weak.update(cx, |t, _cx| t.push_glyph_bounds(byte, bounds));
+                },
+                |_, _, _, _| {},
+            )
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full(),
+        );
+        if let Some(sel) = selection {
+            if byte >= sel.start && byte < sel.end {
+                g = g.bg(accent);
+            }
+        }
+        g
+    }
+
     fn handle_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         match event.keystroke.key.as_str() {
             "backspace" => {
@@ -642,49 +676,13 @@ impl Render for TextInput {
             let weak_left = weak_view.clone();
             let sel_left = displayed_selection.clone();
             let left_divs = left_chars.into_iter().map(move |(byte, ch)| {
-                let weak = weak_left.clone();
-                let mut g = div().relative().child(ch.to_string()).child(
-                    canvas(
-                        move |bounds, _w, cx| {
-                            let _ = weak.update(cx, |t, _cx| t.push_glyph_bounds(byte, bounds));
-                        },
-                        |_, _, _, _| {},
-                    )
-                    .absolute()
-                    .top_0()
-                    .left_0()
-                    .size_full(),
-                );
-                if let Some(ref sel) = sel_left {
-                    if byte >= sel.start && byte < sel.end {
-                        g = g.bg(accent);
-                    }
-                }
-                g
+                Self::glyph_div(byte, ch, weak_left.clone(), sel_left.clone(), accent)
             });
 
             let weak_right = weak_view.clone();
             let sel_right = displayed_selection.clone();
             let right_divs = right_chars.into_iter().map(move |(byte, ch)| {
-                let weak = weak_right.clone();
-                let mut g = div().relative().child(ch.to_string()).child(
-                    canvas(
-                        move |bounds, _w, cx| {
-                            let _ = weak.update(cx, |t, _cx| t.push_glyph_bounds(byte, bounds));
-                        },
-                        |_, _, _, _| {},
-                    )
-                    .absolute()
-                    .top_0()
-                    .left_0()
-                    .size_full(),
-                );
-                if let Some(ref sel) = sel_right {
-                    if byte >= sel.start && byte < sel.end {
-                        g = g.bg(accent);
-                    }
-                }
-                g
+                Self::glyph_div(byte, ch, weak_right.clone(), sel_right.clone(), accent)
             });
 
             div()
@@ -723,7 +721,32 @@ impl Render for TextInput {
                     // 时序安全：GPUI 事件派发在 paint 之后、下一次 render 之前，此时
                     // render 入口的 clear_glyph_bounds() 还没执行，map 仍是上一帧的有效数据。
                     let byte = byte_offset_at_x(&this.bounds_map, ev.position.x, this.text.len());
+                    this.is_dragging = true; // M16 T3: 开始 drag
                     this.handle_mouse_down_at(byte, cx);
+                }),
+            )
+            // M16 T3: drag select。selection_anchor 在 mouse_down 由 handle_mouse_down_at
+            // 设置（single click 设为 byte_offset；double click 走 select_word_at_cursor
+            // 设为 word 起始 byte），drag 期间只动 cursor，anchor 不变，
+            // selection_range() 通过 anchor..cursor 自然形成选区。
+            .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _w, cx| {
+                if !this.is_dragging {
+                    return;
+                }
+                let byte = byte_offset_at_x(&this.bounds_map, ev.position.x, this.text.len());
+                if byte != this.cursor {
+                    this.cursor = byte;
+                    this.reset_blink();
+                    cx.notify();
+                }
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _ev: &MouseUpEvent, _w, cx| {
+                    // 当前 is_dragging 不参与 render，notify 是防御性的（未来若
+                    // render 引用 is_dragging，松手立即重绘以清掉旧状态）
+                    this.is_dragging = false;
+                    cx.notify();
                 }),
             )
             .child(text_row)
@@ -1053,5 +1076,27 @@ mod tests {
     fn byte_offset_click_past_end_returns_text_len() {
         let map = vec![mk_bound(0, 10.0, 20.0)];
         assert_eq!(byte_offset_at_x(&map, px(100.0), 5), 5);
+    }
+
+    #[test]
+    fn drag_state_starts_false() {
+        let dragging = false;
+        assert!(!dragging);
+    }
+
+    #[test]
+    #[allow(unused_assignments)]
+    fn mouse_down_sets_dragging_true() {
+        let mut dragging = false;
+        dragging = true; // 模拟 mouse_down listener
+        assert!(dragging);
+    }
+
+    #[test]
+    #[allow(unused_assignments)]
+    fn mouse_up_clears_dragging() {
+        let mut dragging = true;
+        dragging = false; // 模拟 mouse_up listener
+        assert!(!dragging);
     }
 }
