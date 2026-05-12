@@ -837,7 +837,10 @@ impl Render for TerminalView {
             }))
             .flex_1()
             .h_full()
-            .bg(rgb(0x1d1f21))
+            // 纯黑背景（与 app 顶层 root 的 rgb(0x000000) 一致；之前 0x1d1f21 是
+            // alacritty 默认深灰，与 sidebar / titlebar 的 card 灰 + body 黑形成
+            // 三档灰阶层次。终端区改纯黑后与 root 同色无割裂感。
+            .bg(rgb(0x000000))
             .child(
                 canvas(
                     move |bounds: Bounds<Pixels>, window, cx| {
