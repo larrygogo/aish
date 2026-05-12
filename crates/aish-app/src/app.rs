@@ -138,8 +138,11 @@ pub fn run() {
                         }
                         SshEvent::ImageUploaded { conn, path } => {
                             if let Some(sender) = state.sessions.get(&conn).cloned() {
+                                // 前置空格：与 BatchUploaded 一致，防止 path 紧贴 tmux
+                                // 已输入的 token（如 "vim" + "/tmp/img" 拼成 "vim/tmp/img"）
+                                let msg = format!(" {}", path);
                                 let _ =
-                                    sender.try_send(SessionCommand::SendBytes(path.into_bytes()));
+                                    sender.try_send(SessionCommand::SendBytes(msg.into_bytes()));
                             }
                         }
                         SshEvent::ImageUploadFailed { conn, msg } => {
@@ -156,7 +159,14 @@ pub fn run() {
                                 if !text.is_empty() {
                                     parts.push(text);
                                 }
-                                let msg = format!("{}\r", parts.join(" "));
+                                // append-only：与单图 ImageUploaded 路径一致，不自动 \r 执行。
+                                // 原来 format!("{}\r", ...) 会让 tmux readline 立即提交
+                                // —— 若用户在 tmux 预输入了命令前缀（如 "vim "），命令被
+                                // 裹进一起执行（如 "vim /tmp/img.png" 启动 vim 接管屏幕，
+                                // 视觉上看似"完全替换了 tmux 里的字符"）。
+                                // 前置空格隔开用户已输入的 token（防止 "vim" + "/tmp/img"
+                                // 拼成 "vim/tmp/img" 这种边界问题）。
+                                let msg = format!(" {}", parts.join(" "));
                                 let _ =
                                     sender.try_send(SessionCommand::SendBytes(msg.into_bytes()));
                             }
@@ -173,7 +183,8 @@ pub fn run() {
                                     if !text.is_empty() {
                                         parts.push(text);
                                     }
-                                    let msg = format!("{}\r", parts.join(" "));
+                                    // 同 BatchUploaded：append-only，前置空格保护
+                                    let msg = format!(" {}", parts.join(" "));
                                     let _ = sender
                                         .try_send(SessionCommand::SendBytes(msg.into_bytes()));
                                 }
