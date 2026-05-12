@@ -494,13 +494,13 @@ impl TextInput {
                 cx.notify();
             }
             _ => {
-                if let Some(ch) = &event.keystroke.key_char {
-                    if !event.keystroke.modifiers.control && !event.keystroke.modifiers.alt {
-                        self.insert_str(ch.as_str());
-                        cx.notify();
-                        self.fire_change(window, cx);
-                    }
-                }
+                // 普通可打印字符不在此处插入：GPUI 在 Windows 下会派发 KeyDown
+                // 后又通过 WM_CHAR → InputHandler::replace_text_in_range 派发
+                // 一次，若两侧都 insert_str 会双输入。统一交给 IME path 处理
+                // （见同模块 TextInputImeHandler::replace_text_in_range）。
+                // 这里只接 control 键（backspace / arrows / enter / Ctrl+组合），
+                // 它们的 key_char = None，不会走 IME，靠上面的 match arm 覆盖。
+                // 设计参考：crates/aish-app/src/views/terminal_view.rs:214-223
             }
         }
     }
