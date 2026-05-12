@@ -72,17 +72,17 @@ pub enum SshEvent {
         conn: ConnectionId,
         msg: String,
     },
-    /// 批量 SFTP 上传全部成功，paths 是远端绝对路径列表。
-    BatchUploaded {
+    /// 批量上传进度：每张图（无论成败）完成后发一次。done/total 用于 UI 进度展示。
+    BatchProgress {
         conn: ConnectionId,
-        paths: Vec<String>,
-        text: String,
+        done: usize,
+        total: usize,
     },
-    /// 批量 SFTP 上传在第 N 张时失败，paths_ok 是已成功的路径。
-    BatchUploadFailed {
+    /// 批量上传全部结束（无论失败几张）。text 是用户在 input bar 填的附加文字，
+    /// 由 app.rs 在收到本事件后 append 到 PTY（path 是逐张到达 ImageUploaded
+    /// 时立即 append 的，text 只能等 batch 结束才发，否则可能在 path 之前出现）。
+    BatchDone {
         conn: ConnectionId,
-        paths_ok: Vec<String>,
-        fail_msg: String,
         text: String,
     },
 }
@@ -356,6 +356,10 @@ pub struct AppState {
     pub host_pty_dimensions: HashMap<ConnectionId, (u16, u16)>,
     /// 每连接一个 tmux 状态（同一 host 的多个连接独立 list-sessions）。
     pub tmux_state: HashMap<ConnectionId, TmuxState>,
+    /// 流式批量上传进度：(done, total)。`Some` 表示该 conn 当前有上传中，
+    /// input_bar 据此显示"上传中 (done/total)"提示 + disable "发送"按钮防止
+    /// 重复发送；`BatchDone` 事件清掉。
+    pub pending_uploads: HashMap<ConnectionId, (usize, usize)>,
 }
 
 impl Connection {
@@ -411,6 +415,7 @@ impl AppState {
             host_pty_processor: HashMap::new(),
             host_pty_dimensions: HashMap::new(),
             tmux_state: HashMap::new(),
+            pending_uploads: HashMap::new(),
         }
     }
 
@@ -1235,39 +1240,34 @@ mod tests {
     }
 
     #[test]
-    fn batch_uploaded_event_carries_paths_and_text() {
+    fn batch_progress_event_carries_done_total() {
         use aish_types::ConnectionId;
         let conn = ConnectionId::new();
-        let event = SshEvent::BatchUploaded {
+        let event = SshEvent::BatchProgress {
             conn,
-            paths: vec!["/tmp/a.png".into(), "/tmp/b.jpg".into()],
-            text: "hello".into(),
+            done: 2,
+            total: 5,
         };
         match event {
-            SshEvent::BatchUploaded { paths, text, .. } => {
-                assert_eq!(paths.len(), 2);
-                assert_eq!(text, "hello");
+            SshEvent::BatchProgress { done, total, .. } => {
+                assert_eq!(done, 2);
+                assert_eq!(total, 5);
             }
             _ => panic!("wrong variant"),
         }
     }
 
     #[test]
-    fn batch_upload_failed_event_carries_ok_paths_and_msg() {
+    fn batch_done_event_carries_text() {
         use aish_types::ConnectionId;
         let conn = ConnectionId::new();
-        let event = SshEvent::BatchUploadFailed {
+        let event = SshEvent::BatchDone {
             conn,
-            paths_ok: vec!["/tmp/a.png".into()],
-            fail_msg: "permission denied".into(),
-            text: String::new(),
+            text: "hello world".into(),
         };
         match event {
-            SshEvent::BatchUploadFailed {
-                paths_ok, fail_msg, ..
-            } => {
-                assert_eq!(paths_ok.len(), 1);
-                assert!(fail_msg.contains("permission"));
+            SshEvent::BatchDone { text, .. } => {
+                assert_eq!(text, "hello world");
             }
             _ => panic!("wrong variant"),
         }

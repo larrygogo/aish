@@ -137,62 +137,45 @@ pub fn run() {
                             cx.notify();
                         }
                         SshEvent::ImageUploaded { conn, path } => {
+                            // 流式：每张图（无论单发还是 batch 中）成功后立即 append path
+                            // 到 PTY。前置空格防止与用户已输入 token 粘连。
                             if let Some(sender) = state.sessions.get(&conn).cloned() {
-                                // 前置空格：与 BatchUploaded 一致，防止 path 紧贴 tmux
-                                // 已输入的 token（如 "vim" + "/tmp/img" 拼成 "vim/tmp/img"）
                                 let msg = format!(" {}", path);
                                 let _ =
                                     sender.try_send(SessionCommand::SendBytes(msg.into_bytes()));
                             }
                         }
                         SshEvent::ImageUploadFailed { conn, msg } => {
-                            if let Some(sender) = state.sessions.get(&conn).cloned() {
-                                let err =
-                                    format!("\x1b[31m[aish] 图片上传失败: {}\x1b[0m\r\n", msg);
-                                let _ =
-                                    sender.try_send(SessionCommand::SendBytes(err.into_bytes()));
-                            }
+                            // "失败的不插入" —— 不再发 PTY 错误字节，改 toast_error
+                            // 给用户 UI 反馈，已成功上传的 path 已在 ImageUploaded 事
+                            // 件路径插入，失败的这张不动 tmux。
+                            let label = state
+                                .connections
+                                .get(&conn)
+                                .map(|c| c.label.clone())
+                                .unwrap_or_else(|| "未知连接".to_string());
+                            tracing::warn!(?conn, label = %label, msg = %msg, "image upload failed");
+                            aish_ui::toast_error(cx, format!("{}: 图片上传失败 — {}", label, msg));
                         }
-                        SshEvent::BatchUploaded { conn, paths, text } => {
-                            if let Some(sender) = state.sessions.get(&conn).cloned() {
-                                let mut parts = paths;
-                                if !text.is_empty() {
-                                    parts.push(text);
-                                }
-                                // append-only：与单图 ImageUploaded 路径一致，不自动 \r 执行。
-                                // 原来 format!("{}\r", ...) 会让 tmux readline 立即提交
-                                // —— 若用户在 tmux 预输入了命令前缀（如 "vim "），命令被
-                                // 裹进一起执行（如 "vim /tmp/img.png" 启动 vim 接管屏幕，
-                                // 视觉上看似"完全替换了 tmux 里的字符"）。
-                                // 前置空格隔开用户已输入的 token（防止 "vim" + "/tmp/img"
-                                // 拼成 "vim/tmp/img" 这种边界问题）。
-                                let msg = format!(" {}", parts.join(" "));
-                                let _ =
-                                    sender.try_send(SessionCommand::SendBytes(msg.into_bytes()));
-                            }
+                        SshEvent::BatchProgress { conn, done, total } => {
+                            // 更新 pending_uploads → input_bar observe 后显示进度
+                            state.pending_uploads.insert(conn, (done, total));
+                            cx.notify();
                         }
-                        SshEvent::BatchUploadFailed {
-                            conn,
-                            paths_ok,
-                            fail_msg,
-                            text,
-                        } => {
-                            if let Some(sender) = state.sessions.get(&conn).cloned() {
-                                if !paths_ok.is_empty() || !text.is_empty() {
-                                    let mut parts = paths_ok;
-                                    if !text.is_empty() {
-                                        parts.push(text);
-                                    }
-                                    // 同 BatchUploaded：append-only，前置空格保护
-                                    let msg = format!(" {}", parts.join(" "));
+                        SshEvent::BatchDone { conn, text } => {
+                            // 全部图片上传完成（成功 + 失败都算完）：
+                            // 1. 清 pending_uploads → input_bar 恢复可点 "发送"
+                            // 2. 把 input bar 的 text 附加到 PTY（如非空）—— path 已
+                            //    随每张 ImageUploaded 事件 append 过了，这里只补 text
+                            state.pending_uploads.remove(&conn);
+                            if !text.is_empty() {
+                                if let Some(sender) = state.sessions.get(&conn).cloned() {
+                                    let msg = format!(" {}", text);
                                     let _ = sender
                                         .try_send(SessionCommand::SendBytes(msg.into_bytes()));
                                 }
-                                let err =
-                                    format!("\x1b[31m[aish] 图片上传失败: {}\x1b[0m\r\n", fail_msg);
-                                let _ =
-                                    sender.try_send(SessionCommand::SendBytes(err.into_bytes()));
                             }
+                            cx.notify();
                         }
                     });
                 }

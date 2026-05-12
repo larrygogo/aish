@@ -259,6 +259,11 @@ pub(crate) async fn connection_task(
                     });
                 }
                 Some(SessionCommand::UploadBatch { images, text }) => {
+                    // 流式上传：每张图独立上传，成功/失败立即发对应单图事件
+                    // （app.rs 把成功的 path 立即 append 到 PTY，失败的只 toast
+                    // 不插入），每完成一张发 BatchProgress 更新 input_bar 进度，
+                    // 全部结束发 BatchDone 让 app.rs append text payload。
+                    // 失败不早退 —— 继续上传剩余的（与旧 BatchUploadFailed 早退行为不同）。
                     let session_for_batch = session.clone();
                     let tx_for_batch = event_tx.clone();
                     tokio::spawn(async move {
@@ -266,26 +271,37 @@ pub(crate) async fn connection_task(
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap_or_default()
                             .as_millis();
-                        let mut paths = Vec::new();
+                        let total = images.len();
                         for (i, (bytes, ext)) in images.iter().enumerate() {
                             let remote_path = format!("/tmp/aish-clip-{}-{}.{}", ts, i, ext);
                             match session_for_batch.sftp_upload(&remote_path, bytes).await {
-                                Ok(()) => paths.push(remote_path),
-                                Err(e) => {
+                                Ok(()) => {
                                     let _ = tx_for_batch
-                                        .send(SshEvent::BatchUploadFailed {
+                                        .send(SshEvent::ImageUploaded {
                                             conn,
-                                            paths_ok: paths,
-                                            fail_msg: e.to_string(),
-                                            text,
+                                            path: remote_path,
                                         })
                                         .await;
-                                    return;
+                                }
+                                Err(e) => {
+                                    let _ = tx_for_batch
+                                        .send(SshEvent::ImageUploadFailed {
+                                            conn,
+                                            msg: e.to_string(),
+                                        })
+                                        .await;
                                 }
                             }
+                            let _ = tx_for_batch
+                                .send(SshEvent::BatchProgress {
+                                    conn,
+                                    done: i + 1,
+                                    total,
+                                })
+                                .await;
                         }
                         let _ = tx_for_batch
-                            .send(SshEvent::BatchUploaded { conn, paths, text })
+                            .send(SshEvent::BatchDone { conn, text })
                             .await;
                     });
                 }

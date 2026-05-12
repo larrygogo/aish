@@ -29,6 +29,10 @@ pub struct InputBarView {
 
 impl InputBarView {
     pub fn new(state: Entity<AppState>, bridge: Arc<Bridge>, cx: &mut Context<Self>) -> Self {
+        // observe state → BatchProgress / BatchDone 改 pending_uploads 时本视图
+        // 同步重绘（显示/隐藏进度行 + 切换发送按钮 disabled 状态）。
+        cx.observe(&state, |_this, _state, cx| cx.notify()).detach();
+
         let input = cx.new(TextInput::new);
         let weak_self = cx.weak_entity();
         input.update(cx, |i, _cx| {
@@ -122,6 +126,14 @@ impl InputBarView {
             }
         };
 
+        // 发送期间禁止再次按发送：当前 conn 有上传中 → 直接 return，不再发起新
+        // 一轮 UploadBatch / SendBytes。Enter 路径 + 按钮 click 路径都走 send，
+        // 都在这里被拦下。按钮自身也是 disabled 视觉，这里是逻辑兜底（防快捷键
+        // / 自动化双击触发）。
+        if self.state.read(cx).pending_uploads.contains_key(&conn) {
+            return;
+        }
+
         if self.images.is_empty() {
             if !text.is_empty() {
                 if let Some(sender) = self.state.read(cx).sessions.get(&conn).cloned() {
@@ -181,6 +193,29 @@ impl InputBarView {
 impl Render for InputBarView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
+
+        // 当前 conn 的批量上传进度（BatchProgress 更新 / BatchDone 清除）。
+        // Some((done, total)) 时显示进度行 + 发送按钮 disabled。
+        let upload_progress: Option<(usize, usize)> = self
+            .state
+            .read(cx)
+            .current_connection()
+            .and_then(|c| self.state.read(cx).pending_uploads.get(&c).copied());
+        let is_uploading = upload_progress.is_some();
+
+        let progress_row = upload_progress.map(|(done, total)| {
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(6.0))
+                .px(px(8.0))
+                .py(px(4.0))
+                .text_size(px(11.0))
+                .text_color(t.colors.muted_foreground)
+                .child(format!("上传中  {}/{}", done, total))
+        });
+
         let images_row = if self.images.is_empty() {
             None
         } else {
@@ -282,6 +317,10 @@ impl Render for InputBarView {
                 aish_ui::Button::new("input-bar-send")
                     .label("发送")
                     .primary()
+                    // 上传期间发送按钮 disabled：视觉灰化 + 不响应 click。
+                    // send() 内部还有一层 pending_uploads 检查兜底（防 Enter
+                    // / 快捷键绕过按钮 disabled 直接走 send）。
+                    .disabled(is_uploading)
                     .on_click(cx.listener(|this, _ev: &gpui::MouseDownEvent, window, cx| {
                         // 按钮 click 路径不嵌套（InputBarView listener，
                         // input 是别的 entity，read 是首次借用 OK）
@@ -295,6 +334,7 @@ impl Render for InputBarView {
             .border_t_1()
             .border_color(t.colors.border)
             .bg(t.colors.background)
+            .children(progress_row)
             .children(images_row)
             .child(text_row)
     }
