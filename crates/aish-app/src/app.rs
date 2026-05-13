@@ -24,10 +24,15 @@ impl gpui::AssetSource for AppAssets {
         if let Some(bytes) = gpui::AssetSource::load(&aish_ui::AishUiAssets, path)? {
             return Ok(Some(bytes));
         }
-        // aish-app 本地资源（aish-app/assets/ 下的 SVG）
+        // aish-app 本地资源：
+        // - logo.svg 单色 path（如果未来需要 svg() monochrome 渲染）
+        // - aish-icon.png 真品牌多色 logo（titlebar img() 用，保留蓝/黑双色）
         match path {
             "logo.svg" => Ok(Some(std::borrow::Cow::Borrowed(include_bytes!(
                 "../assets/logo.svg"
+            )))),
+            "aish-icon.png" => Ok(Some(std::borrow::Cow::Borrowed(include_bytes!(
+                "../../../assets/icons/aish-128.png"
             )))),
             _ => Ok(None),
         }
@@ -377,17 +382,20 @@ impl Render for RootView {
         // 控件。布局：左 logo+标题 / 中拖拽区 / 右 minimize+maximize+close。
         // 整个 titlebar bg=card（与 tab bar 同色无缝衔接），36 改 40 与 tab bar
         // 齐高避免"上窄下宽"。
-        // logo + 标题：aish 真品牌 logo（aish-app/assets/logo.svg 像素艺术 ">_"
-        // 蓝色 #4a9eff on #0a0a0c 圆角方块）+ "aish" 文字。
-        // logo 自带方块底色 + 像素填充，GPUI svg 渲染保留 SVG 内 fill 颜色
-        // （不被 text_color 覆盖），因此不需要传 color。
+        // logo + 标题：aish 真品牌 logo + "aish" 文字。
+        // 注意：GPUI 的 svg() 元素是 **monochrome 模式** —— 整个 SVG 用 text_color
+        // 染色覆盖原 fill，无法显示多色 logo。aish 品牌 logo 是蓝+黑双色 + 装饰
+        // SSH 钥匙，必须用 img() 加载 PNG 才保留原色。
+        // assets/icons/aish-128.png 是项目品牌图标的 128×128 PNG（多色 raster），
+        // 通过 AppAssets 的 path="aish-icon.png" 暴露给 GPUI img() Embedded
+        // resource 路径。22px 显示时 GPUI 会自动缩放。
         let titlebar_left = div()
             .flex()
             .flex_row()
             .items_center()
             .gap(px(8.0))
             .px(px(12.0))
-            .child(gpui::svg().path("logo.svg").w(px(22.0)).h(px(22.0)))
+            .child(gpui::img("aish-icon.png").w(px(22.0)).h(px(22.0)))
             .child(
                 div()
                     .text_size(px(13.0))
