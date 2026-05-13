@@ -215,7 +215,7 @@ impl Focusable for TabBarView {
 }
 
 impl Render for TabBarView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let app = self.state.read(cx);
         let selected = app.selected_tab;
         let editing_tab = self.editing_tab;
@@ -354,26 +354,17 @@ impl Render for TabBarView {
         // 外层布局：[ < 箭头?] [ tabs 横向滚动容器 ] [ > 箭头?] [ + 按钮固定 ]
         //
         // 滚动箭头显示条件：
-        // - show_left：offset.x < 0（已向右滚了，可以回左）—— GPUI offset 是
-        //   用户交互后实时更新，render 准确。
-        // - show_right：基于 window viewport 宽度 + tabs 数粗估总占用，
-        //   超出可用空间则显示。粗估按每 tab 200px max-width 上限算（实际可能
-        //   短于 max，所以是保守 over-estimate → 偏向显示箭头），减去 sidebar
-        //   (48) + plus (40) + 各 padding（~30）≈ 120 留白。
-        //   ‖ max_offset.x < 0 兜底（用户滚动后 ScrollHandle 已准确，更可信）。
+        // - show_left：offset.x < 0（已向右滚过，可以回左）
+        // - show_right：tabs.len() >= 2 时**总是显示**右箭头入口
+        //   设计取舍：基于 window viewport 的"是否溢出"精算屡屡偏差
+        //   （TabItem 实际宽度 = max-w + suffix + 字号 + 渲染抖动，无法
+        //   精确预测），用户截图 3 tab 实际溢出但估算公式没触发的情形
+        //   反复出现。直接 fall back 到"有 2+ 个 tab 就给入口"，简单
+        //   可靠：没溢出时点 > clamp 到 0 是 noop 无害。
         let tabs_len = app.tabs.len();
-        let viewport_w = window.viewport_size().width;
-        // 每 tab 估算 240px（TabItem max-w 200 + suffix SSH chip ~30 + close
-        // button 24 + gap padding ≈ 240）。available 减 120（sidebar 48 +
-        // plus 40 + 30 padding）。保守 over-estimate，偏向显示箭头。
-        let estimated_tabs_w = px(tabs_len as f32 * 240.0);
-        let available_w = viewport_w - px(120.0);
-        let likely_overflow = estimated_tabs_w > available_w;
         let offset_x = self.scroll_handle.offset().x;
-        let max_x = self.scroll_handle.max_offset().x;
-        let confirmed_overflow = max_x < px(-0.5);
         let show_left = offset_x < px(-0.5);
-        let show_right = likely_overflow || confirmed_overflow;
+        let show_right = tabs_len >= 2;
 
         let arrow_left = div()
             .id("tab-bar-arrow-left")
