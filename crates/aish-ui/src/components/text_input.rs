@@ -10,9 +10,9 @@ use std::time::{Duration, Instant};
 
 use arboard::Clipboard;
 use gpui::{
-    canvas, div, prelude::*, px, App, Bounds, Context, FocusHandle, Focusable, InputHandler,
-    KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, SharedString,
-    UTF16Selection, Window,
+    canvas, div, prelude::*, px, App, Bounds, Context, DispatchPhase, FocusHandle, Focusable,
+    InputHandler, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels,
+    SharedString, UTF16Selection, Window,
 };
 
 use crate::theme::theme;
@@ -1075,10 +1075,41 @@ impl Render for TextInput {
                         // 子 div 的 prepaint 填好，prepaint_bounds 是 canvas
                         // 与 container 同尺寸的 viewport。算 cursor_x vs viewport
                         // 边界，更新 scroll_offset 并 notify 下一帧 re-render。
-                        let _ = weak_view.update(cx, |this, cx_inner| {
-                            this.viewport_bounds = Some(prepaint_bounds);
-                            this.update_scroll_to_cursor(prepaint_bounds, cx_inner);
-                        });
+                        let is_dragging = weak_view
+                            .update(cx, |this, cx_inner| {
+                                this.viewport_bounds = Some(prepaint_bounds);
+                                this.update_scroll_to_cursor(prepaint_bounds, cx_inner);
+                                this.is_dragging
+                            })
+                            .unwrap_or(false);
+
+                        // drag 期间用户可能拖出 input 外松开 → element-local
+                        // on_mouse_up 不触发，is_dragging 永远 true，回到 input
+                        // 内 drag-select 行为继续（用户体感'松开了还在拖'）。
+                        // 注册 window-level MouseUpEvent listener 兜底：任何
+                        // 位置松开都清 is_dragging。
+                        //
+                        // listener 跟 frame 绑定，每帧 paint 重注册一次；
+                        // is_dragging=false 后下一帧 paint 不再注册，自然失效。
+                        if is_dragging {
+                            let weak = weak_view.clone();
+                            window.on_mouse_event(
+                                move |_: &MouseUpEvent,
+                                      phase: DispatchPhase,
+                                      _window: &mut Window,
+                                      cx_outer: &mut App| {
+                                    if phase != DispatchPhase::Bubble {
+                                        return;
+                                    }
+                                    let _ = weak.update(cx_outer, |this, cx_inner| {
+                                        this.is_dragging = false;
+                                        this.drag_target_x = None;
+                                        this.drag_task.take();
+                                        cx_inner.notify();
+                                    });
+                                },
+                            );
+                        }
                     },
                 )
                 .absolute()
