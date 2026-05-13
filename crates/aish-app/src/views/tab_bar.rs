@@ -382,7 +382,14 @@ impl Render for TabBarView {
                     this.handle_scroll_left(cx);
                 }),
             )
-            .child(aish_ui::icon(aish_ui::IconName::ChevronLeft).size(px(14.0)));
+            .child(
+                // GPUI svg 元素是 monochrome，需要 svg 自己 .text_color() 设
+                // paint color；父 div 的 text_color 不会 inherit 到 svg 元素
+                // → svg 不画（之前箭头不显示的根因）。
+                aish_ui::icon(aish_ui::IconName::ChevronLeft)
+                    .size(px(14.0))
+                    .text_color(colors.muted_foreground),
+            );
 
         let arrow_right = div()
             .id("tab-bar-arrow-right")
@@ -400,7 +407,11 @@ impl Render for TabBarView {
                     this.handle_scroll_right(cx);
                 }),
             )
-            .child(aish_ui::icon(aish_ui::IconName::ChevronRight).size(px(14.0)));
+            .child(
+                aish_ui::icon(aish_ui::IconName::ChevronRight)
+                    .size(px(14.0))
+                    .text_color(colors.muted_foreground),
+            );
 
         div()
             .track_focus(&self.focus_handle)
