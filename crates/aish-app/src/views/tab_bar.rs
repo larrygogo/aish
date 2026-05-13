@@ -373,11 +373,16 @@ impl Render for TabBarView {
                                     .child("●"),
                             )
                         })
-                        // input 占满剩余空间；min_w(0) 让 flex_1 真生效
+                        // input 占满剩余空间；min_w(0) 让 flex_1 真生效。
+                        // overflow_hidden 关键：borderless TextInput 不自带裁切，
+                        // 超长 title 会溢出到相邻 tab 上；这里裁掉，cursor 在
+                        // 末尾可能看不见（aish_ui::TextInput 暂未实现水平滚动
+                        // 跟随 cursor），但优先保证不污染其他 tab。
                         .child(
                             div()
                                 .flex_1()
                                 .min_w(px(0.0))
+                                .overflow_hidden()
                                 .child(self.rename_input.clone()),
                         )
                         .into_any_element();
