@@ -196,6 +196,23 @@ pub fn run() {
                                 .insert(conn, crate::state::TmuxState::NoTmux);
                             cx.notify();
                         }
+                        SshEvent::TmuxMouseDisabled { conn } => {
+                            // 仅在 tmux 装了的情况下发。提示用户开 mouse 否则
+                            // click/drag/wheel 在 tmux 内全失效（aish 的 SGR
+                            // mouse 转发只对开了 mouse on 的 tmux 生效）。
+                            let label = state
+                                .connections
+                                .get(&conn)
+                                .map(|c| c.label.clone())
+                                .unwrap_or_else(|| "未知连接".to_string());
+                            aish_ui::toast_warning(
+                                cx,
+                                format!(
+                                    "{}: 远端 tmux 鼠标未开启 — 在 ~/.tmux.conf 加 `set -g mouse on` 后 tmux source-file 一次",
+                                    label
+                                ),
+                            );
+                        }
                         SshEvent::TmuxAttached { conn, session } => {
                             // raw attach 已派发到 PTY；标记 sidebar 高亮当前 session。
                             state.mark_tmux_attached(conn, session);

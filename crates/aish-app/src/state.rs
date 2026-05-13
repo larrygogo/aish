@@ -57,6 +57,12 @@ pub enum SshEvent {
     TmuxNoTmux {
         conn: ConnectionId,
     },
+    /// 远端 tmux 装了但 mouse 没开。鼠标 click/drag/wheel 在 tmux 内不生效，
+    /// 弹 toast 引导用户加 `set -g mouse on` 到 ~/.tmux.conf。
+    /// 仅在 list-sessions 成功（tmux 确实在）后才会发，无 tmux 不会触发。
+    TmuxMouseDisabled {
+        conn: ConnectionId,
+    },
     /// AttachTmux 命令已派发到 raw shell channel。
     TmuxAttached {
         conn: ConnectionId,

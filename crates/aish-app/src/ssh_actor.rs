@@ -467,6 +467,13 @@ async fn tmux_query_task(
             let _ = event_tx
                 .send(SshEvent::TmuxSessionsListed { conn, sessions })
                 .await;
+            // tmux 确实在 → 检查 mouse 是否开启。'no server running' 分支不查
+            // （tmux 还没 server，show-options 也跑不通）。
+            tokio::spawn(tmux_mouse_check_task(
+                conn,
+                client.clone(),
+                event_tx.clone(),
+            ));
         }
         Ok(r) => {
             let s = String::from_utf8_lossy(&r.stderr).to_string();
@@ -479,6 +486,14 @@ async fn tmux_query_task(
                         sessions: vec![],
                     })
                     .await;
+                // 'no server running' = tmux 装了但没启 server。还是查一次
+                // mouse global option（show-options -g 在没 server 时会启动
+                // 一个临时 server 读 ~/.tmux.conf），可以提前知道用户配置。
+                tokio::spawn(tmux_mouse_check_task(
+                    conn,
+                    client.clone(),
+                    event_tx.clone(),
+                ));
             } else {
                 let trimmed = s.trim();
                 let msg = if trimmed.is_empty() {
@@ -497,6 +512,30 @@ async fn tmux_query_task(
                 })
                 .await;
         }
+    }
+}
+
+/// 检查远端 tmux 全局 mouse 选项。'on' 静默；其他值或 exec 失败时发
+/// TmuxMouseDisabled 让 UI 弹 toast 引导用户加 `set -g mouse on`。
+///
+/// 仅在 tmux 确认装了之后才 spawn（看 tmux_query_task 调用点）。
+/// 用 `2>/dev/null` 吞 stderr 避免 'unknown option' 等版本差异报错污染。
+async fn tmux_mouse_check_task(
+    conn: ConnectionId,
+    client: aish_ssh::SshClient,
+    event_tx: mpsc::Sender<SshEvent>,
+) {
+    let result = client
+        .exec_command("tmux show-options -gv mouse 2>/dev/null")
+        .await;
+    let mouse_on = match result {
+        Ok(r) if r.exit_code == 0 => String::from_utf8_lossy(&r.stdout)
+            .trim()
+            .eq_ignore_ascii_case("on"),
+        _ => false,
+    };
+    if !mouse_on {
+        let _ = event_tx.send(SshEvent::TmuxMouseDisabled { conn }).await;
     }
 }
 
