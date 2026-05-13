@@ -352,16 +352,21 @@ impl Render for TabBarView {
             );
 
         // 外层布局：[ < 箭头?] [ tabs 横向滚动容器 ] [ > 箭头?] [ + 按钮固定 ]
-        // 箭头基于 scroll offset / max_offset 条件显示（Chrome / Edge 模式）。
-        // - offset.x < 0 → 有内容被左侧裁掉 → 显示 <
-        // - offset.x > max_offset.x → 还有内容可向右滚 → 显示 >
-        // 首帧时 max_offset = 0，两个条件都 false，箭头不显示；children 布局
-        // 完成后下一帧（observe state 或交互触发 notify）再计算就准确。
+        //
+        // 滚动箭头显示条件（混合 heuristic + 精确判断）：
+        // - 左箭头 show_left：offset.x < 0（已经向右滚了，可以回左）
+        //   offset 是用户交互后 GPUI 实时更新，render 能准确读到。
+        // - 右箭头 show_right：tabs.len() >= 4 时**总是显示**（粗略 heuristic，
+        //   避免依赖 max_offset 首帧 = 0 的延迟）。当 tabs 实际没溢出时，click
+        //   箭头会被 set_offset clamp 到 max=0 noop，无害。tabs < 4 时不显示
+        //   避免占位干扰。
+        // 设计取舍：精确依赖 max_offset 需要 prepaint 完成后下一帧 notify，
+        // 但 GPUI 没有 scroll 自动 notify 机制，首次 mount 时箭头永远不出现 →
+        // 用户陷入"看着溢出但没箭头可点"。粗略阈值能保证 tabs 多时一定有入口。
+        let tabs_len = app.tabs.len();
         let offset_x = self.scroll_handle.offset().x;
-        let max_x = self.scroll_handle.max_offset().x;
-        // Pixels(f32) 字段是 private，用 px(0.5) 做 epsilon 比较
         let show_left = offset_x < px(-0.5);
-        let show_right = offset_x > max_x + px(0.5);
+        let show_right = tabs_len >= 4;
 
         let arrow_left = div()
             .id("tab-bar-arrow-left")
