@@ -184,6 +184,12 @@ impl RenderOnce for Button {
                     handler(ev, window, cx);
                 });
             }
+        } else {
+            // Disabled 精细化：cursor 禁止图标 + opacity 60% 整体褪色。
+            // 单靠 muted bg/fg 不够明显（在某些主题下与 idle 状态对比弱）；
+            // opacity 让按钮明显"退场"在视觉重量上。on_click 永远不挂，
+            // 即便误触也不发生。
+            el = el.cursor_not_allowed().opacity(0.6);
         }
 
         el

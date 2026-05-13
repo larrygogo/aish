@@ -202,6 +202,9 @@ impl RenderOnce for IconButton {
                     handler(ev, window, cx);
                 });
             }
+        } else {
+            // Disabled 精细化：cursor 禁止 + opacity 60%。与 Button 同 pattern。
+            el = el.cursor_not_allowed().opacity(0.6);
         }
 
         el
