@@ -10,13 +10,53 @@
 
 ## 当前状态
 
-- **活跃分支**：main（2026-05-12 下午一次性合入 M16 后续 5 个 bug fix + 2 个 INDEX docs；待 push origin/main）
+- **活跃分支**：main（2026-05-13 完成 M17-polish 一轮 35 commits 连续迭代，已 push origin/main）
 - **下一里程碑**：M18 候选 — Button/IconButton Ghost variant 接 accent_active（M17 留的，兑现 M15 D-2 回退）/ ContextMenu（Popover + 右键）/ DropdownMenu 键盘导航 / Light theme 实施（含 M15/M17 共 7 个占位 token）/ Dialog Tab focus trap / TextInput "眼睛"切换 mask / TextInput shift+click 扩展 selection / TextInput 多行 / Disabled 状态视觉精细化
 - **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **143** + aish-app 101 + 其他 crate) 全过
 
 ---
 
 ## Milestones（按时间倒序）
+
+### M17-polish — UI / TextInput / 终端 / SSH 连续迭代（2026-05-12 ~ 2026-05-13）— ✅ 已完成
+- 性质：不走 spec/plan 的用户反馈驱动 polish pass。35 commits 跨 9 个主题，每条独立 commit，本节做汇总索引便于回看。
+- 主题 1：Tab inline rename 从无到有重做（10 commits，`d9ea7be` ~ `11d6f9a`）
+  - 用 `aish_ui::TextInput` Entity 替代手糊 div+key handler（自动获得 IME / 中文 / 选区 / 复制粘贴）
+  - 双击进入编辑 + select_all、Esc 取消、失焦自动 commit（与浏览器 inline rename 体感一致）
+  - editing 时跳过 TabItem 单独渲染 240px 宽 inline editor（TabItem max_w(200)+overflow_hidden 会裁掉 input cursor）
+  - TabItem mouse_down 抢 input 点击的根因：TextInput mouse_down 加 `cx.stop_propagation()` + handle_tab_click editing 同 id 入口 return 防御性兜底
+  - 视觉外壳：editing tab box bg=input + 1px primary border + cursor_text，TextInput 用 borderless 不嵌套两套盒子
+- 主题 2：Tab 横向溢出滚动 + < > 箭头（10 commits，`faa7418` ~ `dc713dd`）
+  - Chrome / Edge 模式 < > 箭头，scroll 容器 GPUI ScrollHandle 精确 offset 同步
+  - 多个 GPUI flex pitfall：`min_w(0)` 让 flex_1 真生效 + svg icon 自己设 text_color + max_offset 首帧 0 用 200ms 心跳 cx.notify
+  - overflow_hidden 关掉 GPUI 内置 scroll，自己的 wheel handler 唯一接管（60px/tick）
+- 主题 3：TextInput 水平 scroll + drag-select 完善（3 commits，`6d2d7b7` `3782eef` `1734ae4`）
+  - 字段 scroll_offset + canvas prepaint callback 算 cursor_x vs viewport → 调 margin-left
+  - drag-to-edge auto-scroll：30ms timer 在 drag 期间检测鼠标接近边沿，主动扩 cursor + 滚（鼠标停在边沿不动也会持续）
+  - 全局 mouse_up 监听：`window.on_mouse_event::<MouseUpEvent>` 兜底 drag 拖出 input 外松开的场景
+- 主题 4：终端颜色 palette VS Code Dark+ + bold→bright（1 commit，`e11b9ff`）
+  - 旧 Tomorrow Night palette 在纯黑底上偏灰白，bright 系与 normal 相同看不出差
+  - 新 palette：每 bright 都明显亮于 normal；加 `bold_promote()` 把 normal 色升级到 bright，grid_renderer 在 `cell.flags.BOLD` 时调用 → Ubuntu PS1 `\033[01;32m` 鲜亮绿正确显示
+- 主题 5：终端 wheel 滚动速度（3 commits，`ee44c46` `e578448` 等）
+  - 本地 alacritty 滚动 cap ±3 行/tick；SGR mouse 模式只发 1 个 event 让 tmux 决定步长（避免 ×3×5 = 45 行/tick）
+- 主题 6：Tab 动态标题 OSC 0/1/2 + 手动 rename lock（1 commit，`d7a1207`）
+  - 远端 escape sequence 改 tab title 实时同步；用户手动重命名后锁定不再被远端覆盖
+- 主题 7：SSH idle disconnect 修复（1 commit，`9f75961`）
+  - 误设 `inactivity_timeout: Some(1h)` 让 client 自己关连接；改回 None + 加 30s keepalive
+  - UI 翻译：'协议错误'→'会话异常'；msg 含 'Disconnect' 时改'连接已断开 — 双击 tab 可重连'
+- 主题 8：连接 phase 可视化 + 断开重连（1 commit，`0a47a7e`）
+  - 连接中转圈反馈 + Disconnected 后允许双击 tab 重连
+- 主题 9：Logo / Titlebar polish（2 commits，`2cee52f` `7123418`）
+  - logo 换项目真品牌 SVG（取代 Nerd Font `>_` 字符），用 PNG + img() 保留多色（svg() monochrome 渲染丢色）
+  - host-form 删 footer Cancel（Dialog 顶部 X 已经有）
+  - ring / titlebar / settings 细化（`412c33a`）
+- 测试：未新增（这一轮全是 UI/UX/integration 修复，不引入新单元逻辑）；aish-ui 143 / aish-app 101 不变
+- 关键技术 lessons（沉淀供未来 milestone 参考）：
+  - **GPUI flex `min_w(0)` pitfall** 这轮出现 3+ 次（TabItem title ellipsis / tab_bar scroll 容器 / root main flex_1）：flex item 默认 `min-width: auto` 拒绝 shrink，必须显式 `min_w(px(0.0))`
+  - **GPUI svg() 是 monochrome** 必须自己 `.text_color()` 设；父 div text_color 不会 inherit
+  - **GPUI ScrollHandle 符号**：`offset.x ∈ [-max_offset.x, 0]`，负数 = 向右滚；`max_offset.x ≥ 0`
+  - **GPUI mouse_up 不全局**：element 内 `on_mouse_up` 鼠标拖出去松开收不到，需要 `window.on_mouse_event::<MouseUpEvent>` 兜底
+  - **borderless input 视觉规则**：当 input 嵌在带 bg/border 的卡片里时用 borderless（让父卡片当外壳），否则用默认 bg/border 让"是个 input"明确
 
 ### M17 — aish-ui Card / NavItem / TabItem hover 改造 + accent_active token（2026-05-12）— ✅ 已完成
 - 父 spec：[`specs/2026-05-09-aish-ui-architecture-design.md`](specs/2026-05-09-aish-ui-architecture-design.md)
