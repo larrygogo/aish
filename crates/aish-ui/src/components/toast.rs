@@ -7,7 +7,7 @@
 
 use std::time::{Duration, Instant};
 
-use gpui::{div, prelude::*, App, Context, Entity, IntoElement, Render, SharedString, Window};
+use gpui::{div, prelude::*, px, App, Context, Entity, IntoElement, Render, SharedString, Window};
 
 use crate::icons::{icon, IconName};
 use crate::theme::theme;
@@ -111,12 +111,21 @@ impl Render for ToastManager {
         let t = theme(cx);
         let toasts = self.toasts.clone();
         let weak = cx.weak_entity();
+        // 位置：右下角。比之前右上角离用户视线焦点（终端 / input bar）更近，
+        // 不被自绘 titlebar / tab bar 遮挡，且不挡终端顶部 prompt。
+        //
+        // bottom = 96px 而非 px_4：terminal 模式下底部有 InputBarView (高 ~88px
+        // = 48 缩略图区 + 40 输入栏)。toast 紧贴底部会盖住 input bar 的 send 按钮。
+        // 96px 让 toast 浮在 input bar 上方约 8px。Home / Settings 模式下无 input
+        // bar，toast 离底边远点也无妨。
+        //
+        // flex_col_reverse 让新 toast 从底部往上叠，最新的总在最下方最显眼。
         div()
             .absolute()
-            .top(t.spacing.px_4)
+            .bottom(px(96.0))
             .right(t.spacing.px_4)
             .flex()
-            .flex_col()
+            .flex_col_reverse()
             .gap(t.spacing.px_2)
             .children(
                 toasts
