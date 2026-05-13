@@ -14,8 +14,8 @@ use std::time::Duration;
 
 use aish_types::TabId;
 use gpui::{
-    div, point, prelude::*, px, App, Context, Entity, FocusHandle, Focusable, KeyDownEvent,
-    MouseDownEvent, ScrollHandle, Window,
+    div, point, prelude::*, px, App, Context, Entity, FocusHandle, Focusable, MouseDownEvent,
+    ScrollDelta, ScrollHandle, ScrollWheelEvent, Window,
 };
 
 use crate::bridge::Bridge;
@@ -26,11 +26,8 @@ pub struct TabBarView {
     bridge: Arc<Bridge>,
     #[allow(dead_code)]
     tx: tokio::sync::mpsc::Sender<SshEvent>,
-    /// 当前正在 inline 编辑标题的 tab。`None` = 无编辑中。
-    editing_tab: Option<TabId>,
-    /// 编辑中的 buffer。提交时写回 tab.title。
-    edit_buffer: String,
-    /// 编辑模式下接收键盘的 focus handle。
+    /// 保留 focus_handle 兼容 Focusable trait（其他 view 可能 expect TabBarView
+    /// is Focusable）。inline rename 已禁用，目前 focus 没实际承载键盘事件。
     focus_handle: FocusHandle,
     /// tabs 横向滚动 handle。绑定到 scroll 容器后可读 offset / max_offset 决定
     /// 是否显示左右 < > 箭头，并通过 set_offset 编程式滚动。
@@ -65,8 +62,6 @@ impl TabBarView {
             state,
             bridge,
             tx,
-            editing_tab: None,
-            edit_buffer: String::new(),
             focus_handle: cx.focus_handle(),
             scroll_handle: ScrollHandle::new(),
         }
@@ -95,95 +90,55 @@ impl TabBarView {
         cx.notify();
     }
 
-    /// 处理 tab 标题点击。click_count == 2 进入 rename 模式，否则只切换。
+    /// 处理 tab 标题点击。
+    ///
+    /// inline rename 模式已禁用（之前双击进入 editing_tab + 手糊 div 键盘
+    /// 监听，但 GPUI 的 key_char 路径在 IME / 中文输入时不可靠，且缺少
+    /// "点击外部失焦" 机制，用户陷入"既不能编辑又无法失焦"。后续可改
+    /// aish_ui::Dialog + TextInput 实现 rename 弹窗。当前所有 click 仅切换 tab。
     fn handle_tab_click(
         &mut self,
         id: TabId,
-        click_count: usize,
-        window: &mut Window,
+        _click_count: usize,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if click_count >= 2 {
-            // 进 inline 重命名
-            let current_title = self
-                .state
-                .read(cx)
-                .tabs
-                .iter()
-                .find(|t| t.id == id)
-                .map(|t| t.title.clone())
-                .unwrap_or_default();
-            self.editing_tab = Some(id);
-            self.edit_buffer = current_title;
-            self.focus_handle.focus(window, cx);
+        self.state.update(cx, |s, cx| {
+            s.select_tab(id);
             cx.notify();
-        } else {
-            self.state.update(cx, |s, cx| {
-                s.select_tab(id);
-                cx.notify();
-            });
-        }
+        });
     }
 
-    fn commit_rename(&mut self, cx: &mut Context<Self>) {
-        if let Some(id) = self.editing_tab.take() {
-            let new_title = std::mem::take(&mut self.edit_buffer);
-            // 空标题不接受，回退到一个占位字符串
-            let final_title = if new_title.trim().is_empty() {
-                "新连接".into()
-            } else {
-                new_title
-            };
-            // 用户手动改名 → rename_tab_locked 同时锁定 title_locked=true，
-            // 之后 OSC 0/1/2 title event 不再覆盖，保留用户命名
-            self.state.update(cx, |s, cx| {
-                s.rename_tab_locked(id, final_title);
-                cx.notify();
-            });
-        }
-    }
-
-    fn cancel_rename(&mut self, cx: &mut Context<Self>) {
-        self.editing_tab = None;
-        self.edit_buffer.clear();
-        cx.notify();
-    }
-
-    fn handle_edit_key(&mut self, ev: &KeyDownEvent, cx: &mut Context<Self>) {
-        if self.editing_tab.is_none() {
-            return;
-        }
-        let key = ev.keystroke.key.as_str();
-        match key.to_lowercase().as_str() {
-            "enter" => {
-                self.commit_rename(cx);
-                return;
-            }
-            "escape" | "esc" => {
-                self.cancel_rename(cx);
-                return;
-            }
-            "backspace" => {
-                self.edit_buffer.pop();
-                cx.notify();
-                return;
-            }
-            _ => {}
-        }
-        // 普通可打印字符：用 keystroke.key_char 拿真实字符（处理 shift / unicode）
-        if let Some(ref s) = ev.keystroke.key_char {
-            // 过滤控制字符
-            for c in s.chars() {
-                if !c.is_control() {
-                    self.edit_buffer.push(c);
+    /// wheel scroll 缩放：GPUI 内置 wheel scroll 步长按平台默认（Windows
+    /// 每 tick ≈ 100-120px），对 tab bar 这种紧凑 UI 偏快。拦截 wheel event
+    /// 自己按 0.3 倍缩放 + 横向滚 + clamp。stop_propagation 阻止 GPUI 内置
+    /// scroll 再叠加（否则两路同时滚，速度更快）。
+    fn handle_wheel(&mut self, ev: &ScrollWheelEvent, cx: &mut Context<Self>) {
+        // 优先用横向 delta（横向滚轮）；没有时用纵向 delta（普通滚轮 → 横滚）
+        let dy = match ev.delta {
+            ScrollDelta::Pixels(p) => {
+                if p.x.abs() > p.y.abs() {
+                    p.x
+                } else {
+                    p.y
                 }
             }
-            cx.notify();
-        } else if key.len() == 1 {
-            // 兜底：单字符 key
-            self.edit_buffer.push_str(key);
-            cx.notify();
-        }
+            ScrollDelta::Lines(l) => {
+                // Lines mode 按 12px/line 估算（与 GPUI 内部一致）
+                let raw = if l.x.abs() > l.y.abs() { l.x } else { l.y };
+                px(raw * 12.0)
+            }
+        };
+        // 用户滚轮上滚（dy > 0）→ tabs 向左移（offset.x 增大）→ "看到右边"
+        // 用户滚轮下滚（dy < 0）→ tabs 向右移（offset.x 减小）→ "看到左边"
+        // GPUI ScrollDelta 约定：垂直滚轮 y 上正下负，反映用户感知
+        let scaled = dy * 0.3;
+        let cur = self.scroll_handle.offset();
+        let max = self.scroll_handle.max_offset();
+        let new_x = (cur.x + scaled).clamp(-max.x, px(0.0));
+        self.scroll_handle.set_offset(point(new_x, cur.y));
+        cx.stop_propagation();
+        cx.notify();
     }
 
     fn handle_close(&mut self, id: TabId, cx: &mut Context<Self>) {
@@ -213,11 +168,7 @@ impl TabBarView {
             s.close_tab(id);
             cx.notify();
         });
-        // 关掉的 tab 如果正在被编辑，退出编辑
-        if self.editing_tab == Some(id) {
-            self.editing_tab = None;
-            self.edit_buffer.clear();
-        }
+        let _ = id; // editing 已禁用，不再清 editing state
     }
 
     fn handle_new_tab(&mut self, cx: &mut Context<Self>) {
@@ -239,9 +190,6 @@ impl Render for TabBarView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let app = self.state.read(cx);
         let selected = app.selected_tab;
-        let editing_tab = self.editing_tab;
-        let edit_buffer = self.edit_buffer.clone();
-
         let theme = aish_ui::theme(cx);
         let colors = theme.colors;
         let font_size = theme.font_size;
@@ -254,7 +202,6 @@ impl Render for TabBarView {
                 let title = t.title.clone();
                 let is_selected = selected == Some(id);
                 let is_connection = matches!(t.content, TabContent::Connection(_));
-                let is_editing = editing_tab == Some(id);
                 // connection tab 是否还有活跃 actor（actor 退出后 sessions 里
                 // 没了 → false）。用于绿/灰点 + 标题色的"在线/已断"指示。
                 let is_alive = match t.content {
@@ -293,30 +240,18 @@ impl Render for TabBarView {
                     div().child("").into_any_element()
                 };
 
-                // 标题部分：编辑中用蓝色边框替代光标 `|`
-                let title_el: gpui::AnyElement = if is_editing {
-                    div()
-                        .text_color(colors.foreground)
-                        .border_1()
-                        .border_color(colors.ring)
-                        .rounded_md()
-                        .px_1p5()
-                        .child(edit_buffer.clone())
-                        .into_any_element()
+                // 标题部分：已断的 connection tab 标题 muted 弱化
+                let title_color = if is_connection && !is_alive {
+                    colors.muted_foreground
+                } else if is_selected {
+                    colors.foreground
                 } else {
-                    // 已断的 connection tab：标题用 muted 弱化
-                    let title_color = if is_connection && !is_alive {
-                        colors.muted_foreground
-                    } else if is_selected {
-                        colors.foreground
-                    } else {
-                        colors.secondary_foreground
-                    };
-                    div()
-                        .text_color(title_color)
-                        .child(title)
-                        .into_any_element()
+                    colors.secondary_foreground
                 };
+                let title_el: gpui::AnyElement = div()
+                    .text_color(title_color)
+                    .child(title)
+                    .into_any_element();
 
                 // suffix: SSH chip（connection tab 专属）+ 关闭按钮
                 let suffix = div()
@@ -437,9 +372,6 @@ impl Render for TabBarView {
 
         div()
             .track_focus(&self.focus_handle)
-            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _w, cx| {
-                this.handle_edit_key(ev, cx);
-            }))
             .w_full()
             .flex()
             .flex_row()
@@ -463,6 +395,11 @@ impl Render for TabBarView {
                     .items_center()
                     .overflow_x_scroll()
                     .track_scroll(&self.scroll_handle)
+                    // 拦 wheel 自己缩 0.3 倍滚动，避免 GPUI 内置 wheel 速度
+                    // 在 tab bar 紧凑 UI 下过快（每 tick 跳 100px+ 体感粗暴）
+                    .on_scroll_wheel(cx.listener(|this, ev: &ScrollWheelEvent, _w, cx| {
+                        this.handle_wheel(ev, cx);
+                    }))
                     .children(tab_items),
             )
             .when(show_right, |d| d.child(arrow_right))
