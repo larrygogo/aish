@@ -544,11 +544,16 @@ impl TerminalView {
         if lines == 0 {
             return;
         }
-        // Windows raw wheel delta 一 tick 经常给 10-15 行（OS wheel ratio
-        // 配置 × delta 累积），之前 lines * 3 让一 tick 滚 30-45 行体感粗暴。
-        // 改为 cap 到 ±3 行/tick，与主流终端（iTerm2 / Windows Terminal
-        // / Tabby）一 tick ≈ 3 行步长一致。
-        let scroll_amount = lines.signum() * lines.abs().min(3);
+        // 两条路径用不同步长：
+        // - SGR mouse 路径（远端 tmux 等开 mouse on）：build_sgr_wheel_bytes
+        //   按 scroll_amount **重复发 n 个 wheel event** 给 tmux，而
+        //   tmux 每个 wheel event 内部又滚 5 行（默认 `bind WheelUpPane -N 5`），
+        //   两层乘起来体感暴。改 SGR 路径每 tick 固定 ±1 event，让 tmux
+        //   按自己配置决定步长（5 行/tick，接近主流终端体感）。
+        // - 本地 alacritty 路径（raw shell scrollback）：tmux 不接管，用 ±3
+        //   行/tick 合理步长。
+        let sgr_amount = lines.signum();
+        let local_amount = lines.signum() * 3;
 
         // 两条处理路径，按 alacritty Term mode 决定：
         // 1. MOUSE_MODE 启用（tmux `set -g mouse on` / vim `mouse=a` 等开了
@@ -570,7 +575,7 @@ impl TerminalView {
         if let Some(mode) = term_mode {
             if mode.intersects(TermMode::MOUSE_MODE) {
                 // SGR mouse wheel: 发字节给远端
-                if let Some(bytes) = self.build_sgr_wheel_bytes(ev, scroll_amount, *mode, cx) {
+                if let Some(bytes) = self.build_sgr_wheel_bytes(ev, sgr_amount, *mode, cx) {
                     let sender = self.state.read(cx).sessions.get(&conn).cloned();
                     if let Some(sender) = sender {
                         self.bridge.spawn(async move {
@@ -585,7 +590,7 @@ impl TerminalView {
         // 本地 alacritty scroll
         self.state.update(cx, |state, cx| {
             if let Some(term) = state.host_pty_term.get_mut(&conn) {
-                term.scroll_display(alacritty_terminal::grid::Scroll::Delta(scroll_amount));
+                term.scroll_display(alacritty_terminal::grid::Scroll::Delta(local_amount));
             }
             cx.notify();
         });
