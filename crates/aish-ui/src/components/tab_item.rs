@@ -80,6 +80,11 @@ impl RenderOnce for TabItem {
             .id(self.id)
             .relative()
             .h(px(40.0))
+            // 限宽 200px 防止超长 title（如 tmux pane title）撑爆 tab bar 把
+            // 后续 tab 挤出窗口外；title 子元素 ellipsis 截断显示 "..."
+            .max_w(px(200.0))
+            .overflow_hidden()
+            .flex_shrink_0()
             .px(t.spacing.px_4)
             .flex()
             .flex_row()
@@ -105,7 +110,22 @@ impl RenderOnce for TabItem {
         }
 
         el = el.when_some(self.prefix, |d, p| d.child(p));
-        el = el.when_some(self.title, |d, ti| d.child(ti));
+        // title 包一层 flex_1 + overflow_hidden + ellipsis：
+        // - flex_1 让 title 占满 prefix/suffix 之间剩余空间
+        // - min_w(0) 关键 —— GPUI flex item 默认 min_width=auto 拒绝 shrink，
+        //   设 0 才能在 max_w 200 限制下被压缩 + 触发 ellipsis
+        // - whitespace_nowrap + text_ellipsis 长 title 单行截断显示 "..."
+        el = el.when_some(self.title, |d, ti| {
+            d.child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .child(ti),
+            )
+        });
         el = el.when_some(self.suffix, |d, s| d.child(s));
 
         if active {
