@@ -122,10 +122,17 @@ pub fn run() {
                             let kind_zh = match kind {
                                 SshErrorKind::ConnectFailed => "连接失败",
                                 SshErrorKind::AuthFailed => "登录失败",
-                                SshErrorKind::Io => "IO 错误",
-                                SshErrorKind::Protocol => "协议错误",
+                                SshErrorKind::Io => "网络中断",
+                                SshErrorKind::Protocol => "会话异常",
                             };
-                            let user_msg = format!("{}: {} — {}", label, kind_zh, msg);
+                            // Disconnect 这种'远端主动断 / 长时间 idle 后 client
+                            // 自己关'的场景 msg 含 'Disconnected'。比'协议错误'
+                            // 更直观，提示用户双击 tab 可重连。
+                            let user_msg = if msg.contains("Disconnect") {
+                                format!("{}: 连接已断开 — 双击 tab 可重连", label)
+                            } else {
+                                format!("{}: {} — {}", label, kind_zh, msg)
+                            };
                             aish_ui::toast_error(cx, user_msg);
                             state.drop_session(conn, format!("{}: {}", kind_zh, msg));
                             cx.notify();

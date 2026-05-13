@@ -40,8 +40,17 @@ impl SshClient {
     ///
     /// M2a 仅支持 SshAuth::KeyFile；其他 variant 返回 Auth 错误。
     pub async fn connect(cfg: &HostConfig) -> Result<Self, SshError> {
+        // russh 默认 inactivity_timeout=None（不因 idle 主动断）。之前误设
+        // 1 小时，导致用户在 tmux 里挂着不动超 1h 后，russh 客户端自己 close
+        // 连接，UI 显示 'ssh protocol error: Disconnected' —— 误报为'服务器
+        // 主动断'，实际是 client 自己关。改回 None。
+        //
+        // keepalive_interval=30s：每 30s 客户端发 SSH keep-alive 给 server，
+        // 一是防 NAT / 中间路由因长 idle RST 连接，二是 server 端确认 client
+        // 还活着。keepalive_max=3（默认）= 90s 内连续 3 次无响应才视为断。
         let config = Arc::new(Config {
-            inactivity_timeout: Some(std::time::Duration::from_secs(60 * 60)),
+            inactivity_timeout: None,
+            keepalive_interval: Some(std::time::Duration::from_secs(30)),
             ..Default::default()
         });
 
