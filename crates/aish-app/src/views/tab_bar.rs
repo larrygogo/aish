@@ -479,10 +479,16 @@ impl Render for TabBarView {
                     .flex()
                     .flex_row()
                     .items_center()
-                    .overflow_x_scroll()
+                    // overflow_hidden 而非 overflow_x_scroll：
+                    // GPUI 内置 wheel handler 仅在 overflow.x == Overflow::Scroll
+                    // 时触发（div.rs:2690 if overflow.x == Scroll {...}），用
+                    // Hidden 让它不跑，我的 on_scroll_wheel 唯一接管。
+                    // track_scroll 不依赖 overflow，仍然让 ScrollHandle 同步
+                    // offset 让 children 按 offset transform paint（实现滚动
+                    // 视觉效果）。
+                    .overflow_hidden()
                     .track_scroll(&self.scroll_handle)
-                    // 拦 wheel 自己缩 0.3 倍滚动，避免 GPUI 内置 wheel 速度
-                    // 在 tab bar 紧凑 UI 下过快（每 tick 跳 100px+ 体感粗暴）
+                    // 自己的 wheel handler：固定 60px/tick，详见 handle_wheel
                     .on_scroll_wheel(cx.listener(|this, ev: &ScrollWheelEvent, _w, cx| {
                         this.handle_wheel(ev, cx);
                     }))
