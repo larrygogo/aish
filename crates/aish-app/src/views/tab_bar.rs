@@ -23,6 +23,42 @@ use aish_ui::TextInput;
 use crate::bridge::Bridge;
 use crate::state::{AppState, SessionCommand, SshEvent, TabContent};
 
+/// drag payload：tab 拖拽 reorder 用。'static + Clone 满足 GPUI on_drag<T>
+/// 的 T 约束（GPUI 把 payload 包 Arc<dyn Any> 跨 drag 生命周期传递）。
+#[derive(Clone)]
+struct DraggedTab {
+    source_id: TabId,
+}
+
+/// drag 拖影：用户拖 tab 时跟随 cursor 的 ghost preview。GPUI on_drag 要求
+/// 构造一个 Entity<W: Render>，本 struct 是最简实现（rounded card + 文字）。
+struct TabDragPreview {
+    title: String,
+}
+
+impl gpui::Render for TabDragPreview {
+    fn render(&mut self, _w: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = aish_ui::theme(cx);
+        div()
+            .px(t.spacing.px_3)
+            .py(t.spacing.px_2)
+            .bg(t.colors.popover)
+            .border_1()
+            .border_color(t.colors.primary)
+            .rounded(t.radius.md)
+            .text_size(t.font_size.sm)
+            .text_color(t.colors.foreground)
+            // shadow 让拖影"浮起"，与 drop target 区分
+            .shadow(vec![gpui::BoxShadow {
+                color: gpui::hsla(0.0, 0.0, 0.0, 0.4),
+                offset: point(px(0.0), px(4.0)),
+                blur_radius: px(12.0),
+                spread_radius: px(0.0),
+            }])
+            .child(self.title.clone())
+    }
+}
+
 pub struct TabBarView {
     state: Entity<AppState>,
     bridge: Arc<Bridge>,
@@ -448,14 +484,46 @@ impl Render for TabBarView {
                     .child(close_btn)
                     .into_any_element();
 
-                aish_ui::TabItem::new(gpui::SharedString::from(format!("tab-{}", id)))
-                    .prefix(prefix)
-                    .title(title_el)
-                    .suffix(suffix)
-                    .active(is_selected)
-                    .on_click(cx.listener(move |this, ev: &MouseDownEvent, w, cx| {
-                        this.handle_tab_click(id, ev.click_count, w, cx);
+                let title_for_preview = t.title.clone();
+                let tab_item =
+                    aish_ui::TabItem::new(gpui::SharedString::from(format!("tab-{}", id)))
+                        .prefix(prefix)
+                        .title(title_el)
+                        .suffix(suffix)
+                        .active(is_selected)
+                        .on_click(cx.listener(move |this, ev: &MouseDownEvent, w, cx| {
+                            this.handle_tab_click(id, ev.click_count, w, cx);
+                        }));
+
+                // 包一层 stateful wrapper div 加 GPUI drag/drop。wrapper id 与
+                // TabItem 内部 id 不同避免冲突。
+                // - on_drag：drag 开始构造 TabDragPreview ghost；payload 含 source_id
+                // - on_drop<DraggedTab>：drop 触发时算 reorder（state.move_tab）
+                // - drag_over::<DraggedTab>：drag hover 时高亮 drop target（accent_active）
+                div()
+                    .id(gpui::SharedString::from(format!("tab-wrap-{}", id)))
+                    .flex_shrink_0()
+                    .on_drag(DraggedTab { source_id: id }, move |_p, _offset, _w, cx| {
+                        cx.new(|_| TabDragPreview {
+                            title: title_for_preview.clone(),
+                        })
+                    })
+                    .on_drop(cx.listener(move |this, dragged: &DraggedTab, _w, cx| {
+                        let src = dragged.source_id;
+                        this.state.update(cx, |s, cx| {
+                            if s.move_tab(src, id) {
+                                cx.notify();
+                            }
+                        });
                     }))
+                    .drag_over::<DraggedTab>(|style, _dragged, _w, cx| {
+                        // hover 标记 drop target —— 用 accent_active 与
+                        // M17 Card / NavItem / TabItem 的 mouse-down 反馈同色
+                        let mut s = style;
+                        s.background = Some(aish_ui::theme(cx).colors.accent_active.into());
+                        s
+                    })
+                    .child(tab_item)
                     .into_any_element()
             })
             .collect();

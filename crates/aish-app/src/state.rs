@@ -533,6 +533,34 @@ impl AppState {
         }
     }
 
+    /// 拖拽 reorder：把 source tab 移到 target tab 的位置。
+    /// - source == target → noop 返回 false
+    /// - 任一 id 找不到 → noop 返回 false
+    ///
+    /// 语义：source 占据 target 的当前位置，target 让出方向：
+    /// - src < tgt（向右拖）：tabs.remove(src) 后 target 落到 (tgt_pos-1)，
+    ///   insert(tgt_pos) 把 source 放 target 之后 → 与"向右拖"方向一致
+    /// - src > tgt（向左拖）：tabs.remove(src) 后 target 还在 tgt_pos，
+    ///   insert(tgt_pos) 把 source 放 target 之前 → 与"向左拖"方向一致
+    ///
+    /// 两个 case insert_pos 都 = tgt_pos（原 target 位置）—— 直观且与
+    /// Chrome / VSCode tab drag 行为一致。
+    pub fn move_tab(&mut self, source: TabId, target: TabId) -> bool {
+        if source == target {
+            return false;
+        }
+        let Some(src_pos) = self.tabs.iter().position(|t| t.id == source) else {
+            return false;
+        };
+        let Some(tgt_pos) = self.tabs.iter().position(|t| t.id == target) else {
+            return false;
+        };
+        let tab = self.tabs.remove(src_pos);
+        let insert_pos = tgt_pos.min(self.tabs.len());
+        self.tabs.insert(insert_pos, tab);
+        true
+    }
+
     /// 把当前选中的 tab 向左 (delta=-1) 或向右 (delta=+1) 移动一格。
     /// 已在边界 / 无选中时 noop。delta != ±1 也 noop（防御性）。
     /// 返回 true 表示真发生了交换，调用方可据此决定是否 cx.notify。
@@ -965,6 +993,79 @@ mod tests {
         assert_eq!(state.selected_tab, Some(initial_tab_id));
         assert_eq!(state.current_tab().unwrap().title, "腾讯云 #1");
         assert_eq!(state.current_connection(), Some(conn));
+    }
+
+    #[test]
+    fn move_tab_drag_right() {
+        // [A B C D]，把 A 拖到 C 上 → [B C A D]（A 占 C 原位，C 让左）
+        use aish_types::TabId;
+        let mut state = AppState::with_hosts(vec![]);
+        let ids: Vec<_> = (0..4).map(|_| TabId::new()).collect();
+        for (i, id) in ids.iter().enumerate() {
+            state.tabs.push(Tab {
+                id: *id,
+                content: TabContent::Default,
+                title: format!("{}", i),
+                title_locked: false,
+            });
+        }
+        assert!(state.move_tab(ids[0], ids[2]));
+        assert_eq!(state.tabs[0].id, ids[1]);
+        assert_eq!(state.tabs[1].id, ids[2]);
+        assert_eq!(state.tabs[2].id, ids[0]);
+        assert_eq!(state.tabs[3].id, ids[3]);
+    }
+
+    #[test]
+    fn move_tab_drag_left() {
+        // [A B C D]，把 C 拖到 B 上 → [A C B D]（C 占 B 原位，B 让右）
+        use aish_types::TabId;
+        let mut state = AppState::with_hosts(vec![]);
+        let ids: Vec<_> = (0..4).map(|_| TabId::new()).collect();
+        for (i, id) in ids.iter().enumerate() {
+            state.tabs.push(Tab {
+                id: *id,
+                content: TabContent::Default,
+                title: format!("{}", i),
+                title_locked: false,
+            });
+        }
+        assert!(state.move_tab(ids[2], ids[1]));
+        assert_eq!(state.tabs[0].id, ids[0]);
+        assert_eq!(state.tabs[1].id, ids[2]);
+        assert_eq!(state.tabs[2].id, ids[1]);
+        assert_eq!(state.tabs[3].id, ids[3]);
+    }
+
+    #[test]
+    fn move_tab_same_id_noop() {
+        use aish_types::TabId;
+        let mut state = AppState::with_hosts(vec![]);
+        let id = TabId::new();
+        state.tabs.push(Tab {
+            id,
+            content: TabContent::Default,
+            title: "x".into(),
+            title_locked: false,
+        });
+        assert!(!state.move_tab(id, id));
+        assert_eq!(state.tabs.len(), 1);
+    }
+
+    #[test]
+    fn move_tab_nonexistent_noop() {
+        use aish_types::TabId;
+        let mut state = AppState::with_hosts(vec![]);
+        let real = TabId::new();
+        let ghost = TabId::new();
+        state.tabs.push(Tab {
+            id: real,
+            content: TabContent::Default,
+            title: "x".into(),
+            title_locked: false,
+        });
+        assert!(!state.move_tab(ghost, real));
+        assert!(!state.move_tab(real, ghost));
     }
 
     #[test]
