@@ -6,7 +6,6 @@
 //! - `clear_selection`: 清除 selection
 //! - `selected_text`: 取选中文本（用于 Ctrl+Shift+C）
 
-use alacritty_terminal::event::VoidListener;
 use alacritty_terminal::index::{Column, Line, Point, Side};
 use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::Term;
@@ -45,7 +44,12 @@ pub fn pixel_to_grid(
 }
 
 /// 开始 mouse selection（mouse_down 时调用）。
-pub fn start_selection(term: &mut Term<VoidListener>, line: Line, col: Column, side: Side) {
+pub fn start_selection(
+    term: &mut Term<crate::state::TitleListener>,
+    line: Line,
+    col: Column,
+    side: Side,
+) {
     term.selection = Some(Selection::new(
         SelectionType::Simple,
         Point::new(line, col),
@@ -54,21 +58,26 @@ pub fn start_selection(term: &mut Term<VoidListener>, line: Line, col: Column, s
 }
 
 /// 拖拽中更新选中末端（mouse_move + dragging 时调用）。
-pub fn update_selection(term: &mut Term<VoidListener>, line: Line, col: Column, side: Side) {
+pub fn update_selection(
+    term: &mut Term<crate::state::TitleListener>,
+    line: Line,
+    col: Column,
+    side: Side,
+) {
     if let Some(ref mut sel) = term.selection {
         sel.update(Point::new(line, col), side);
     }
 }
 
 /// 清除 selection。
-pub fn clear_selection(term: &mut Term<VoidListener>) {
+pub fn clear_selection(term: &mut Term<crate::state::TitleListener>) {
     term.selection = None;
 }
 
 /// 取选中的文本（用于复制到剪贴板）。空选中或无 selection 返回 None。
 ///
 /// 使用 alacritty Term::selection_to_string（0.26 已有）。
-pub fn selected_text(term: &Term<VoidListener>) -> Option<String> {
+pub fn selected_text(term: &Term<crate::state::TitleListener>) -> Option<String> {
     let text = term.selection_to_string()?;
     if text.is_empty() {
         None

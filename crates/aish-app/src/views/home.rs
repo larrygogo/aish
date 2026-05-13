@@ -48,11 +48,19 @@ impl HomeView {
                 .get(&conn)
                 .map(|c| c.label.clone())
                 .unwrap_or_default();
+            // tab 默认 title 用 host.label（不带 #N 后缀），等 shell PS1 通过
+            // OSC 0/1/2 发来真实 title 再覆盖。Connection.label 内部仍是
+            // "<host.label> #N" 用于 toast / phase overlay 区分多连接。
+            let default_title = cfg
+                .as_ref()
+                .map(|c| c.label.clone())
+                .unwrap_or_else(|| label.clone());
             let tab_id = aish_types::TabId::new();
             let tab = Tab {
                 id: tab_id,
                 content: TabContent::Connection(conn),
-                title: label.clone(),
+                title: default_title,
+                title_locked: false,
             };
             s.tabs.push(tab);
             s.selected_tab = Some(s.tabs.last().unwrap().id);
@@ -115,15 +123,21 @@ impl HomeView {
             if let Some(id) = tab_id {
                 s.selected_tab = Some(id);
             } else {
-                let label = s
-                    .connections
-                    .get(&conn_id)
-                    .map(|c| c.label.clone())
+                // 默认 title 取 host.label（与 handle_card_click 一致）
+                let host_id = s.connections.get(&conn_id).map(|c| c.host_id);
+                let default_title = host_id
+                    .and_then(|hid| {
+                        s.hosts
+                            .iter()
+                            .find(|h| h.id == hid)
+                            .map(|h| h.label.clone())
+                    })
                     .unwrap_or_else(|| "connection".into());
                 let tab = Tab {
                     id: aish_types::TabId::new(),
                     content: TabContent::Connection(conn_id),
-                    title: label,
+                    title: default_title,
+                    title_locked: false,
                 };
                 s.tabs.push(tab);
                 s.selected_tab = Some(s.tabs.last().unwrap().id);

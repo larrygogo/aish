@@ -68,12 +68,16 @@ pub fn run() {
             };
             let loaded_state = crate::app_state_file::load_app_state();
             let last_connected = loaded_state.into_last_connected();
+            let channel = EventChannel::new();
+            let tx_for_state = channel.tx.clone();
             let state = cx.new(|_cx| {
                 let mut s = AppState::with_hosts(hosts);
                 s.last_connected = last_connected;
+                // 注入 event_tx：让 alacritty Term 的 TitleListener 能把 OSC
+                // 0/1/2 title event 推回主循环
+                s.event_tx = Some(tx_for_state);
                 s
             });
-            let channel = EventChannel::new();
 
             // 接收 SshEvent loop
             let state_for_loop = state.clone();
@@ -230,6 +234,14 @@ pub fn run() {
                                 }
                             }
                             cx.notify();
+                        }
+                        SshEvent::TitleChanged { conn, title } => {
+                            // 远端 OSC 0/1/2 title 通过 TitleListener 推上来。
+                            // helper 内部判断 title_locked，locked 时静默忽略
+                            // （保留用户手动重命名）。
+                            if state.set_tab_title_for_conn(conn, title) {
+                                cx.notify();
+                            }
                         }
                     });
                 }

@@ -1019,7 +1019,7 @@ fn sgr_mouse_button(b: MouseButton) -> Option<u8> {
 pub(crate) fn term_for_render(
     app: &AppState,
     conn: aish_types::ConnectionId,
-) -> Option<&alacritty_terminal::Term<alacritty_terminal::event::VoidListener>> {
+) -> Option<&alacritty_terminal::Term<crate::state::TitleListener>> {
     app.host_pty_term.get(&conn)
 }
 

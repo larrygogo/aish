@@ -90,10 +90,10 @@ impl TabBarView {
             } else {
                 new_title
             };
+            // 用户手动改名 → rename_tab_locked 同时锁定 title_locked=true，
+            // 之后 OSC 0/1/2 title event 不再覆盖，保留用户命名
             self.state.update(cx, |s, cx| {
-                if let Some(t) = s.tabs.iter_mut().find(|t| t.id == id) {
-                    t.title = final_title;
-                }
+                s.rename_tab_locked(id, final_title);
                 cx.notify();
             });
         }

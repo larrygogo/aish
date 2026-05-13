@@ -6,7 +6,6 @@
 //!
 //! 参考 Zed `crates/terminal_view/src/terminal_element.rs` 的 layout_grid / LayoutRect / BatchedTextRun。
 
-use alacritty_terminal::event::VoidListener;
 use alacritty_terminal::grid::Indexed;
 use alacritty_terminal::index::Point;
 #[cfg(test)]
@@ -61,7 +60,7 @@ pub struct GridSnapshot {
 }
 
 impl GridSnapshot {
-    pub fn from_term(term: &Term<VoidListener>) -> Self {
+    pub fn from_term(term: &Term<crate::state::TitleListener>) -> Self {
         let cursor_point = term.grid().cursor.point;
         let display_offset = term.grid().display_offset();
         let cells = term

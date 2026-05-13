@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::time::SystemTime;
 
 use aish_types::{ConnectionId, HostConfig, HostId, RemoteSession, SessionId, TabId};
-use alacritty_terminal::event::VoidListener;
+use alacritty_terminal::event::{Event as TermEvent, EventListener};
 use alacritty_terminal::term::test::TermSize;
 use alacritty_terminal::term::Config as TermConfig;
 use alacritty_terminal::vte::ansi::{Processor as AnsiProcessor, StdSyncHandler};
@@ -93,6 +93,14 @@ pub enum SshEvent {
         conn: ConnectionId,
         text: String,
     },
+    /// 远端 shell 通过 OSC 0/1/2 escape sequence 设置 tab 标题
+    /// （bash/zsh 默认 PS1 hook 会 emit `ESC ]0;user@host: cwd\BEL` 等）。
+    /// alacritty Term 的 Event::Title 通过自定义 EventListener 转发至此。
+    /// 仅在对应 tab.title_locked == false 时覆盖 tab.title。
+    TitleChanged {
+        conn: ConnectionId,
+        title: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -143,14 +151,54 @@ pub const DEFAULT_ROWS: u16 = 40;
 /// scrollback buffer 大小。
 const SCROLLBACK_LINES: usize = 10_000;
 
-/// 创建一个空 Term（M2b1 用 VoidListener — 不接收 alacritty 事件）。
-pub fn make_term(cols: u16, rows: u16) -> Term<VoidListener> {
+/// alacritty Term 的 EventListener 实现：拦截 OSC 0/1/2 → Event::Title 转发到
+/// SshEvent::TitleChanged 让 app.rs 更新 tab.title。其它 alacritty event 丢弃。
+///
+/// send_event 是 &self（不是 &mut），必须 try_send 同步推 channel。容量满时
+/// 静默丢弃（title 变化非关键事件，丢一两条无所谓 —— 下次 PS1 emit 会重发）。
+pub struct TitleListener {
+    conn: ConnectionId,
+    /// None = void mode（测试 fixture / 未注入 event_tx 时）。
+    tx: Option<mpsc::Sender<SshEvent>>,
+}
+
+impl EventListener for TitleListener {
+    fn send_event(&self, ev: TermEvent) {
+        let Some(tx) = self.tx.as_ref() else {
+            return;
+        };
+        match ev {
+            TermEvent::Title(t) => {
+                let _ = tx.try_send(SshEvent::TitleChanged {
+                    conn: self.conn,
+                    title: t,
+                });
+            }
+            TermEvent::ResetTitle => {
+                let _ = tx.try_send(SshEvent::TitleChanged {
+                    conn: self.conn,
+                    title: String::new(),
+                });
+            }
+            _ => {}
+        }
+    }
+}
+
+/// 创建一个空 Term。tx None 时 listener 走 void（测试用），Some 时 OSC 0/1/2
+/// title 通过 channel 推回 GPUI 主循环。
+pub fn make_term(
+    conn: ConnectionId,
+    tx: Option<mpsc::Sender<SshEvent>>,
+    cols: u16,
+    rows: u16,
+) -> Term<TitleListener> {
     let size = TermSize::new(cols as usize, rows as usize);
     let config = TermConfig {
         scrolling_history: SCROLLBACK_LINES,
         ..TermConfig::default()
     };
-    Term::new(config, &size, VoidListener)
+    Term::new(config, &size, TitleListener { conn, tx })
 }
 
 /// 表单中选中的认证类型（radio 控件）。
@@ -343,6 +391,11 @@ pub struct Tab {
     pub id: TabId,
     pub content: TabContent,
     pub title: String,
+    /// 用户是否手动重命名过本 tab。false（默认）时 SshEvent::TitleChanged
+    /// （远端 OSC 0/1/2 + alacritty Event::Title）会自动覆盖 title；
+    /// true 时 OSC 被忽略，让用户的命名保留住（iTerm2 / WezTerm /
+    /// Windows Terminal 一致行为）。
+    pub title_locked: bool,
 }
 
 /// 单一 root Model：所有 UI 共享状态。
@@ -369,7 +422,7 @@ pub struct AppState {
     /// 每连接一个 actor 命令通道。
     pub sessions: HashMap<ConnectionId, mpsc::Sender<SessionCommand>>,
     /// 每连接一个 alacritty Term（保留 scrollback）。
-    pub host_pty_term: HashMap<ConnectionId, Term<VoidListener>>,
+    pub host_pty_term: HashMap<ConnectionId, Term<TitleListener>>,
     /// 每连接一个 ANSI parser。Processor 是 stateful（VTE parser 跨字节包
     /// 维护 escape sequence 解析进度），必须 per-conn 持久化。之前每次
     /// feed_bytes 都 Processor::new()，escape 跨 SSH frame 时会被错解析。
@@ -386,6 +439,11 @@ pub struct AppState {
     /// 转 Connected，Disconnected/Error 转 Disconnected{reason}。terminal_view
     /// 根据本字段渲染 loading / reconnect overlay。
     pub connection_phases: HashMap<ConnectionId, ConnectionPhase>,
+    /// SshEvent channel sender，由 app.rs 启动后注入。
+    /// 用于 alacritty Term 创建时构造 TitleListener 把 OSC title event
+    /// 推回 GPUI 主循环。`None` 时 listener 走 fallback 不发事件（测试 fixture
+    /// 创建 AppState 时常见，无 listener 也能正常构造 Term）。
+    pub event_tx: Option<mpsc::Sender<SshEvent>>,
 }
 
 impl Connection {
@@ -443,6 +501,7 @@ impl AppState {
             tmux_state: HashMap::new(),
             pending_uploads: HashMap::new(),
             connection_phases: HashMap::new(),
+            event_tx: None,
         }
     }
 
@@ -630,10 +689,11 @@ impl AppState {
             .get(&conn)
             .copied()
             .unwrap_or((DEFAULT_COLS, DEFAULT_ROWS));
+        let tx_clone = self.event_tx.clone();
         let term = self
             .host_pty_term
             .entry(conn)
-            .or_insert_with(|| make_term(cols, rows));
+            .or_insert_with(|| make_term(conn, tx_clone, cols, rows));
         // Processor 跨 feed_bytes 持久化 — 让 ANSI escape 序列跨 SSH frame
         // 仍能正确解析（之前每次 new 会让 \x1b[3 / 1m 这种切包被当字面字符）。
         let processor = self.host_pty_processor.entry(conn).or_default();
@@ -641,8 +701,36 @@ impl AppState {
     }
 
     /// 取指定连接的 Term（只读）。
-    pub fn term_of(&self, conn: ConnectionId) -> Option<&Term<VoidListener>> {
+    pub fn term_of(&self, conn: ConnectionId) -> Option<&Term<TitleListener>> {
         self.host_pty_term.get(&conn)
+    }
+
+    /// SshEvent::TitleChanged handler：找到 content=Connection(conn) 的 tab，
+    /// 如果该 tab.title_locked == false，把 tab.title 覆盖为 title；locked 时
+    /// 静默忽略（保留用户手动重命名）。返回是否实际更新（caller 据此 cx.notify）。
+    pub fn set_tab_title_for_conn(&mut self, conn: ConnectionId, title: String) -> bool {
+        let trimmed = title.trim();
+        if trimmed.is_empty() {
+            return false;
+        }
+        for tab in self.tabs.iter_mut() {
+            if tab.content == TabContent::Connection(conn) && !tab.title_locked {
+                if tab.title != trimmed {
+                    tab.title = trimmed.to_string();
+                    return true;
+                }
+                return false;
+            }
+        }
+        false
+    }
+
+    /// 用户双击 tab 改名后调：直接覆盖 title 并锁定（之后 OSC 不再覆盖）。
+    pub fn rename_tab_locked(&mut self, tab_id: TabId, new_title: String) {
+        if let Some(tab) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
+            tab.title = new_title;
+            tab.title_locked = true;
+        }
     }
 
     /// 调整指定连接的 PTY 大小（GPUI 端 alacritty grid + 远端 SIGWINCH 由 actor 完成）。
@@ -822,6 +910,7 @@ mod tests {
             id: tab_id,
             content: TabContent::Connection(conn),
             title: "x".into(),
+            title_locked: false,
         });
         state.selected_tab = Some(tab_id);
         state.remove_connection(conn);
@@ -842,6 +931,7 @@ mod tests {
             id: initial_tab_id,
             content: TabContent::Default,
             title: "新连接".into(),
+            title_locked: false,
         });
         state.selected_tab = Some(initial_tab_id);
         state.replace_current_tab(TabContent::Connection(conn), "腾讯云 #1".into());
@@ -861,11 +951,13 @@ mod tests {
             id: id1,
             content: TabContent::Default,
             title: "1".into(),
+            title_locked: false,
         });
         state.tabs.push(Tab {
             id: id2,
             content: TabContent::Default,
             title: "2".into(),
+            title_locked: false,
         });
         state.selected_tab = Some(id2);
         state.close_tab(id2);
@@ -1188,6 +1280,7 @@ mod tests {
             id: tab_id,
             content: TabContent::Default,
             title: "test".into(),
+            title_locked: false,
         });
         state.selected_tab = Some(tab_id);
         state.close_tab(tab_id);
