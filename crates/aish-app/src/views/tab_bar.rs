@@ -18,7 +18,7 @@ use gpui::{
     ScrollDelta, ScrollHandle, ScrollWheelEvent, Window,
 };
 
-use aish_ui::TextInput;
+use aish_ui::{ContextMenu, DropdownMenu, IconName, MenuItem, TextInput};
 
 use crate::bridge::Bridge;
 use crate::state::{AppState, SessionCommand, SshEvent, TabContent};
@@ -82,6 +82,12 @@ pub struct TabBarView {
     /// 用 aish_ui::TextInput 替代之前手糊 div + on_key_down，自动获得 IME /
     /// 中文 / focus / Enter submit / 复制粘贴 全套能力。
     rename_input: Entity<TextInput>,
+    /// tab 右键菜单 entity。long-lived 复用，菜单内容每帧根据 menu_tab_id
+    /// 重设（DropdownMenu 含 closure 捕获 tab_id）。
+    context_menu: Entity<ContextMenu>,
+    /// 当前右键菜单针对的 tab id。`None` = 菜单关闭 / 不渲染 content。
+    /// 设置 / 清除时通过 ContextMenu.on_close 同步。
+    menu_tab_id: Option<TabId>,
 }
 
 impl TabBarView {
@@ -147,6 +153,20 @@ impl TabBarView {
             });
         });
 
+        // 右键 context menu：on_close 同步 menu_tab_id = None。
+        // 用户点 menu 外 / Esc 关菜单时清状态，下帧 render 不再设 content。
+        let context_menu = cx.new(ContextMenu::new);
+        let weak_menu_close = cx.weak_entity();
+        context_menu.update(cx, move |m, _cx| {
+            m.on_close(move |_w, cx| {
+                if let Some(this) = weak_menu_close.upgrade() {
+                    this.update(cx, |this, _cx| {
+                        this.menu_tab_id = None;
+                    });
+                }
+            });
+        });
+
         Self {
             state,
             bridge,
@@ -155,6 +175,8 @@ impl TabBarView {
             scroll_handle: ScrollHandle::new(),
             editing_tab: None,
             rename_input,
+            context_menu,
+            menu_tab_id: None,
         }
     }
 
@@ -330,6 +352,44 @@ impl TabBarView {
         }
     }
 
+    /// 右键菜单 select 路由：按 idx 调对应 action。
+    /// idx 与 build_context_menu 内 MenuItem 顺序绑定，不要乱动顺序。
+    fn handle_menu_select(
+        &mut self,
+        tab_id: TabId,
+        idx: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match idx {
+            // Rename → 复用 handle_tab_click(click_count=2) 逻辑进编辑模式
+            0 => self.handle_tab_click(tab_id, 2, window, cx),
+            // Close
+            1 => self.handle_close(tab_id, cx),
+            // Close others
+            2 => self.close_others(tab_id, cx),
+            _ => {}
+        }
+        // action 执行后关闭菜单
+        self.context_menu.update(cx, |m, cx| m.close(cx));
+        self.menu_tab_id = None;
+    }
+
+    /// 关闭除 keep_id 之外的所有 tab。逐个调 handle_close（含 Disconnect 发送）。
+    fn close_others(&mut self, keep_id: TabId, cx: &mut Context<Self>) {
+        let others: Vec<TabId> = self
+            .state
+            .read(cx)
+            .tabs
+            .iter()
+            .filter(|t| t.id != keep_id)
+            .map(|t| t.id)
+            .collect();
+        for id in others {
+            self.handle_close(id, cx);
+        }
+    }
+
     fn handle_new_tab(&mut self, cx: &mut Context<Self>) {
         // M4a：+ 按钮切回 Home，让用户从 Home 选 host 开始新连接
         self.state.update(cx, |s, cx| {
@@ -347,6 +407,29 @@ impl Focusable for TabBarView {
 
 impl Render for TabBarView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // 每帧重设 context menu content（AnyElement 不 Clone，render 内 take 消耗）。
+        // 仅当 menu 目标 tab 已选定时构造内容，避免无谓 DropdownMenu 实例化。
+        if let Some(tab_id) = self.menu_tab_id {
+            let weak = cx.weak_entity();
+            let menu = DropdownMenu::new("tab-context-menu")
+                .items(vec![
+                    MenuItem::new("重命名").icon(IconName::Pencil),
+                    MenuItem::new("关闭").icon(IconName::X).shortcut("Ctrl+W"),
+                    MenuItem::new("关闭其他"),
+                ])
+                .min_width(gpui::px(180.0))
+                .on_select(move |idx, window, cx| {
+                    let idx = *idx;
+                    if let Some(this) = weak.upgrade() {
+                        this.update(cx, |this, cx| {
+                            this.handle_menu_select(tab_id, idx, window, cx);
+                        });
+                    }
+                });
+            self.context_menu.update(cx, |m, _cx| {
+                m.content(menu);
+            });
+        }
         let app = self.state.read(cx);
         let selected = app.selected_tab;
         let theme = aish_ui::theme(cx);
@@ -538,6 +621,18 @@ impl Render for TabBarView {
                             this.handle_close(id, cx);
                         }),
                     )
+                    // 右键打开 context menu：菜单内容（DropdownMenu）由
+                    // render 主循环每帧根据 menu_tab_id 重设，避免 closure
+                    // 捕获问题。这里仅写 menu_tab_id + open_at(ev.position)。
+                    .on_mouse_down(
+                        gpui::MouseButton::Right,
+                        cx.listener(move |this, ev: &MouseDownEvent, _w, cx| {
+                            this.menu_tab_id = Some(id);
+                            let pos = ev.position;
+                            this.context_menu.update(cx, |m, cx| m.open_at(pos, cx));
+                            cx.notify();
+                        }),
+                    )
                     .child(tab_item)
                     .into_any_element()
             })
@@ -677,5 +772,10 @@ impl Render for TabBarView {
             )
             .when(show_right, |d| d.child(arrow_right))
             .child(plus_btn)
+            // context menu entity 永远挂在 view tree（无论 open 与否）。
+            // open=false 时 render 返回空 div；open=true 时 absolute 覆盖全屏
+            // 渲染 backdrop + anchored 浮层。挂在 tab_bar 末尾让浮层 z-order
+            // 在 tab_bar 之上但不影响 tab_bar 布局（absolute 不占空间）。
+            .child(self.context_menu.clone())
     }
 }
