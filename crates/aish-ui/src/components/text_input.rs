@@ -881,6 +881,13 @@ impl Render for TextInput {
                     let byte = this.cursor_from_click(ev.position.x);
                     this.is_dragging = true; // M16 T3: 开始 drag
                     this.handle_mouse_down_at(byte, cx);
+                    // 阻止 mouse_down 冒泡到父：典型场景是 TabBar inline rename
+                    // —— TabItem 自己也注册了 on_mouse_down(切 tab)，若不拦，
+                    // 点 input 内任意位置都会同时触发 TabItem.on_click 把 editing
+                    // commit 掉 + 切走焦点，cursor 无法被点击定位。
+                    // 通用语义：用户点 input 内部的预期是"操作 input"而不是
+                    // "操作 input 所在的卡片"，stop_propagation 符合 UX 直觉。
+                    cx.stop_propagation();
                 }),
             )
             // M16 T3: drag select。selection_anchor 在 mouse_down 由 handle_mouse_down_at

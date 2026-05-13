@@ -167,6 +167,13 @@ impl TabBarView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // 已经在 editing 这个 tab：所有 click 让 TextInput 自己处理（cursor 定位
+        // / 拖选 / 双击选词 / 三击选行 全套交互都走 input），TabItem 整体 noop。
+        // 主要靠 TextInput 自身 mouse_down 的 stop_propagation 防冒泡（不会到这），
+        // 这里是防御性兜底：万一 GPUI 派发顺序变化导致冒泡仍触发，也不会破坏编辑。
+        if self.editing_tab == Some(id) {
+            return;
+        }
         if click_count >= 2 {
             // 进入编辑：current title 灌进 TextInput + focus + 切到 editing 状态
             let current_title = self
