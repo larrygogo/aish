@@ -144,6 +144,11 @@ impl std::fmt::Display for ProfileId {
 pub struct RemoteSession {
     pub id: SessionId,
     pub name: String,
+    /// 该 session 内的 window 数量（来自 tmux `#{session_windows}`）。
+    pub windows: u32,
+    /// session 最后活跃时间（Unix epoch 秒，来自 `#{session_activity}`）。
+    /// 0 = 解析失败 / 旧 tmux 版本不支持该字段。
+    pub activity: i64,
 }
 
 /// SSH 认证方式。Password 的 `password` 字段不序列化 — 仅运行时持有；
@@ -333,8 +338,12 @@ mod tests {
         let s = RemoteSession {
             id: SessionId::new("$0"),
             name: "dev".into(),
+            windows: 3,
+            activity: 1700000000,
         };
         assert_eq!(s.id.as_str(), "$0");
         assert_eq!(s.name, "dev");
+        assert_eq!(s.windows, 3);
+        assert_eq!(s.activity, 1700000000);
     }
 }

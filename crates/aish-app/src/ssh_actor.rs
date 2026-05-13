@@ -393,20 +393,31 @@ pub fn encode_key(key: &str, ctrl: bool, alt: bool) -> Vec<u8> {
     }
 }
 
-/// 解析 tmux list-sessions -F '#{session_id}|#{session_name}' 的 stdout。
+/// 解析 tmux list-sessions -F '#{session_id}|#{session_name}|#{session_windows}|#{session_activity}'
+/// 的 stdout。windows / activity 解析失败时 fallback 0（旧 tmux 版本或字段缺失）。
 fn parse_session_list(stdout: &[u8]) -> Vec<RemoteSession> {
     let s = String::from_utf8_lossy(stdout);
     s.lines()
         .filter_map(|line| {
-            let (id, name) = line.split_once('|')?;
-            let id_trimmed = id.trim();
-            let name_trimmed = name.trim();
+            let mut parts = line.splitn(4, '|');
+            let id_trimmed = parts.next()?.trim();
+            let name_trimmed = parts.next()?.trim();
             if id_trimmed.is_empty() {
                 return None;
             }
+            let windows: u32 = parts
+                .next()
+                .and_then(|s| s.trim().parse().ok())
+                .unwrap_or(0);
+            let activity: i64 = parts
+                .next()
+                .and_then(|s| s.trim().parse().ok())
+                .unwrap_or(0);
             Some(RemoteSession {
                 id: aish_types::SessionId::new(id_trimmed),
                 name: name_trimmed.to_string(),
+                windows,
+                activity,
             })
         })
         .collect()
@@ -458,8 +469,12 @@ async fn tmux_query_task(
     event_tx: mpsc::Sender<SshEvent>,
 ) {
     let _ = event_tx.send(SshEvent::TmuxQueryStarted { conn }).await;
+    // session_windows / session_activity 加进 format 给 SessionPicker 展示
+    // 元信息（windows 数 + 上次活跃时间）。两者在 tmux 1.6+ 都可用。
     let result = client
-        .exec_command("tmux list-sessions -F '#{session_id}|#{session_name}'")
+        .exec_command(
+            "tmux list-sessions -F '#{session_id}|#{session_name}|#{session_windows}|#{session_activity}'",
+        )
         .await;
     match result {
         Ok(r) if r.exit_code == 0 => {
@@ -576,6 +591,30 @@ mod tests {
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].name, "dev");
         assert_eq!(result[1].name, "work");
+    }
+
+    #[test]
+    fn parse_session_list_with_windows_and_activity() {
+        let s = b"$0|dev|3|1700000000\n$1|work|5|1700001234\n";
+        let result = parse_session_list(s);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].windows, 3);
+        assert_eq!(result[0].activity, 1700000000);
+        assert_eq!(result[1].windows, 5);
+        assert_eq!(result[1].activity, 1700001234);
+    }
+
+    #[test]
+    fn parse_session_list_missing_extra_fields_fallback_zero() {
+        // 旧 tmux 版本 / format 字段缺失：windows / activity 失败时 fallback 0，
+        // id + name 仍然解析（向后兼容）。
+        let s = b"$0|dev\n$1|work|2\n";
+        let result = parse_session_list(s);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].windows, 0);
+        assert_eq!(result[0].activity, 0);
+        assert_eq!(result[1].windows, 2);
+        assert_eq!(result[1].activity, 0);
     }
 
     #[test]

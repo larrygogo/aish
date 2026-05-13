@@ -21,7 +21,7 @@ use gpui::{
 };
 
 use crate::bridge::Bridge;
-use crate::state::{AppState, SessionCommand, SshEvent, TmuxState};
+use crate::state::{humanize_last_connected, AppState, SessionCommand, SshEvent, TmuxState};
 
 pub struct SessionPickerView {
     state: Entity<AppState>,
@@ -132,6 +132,8 @@ impl Render for SessionPickerView {
             .map(|s| {
                 let sid = s.id.clone();
                 let name = s.name.clone();
+                let windows = s.windows;
+                let activity = s.activity;
                 // M17 一致性：大容器 hover 用 secondary 灰阶（与 Card / TabItem
                 // 同源），不再用 accent 染色（accent 暗绿 #2f6e3e fill 整行
                 // 视觉过冲）。row 之间用 gap 替代 border-b，每行 rounded 让
@@ -171,6 +173,27 @@ impl Render for SessionPickerView {
                             .text_color(colors.foreground)
                             .child(name),
                     )
+                    // windows 数（tmux 1.6+ 字段）。0 = 未知，不显示。
+                    .when(windows > 0, |d| {
+                        d.child(
+                            div()
+                                .text_size(font_size.xs)
+                                .text_color(colors.muted_foreground)
+                                .child(format!("{} win", windows)),
+                        )
+                    })
+                    // 上次活跃时间（humanize 成 "5m ago" / "2h ago"）。activity == 0
+                    // = 旧 tmux 不支持该字段；不显示。
+                    .when(activity > 0, |d| {
+                        let last = std::time::UNIX_EPOCH
+                            + std::time::Duration::from_secs(activity as u64);
+                        d.child(
+                            div()
+                                .text_size(font_size.xs)
+                                .text_color(colors.muted_foreground)
+                                .child(humanize_last_connected(last)),
+                        )
+                    })
                     .child(
                         div()
                             .text_size(font_size.xs)
