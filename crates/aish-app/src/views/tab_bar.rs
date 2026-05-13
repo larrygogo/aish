@@ -10,6 +10,7 @@
 //! - Escape → 放弃
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use aish_types::TabId;
 use gpui::{
@@ -44,6 +45,22 @@ impl TabBarView {
         cx: &mut Context<Self>,
     ) -> Self {
         cx.observe(&state, |_this, _state, cx| cx.notify()).detach();
+        // ScrollHandle.max_offset 在首次 paint 后才被 GPUI 写入，render 阶段
+        // 读到的是上一帧值，首次 mount 时 max_offset = 0 → show_right 永远
+        // false 即便 tabs 实际溢出。spawn 一个轻量循环每 200ms 触发 cx.notify
+        // 让 render 重跑读取最新 max_offset / offset 状态。
+        // 不用 observe 因为 scroll state 不属于任何 Entity；不用 Window
+        // on_next_frame 因为 new() 时没有 window 引用。timer 是 GPUI 标准
+        // pattern（参考 toast.rs / text_input.rs blink timer）。
+        cx.spawn(async move |this, cx| loop {
+            cx.background_executor()
+                .timer(Duration::from_millis(200))
+                .await;
+            if this.update(cx, |_this, cx| cx.notify()).is_err() {
+                break;
+            }
+        })
+        .detach();
         Self {
             state,
             bridge,
@@ -55,9 +72,13 @@ impl TabBarView {
         }
     }
 
-    /// 左箭头 click：向左滚 150px（约 1 个 tab 宽度）。GPUI scroll offset.x 是
-    /// **负数**（offset 0 = 未滚动；越负向左滚得越多）。set 后 clamp 到 0 不
-    /// 越过原点。
+    /// 左箭头 click：把 scroll offset 向 0 方向调（回到初始）150px。
+    ///
+    /// **GPUI scroll offset 符号约定**（见 div.rs clamp_scroll_position）：
+    /// - offset.x ∈ [-max_offset.x, 0]，**负数**表示向右滚（content 相对 viewport 左移）
+    /// - max_offset.x = content_size - viewport_size，**正数**（≥ 0）
+    /// - offset.x = 0：未滚动 / 最左
+    /// - offset.x = -max_offset.x：滚到最右
     fn handle_scroll_left(&mut self, cx: &mut Context<Self>) {
         let cur = self.scroll_handle.offset();
         let new_x = (cur.x + px(150.0)).min(px(0.0));
@@ -65,11 +86,11 @@ impl TabBarView {
         cx.notify();
     }
 
-    /// 右箭头 click：向右滚 150px。clamp 到 max_offset.x（负数，越小越向左）。
+    /// 右箭头 click：offset.x - 150（更负），clamp 到 -max_offset.x（最远向右）。
     fn handle_scroll_right(&mut self, cx: &mut Context<Self>) {
         let cur = self.scroll_handle.offset();
         let max = self.scroll_handle.max_offset();
-        let new_x = (cur.x - px(150.0)).max(max.x);
+        let new_x = (cur.x - px(150.0)).max(-max.x);
         self.scroll_handle.set_offset(point(new_x, cur.y));
         cx.notify();
     }
@@ -353,18 +374,19 @@ impl Render for TabBarView {
 
         // 外层布局：[ < 箭头?] [ tabs 横向滚动容器 ] [ > 箭头?] [ + 按钮固定 ]
         //
-        // 滚动箭头显示条件：
-        // - show_left：offset.x < 0（已向右滚过，可以回左）
-        // - show_right：tabs.len() >= 2 时**总是显示**右箭头入口
-        //   设计取舍：基于 window viewport 的"是否溢出"精算屡屡偏差
-        //   （TabItem 实际宽度 = max-w + suffix + 字号 + 渲染抖动，无法
-        //   精确预测），用户截图 3 tab 实际溢出但估算公式没触发的情形
-        //   反复出现。直接 fall back 到"有 2+ 个 tab 就给入口"，简单
-        //   可靠：没溢出时点 > clamp 到 0 是 noop 无害。
-        let tabs_len = app.tabs.len();
+        // 滚动箭头显示条件（基于 GPUI ScrollHandle 精确状态）：
+        // GPUI 符号约定：
+        //   - offset.x ∈ [-max_offset.x, 0]，负数表示向右滚（更负 = 更靠右）
+        //   - max_offset.x = content_size - viewport_size，正数（>0 = 有溢出）
+        // 所以：
+        //   - show_left：offset.x < 0（已向右滚过，能回左）
+        //   - show_right：还有向右空间 → offset.x > -max_offset.x，即
+        //     offset.x + max_offset.x > 0
+        //   - max_offset.x == 0（没溢出）→ show_right = false（offset 必为 0 + 0 = 0）
         let offset_x = self.scroll_handle.offset().x;
+        let max_x = self.scroll_handle.max_offset().x;
         let show_left = offset_x < px(-0.5);
-        let show_right = tabs_len >= 2;
+        let show_right = offset_x + max_x > px(0.5);
 
         let arrow_left = div()
             .id("tab-bar-arrow-left")
