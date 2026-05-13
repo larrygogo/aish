@@ -201,20 +201,32 @@ fn render_toast(
                 .w(px(4.0))
                 .bg(border_color),
         )
+        // svg 必须套 flex_shrink_0 div：GPUI svg 元素本身设了 size(18px)，
+        // 但 flex 默认 shrink=1，在长 message 挤压 max_w 时会把 svg 压到
+        // width=0 触发 'can't render at a zero size' 报错刷屏。包一层固定宽
+        // 高的 flex_shrink_0 div 把 svg 钉住。
         .child(
-            icon(toast.kind.icon_name())
-                .size(px(18.0))
-                .text_color(border_color),
+            div()
+                .flex_shrink_0()
+                .w(px(18.0))
+                .h(px(18.0))
+                .child(
+                    icon(toast.kind.icon_name())
+                        .size(px(18.0))
+                        .text_color(border_color),
+                ),
         )
         .child(
             div()
                 .flex_1()
+                .min_w(px(0.0)) // 让 flex_1 真生效允许 text_ellipsis / 换行
                 .pt(px(1.0)) // 让文字 baseline 与 icon 中心更对齐
                 .text_size(t.font_size.sm)
                 .text_color(fg_color)
                 .child(toast.message),
         )
-        .child(close_btn)
+        // close_btn 同样钉住宽度，长 message 不会把 X 挤掉
+        .child(div().flex_shrink_0().child(close_btn))
 }
 
 #[derive(Clone)]

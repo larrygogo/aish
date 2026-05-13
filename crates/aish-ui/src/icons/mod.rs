@@ -162,8 +162,12 @@ impl AssetSource for AishUiAssets {
 }
 
 /// 默认 16×16 尺寸；调用方可链 `.size(...)` 调整。
+///
+/// flex_shrink_0 防御：GPUI svg 在 flex 容器内默认 shrink=1，当父容器空间不够
+/// 时会被压到 width=0（即便 .size() 已固定），触发 'can't render at a zero
+/// size' 报错刷屏。固定 svg 不参与 flex 收缩，svg 尺寸严格按 .size() 渲染。
 pub fn icon(name: IconName) -> Svg {
-    svg().path(name.asset_path()).size(px(16.0))
+    svg().path(name.asset_path()).size(px(16.0)).flex_shrink_0()
 }
 
 #[cfg(test)]
