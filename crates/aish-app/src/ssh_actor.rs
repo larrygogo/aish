@@ -543,12 +543,22 @@ async fn tmux_mouse_check_task(
     let result = client
         .exec_command("tmux show-options -gv mouse 2>/dev/null")
         .await;
-    let mouse_on = match result {
-        Ok(r) if r.exit_code == 0 => String::from_utf8_lossy(&r.stdout)
-            .trim()
-            .eq_ignore_ascii_case("on"),
-        _ => false,
+    let (mouse_on, dbg) = match &result {
+        Ok(r) => {
+            let stdout = String::from_utf8_lossy(&r.stdout).trim().to_string();
+            let stderr = String::from_utf8_lossy(&r.stderr).trim().to_string();
+            let on = r.exit_code == 0 && stdout.eq_ignore_ascii_case("on");
+            (
+                on,
+                format!(
+                    "exit={} stdout={:?} stderr={:?}",
+                    r.exit_code, stdout, stderr
+                ),
+            )
+        }
+        Err(e) => (false, format!("err={}", e)),
     };
+    tracing::info!(?conn, mouse_on, dbg = %dbg, "tmux_mouse_check_task result");
     if !mouse_on {
         let _ = event_tx.send(SshEvent::TmuxMouseDisabled { conn }).await;
     }
