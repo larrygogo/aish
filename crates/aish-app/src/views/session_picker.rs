@@ -34,6 +34,10 @@ pub struct SessionPickerView {
     /// 是否已为当前 pending_session_picker 打开过 dialog。状态 mirror
     /// 防止每帧重复 open（dialog 自身有幂等性，但避免无意义 notify）。
     is_open_for: Option<ConnectionId>,
+    /// 键盘 ↑/↓ 选中的行索引（0-based，对应 sessions vec）。打开 dialog
+    /// 时重置为 0。Enter 触发 handle_pick(sessions[selected_idx])。
+    /// session 数量为 0 时无效（render 直接显示"无 session"提示）。
+    selected_idx: usize,
 }
 
 impl SessionPickerView {
@@ -51,12 +55,19 @@ impl SessionPickerView {
 
         let dialog = cx.new(Dialog::new);
         let weak = cx.weak_entity();
+        let weak_key = cx.weak_entity();
         dialog.update(cx, move |d, _cx| {
             d.title("Tmux Sessions");
             d.width(gpui::px(480.0));
             d.on_close(move |_window, cx| {
                 if let Some(this) = weak.upgrade() {
                     this.update(cx, |this, cx| this.handle_skip(cx));
+                }
+            });
+            // ↑/↓ 移动 selected_idx，Enter 触发 pick。
+            d.on_key(move |ev, _w, cx| {
+                if let Some(this) = weak_key.upgrade() {
+                    this.update(cx, |this, cx| this.handle_dialog_key(ev, cx));
                 }
             });
         });
@@ -67,6 +78,43 @@ impl SessionPickerView {
             tx,
             dialog,
             is_open_for: None,
+            selected_idx: 0,
+        }
+    }
+
+    /// 处理 Dialog 透传过来的 key event（Esc 已被 Dialog 自身吃掉，到这里
+    /// 只有 ↑ / ↓ / Enter）。
+    fn handle_dialog_key(&mut self, ev: &gpui::KeyDownEvent, cx: &mut Context<Self>) {
+        let Some(conn) = self.is_open_for else {
+            return;
+        };
+        let sessions = match self.state.read(cx).tmux_state.get(&conn) {
+            Some(TmuxState::Detected { sessions, .. }) => sessions.clone(),
+            _ => return,
+        };
+        if sessions.is_empty() {
+            return;
+        }
+        match ev.keystroke.key.as_str() {
+            "up" => {
+                self.selected_idx = if self.selected_idx == 0 {
+                    sessions.len() - 1
+                } else {
+                    self.selected_idx - 1
+                };
+                cx.notify();
+            }
+            "down" => {
+                self.selected_idx = (self.selected_idx + 1) % sessions.len();
+                cx.notify();
+            }
+            "enter" => {
+                if let Some(s) = sessions.get(self.selected_idx) {
+                    let sid = s.id.clone();
+                    self.handle_pick(conn, sid, cx);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -95,6 +143,9 @@ impl SessionPickerView {
         let next = pending.unwrap();
         if self.is_open_for != Some(next) {
             self.is_open_for = Some(next);
+            // 每次新打开重置 selected_idx 到 0（首项）。否则切换不同 conn 时
+            // 残留旧 idx，可能 out of range 或选错 session。
+            self.selected_idx = 0;
             self.dialog.update(cx, |d, cx| d.open(cx));
         }
     }
@@ -141,22 +192,33 @@ impl Render for SessionPickerView {
             (t.colors, t.font_size, t.spacing, t.radius)
         };
 
+        let selected_idx = self.selected_idx.min(sessions.len().saturating_sub(1));
         let rows: Vec<_> = sessions
             .iter()
-            .map(|s| {
+            .enumerate()
+            .map(|(idx, s)| {
                 let sid = s.id.clone();
                 let name = s.name.clone();
                 let windows = s.windows;
                 let activity = s.activity;
+                let is_kb_selected = idx == selected_idx;
                 // M17 一致性：大容器 hover 用 secondary 灰阶（与 Card / TabItem
                 // 同源），不再用 accent 染色（accent 暗绿 #2f6e3e fill 整行
                 // 视觉过冲）。row 之间用 gap 替代 border-b，每行 rounded 让
                 // hover 高亮成块状而不是横条。
                 let hover_bg = colors.secondary_hover;
                 let active_bg = colors.secondary_active;
+                // 键盘选中行用 secondary_hover bg + accent border-l 区分鼠标
+                // hover（防止键盘 + 鼠标同时操作时混淆）。
+                let kb_bg = if is_kb_selected {
+                    colors.secondary_hover
+                } else {
+                    colors.popover
+                };
                 // .active() 要求 stateful div → 必须 .id()，否则 compile 失败
                 div()
                     .id(SharedString::from(format!("session-row-{}", sid)))
+                    .relative()
                     .px(spacing.px_3)
                     .py(spacing.px_2)
                     .flex()
@@ -164,9 +226,22 @@ impl Render for SessionPickerView {
                     .items_center()
                     .gap(spacing.px_3)
                     .rounded(radius.md)
+                    .bg(kb_bg)
                     .cursor_pointer()
                     .hover(move |st| st.bg(hover_bg))
                     .active(move |st| st.bg(active_bg))
+                    // 键盘选中行左侧 2px primary 竖条 indicator
+                    .when(is_kb_selected, |d| {
+                        d.child(
+                            div()
+                                .absolute()
+                                .top_0()
+                                .bottom_0()
+                                .left_0()
+                                .w(gpui::px(2.0))
+                                .bg(colors.primary),
+                        )
+                    })
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {

@@ -14,6 +14,7 @@ use crate::icons::IconName;
 use crate::theme::theme;
 
 type CloseHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
+type KeyHandler = Rc<dyn Fn(&KeyDownEvent, &mut Window, &mut App) + 'static>;
 
 pub struct Dialog {
     focus_handle: FocusHandle,
@@ -23,6 +24,9 @@ pub struct Dialog {
     body: Option<AnyElement>,
     width: Pixels,
     on_close: Option<CloseHandler>,
+    /// caller 注册的额外 key handler。在 Dialog 处理 Esc 关闭之后调用。
+    /// 用于 caller 实现 ↑/↓/Enter 等列表导航（如 SessionPicker）。
+    on_key: Option<KeyHandler>,
 }
 
 impl Dialog {
@@ -35,6 +39,7 @@ impl Dialog {
             body: None,
             width: gpui::px(480.0),
             on_close: None,
+            on_key: None,
         }
     }
 
@@ -58,6 +63,16 @@ impl Dialog {
 
     pub fn on_close(&mut self, h: impl Fn(&mut Window, &mut App) + 'static) -> &mut Self {
         self.on_close = Some(Rc::new(h));
+        self
+    }
+
+    /// 注册额外 key handler。Dialog 自己处理 Esc 关闭之后调此 callback，
+    /// 让 caller 实现 ↑/↓/Enter 等列表导航键位。
+    pub fn on_key(
+        &mut self,
+        h: impl Fn(&KeyDownEvent, &mut Window, &mut App) + 'static,
+    ) -> &mut Self {
+        self.on_key = Some(Rc::new(h));
         self
     }
 
@@ -91,6 +106,12 @@ impl Dialog {
         if event.keystroke.key.as_str() == "escape" {
             self.close(cx);
             self.fire_close(window, cx);
+            return;
+        }
+        // caller 自定义 key handler（如 SessionPicker 的 ↑/↓/Enter）。
+        // 在 Esc 之后调用：Esc 由 Dialog 统一处理，caller 无法覆盖。
+        if let Some(h) = self.on_key.clone() {
+            h(event, window, cx);
         }
     }
 }
