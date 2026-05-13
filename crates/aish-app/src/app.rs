@@ -13,13 +13,38 @@ use crate::state::{
     AppState, DisconnectReason, SessionCommand, SidebarTab, SshErrorKind, SshEvent,
 };
 
+/// AssetSource 链：先尝试 aish-ui 的 IconName 体系，再尝试 aish-app 自己的
+/// 本地资源（titlebar logo / 应用 icon 等）。GPUI Application::with_assets
+/// 只接一个 source，用此 wrapper 合并两套 namespace。
+struct AppAssets;
+
+impl gpui::AssetSource for AppAssets {
+    fn load(&self, path: &str) -> gpui::Result<Option<std::borrow::Cow<'static, [u8]>>> {
+        // 先 forward 到 aish-ui（icons/x.svg / icons/distros/ubuntu.svg 等）
+        if let Some(bytes) = gpui::AssetSource::load(&aish_ui::AishUiAssets, path)? {
+            return Ok(Some(bytes));
+        }
+        // aish-app 本地资源（aish-app/assets/ 下的 SVG）
+        match path {
+            "logo.svg" => Ok(Some(std::borrow::Cow::Borrowed(include_bytes!(
+                "../assets/logo.svg"
+            )))),
+            _ => Ok(None),
+        }
+    }
+
+    fn list(&self, _path: &str) -> gpui::Result<Vec<gpui::SharedString>> {
+        Ok(vec![])
+    }
+}
+
 pub fn run() {
     let bridge_owner = Arc::new(Bridge::start().expect("tokio runtime 启动失败"));
     // 保留一个引用用于 run 结束后 drop（确保 runtime 在所有窗口关闭后 shutdown）
     let bridge_keep = bridge_owner.clone();
 
     application()
-        .with_assets(aish_ui::AishUiAssets)
+        .with_assets(AppAssets)
         .run(move |cx: &mut App| {
             // 注册 aish-ui Theme global（必须在创建任何 view / 调用 theme(cx) 之前）
             cx.set_global(aish_ui::Theme::dark());
@@ -352,21 +377,17 @@ impl Render for RootView {
         // 控件。布局：左 logo+标题 / 中拖拽区 / 右 minimize+maximize+close。
         // 整个 titlebar bg=card（与 tab bar 同色无缝衔接），36 改 40 与 tab bar
         // 齐高避免"上窄下宽"。
-        // logo + 标题（Nerd Font 终端 + "aish"）。logo 16px 主色绿，aish 13px
-        // foreground SEMIBOLD，比原来 14/12 normal 在 40px 高 titlebar 里更稳。
+        // logo + 标题：aish 真品牌 logo（aish-app/assets/logo.svg 像素艺术 ">_"
+        // 蓝色 #4a9eff on #0a0a0c 圆角方块）+ "aish" 文字。
+        // logo 自带方块底色 + 像素填充，GPUI svg 渲染保留 SVG 内 fill 颜色
+        // （不被 text_color 覆盖），因此不需要传 color。
         let titlebar_left = div()
             .flex()
             .flex_row()
             .items_center()
             .gap(px(8.0))
             .px(px(12.0))
-            .child(
-                div()
-                    .font_family(crate::terminal::font::FONT_NAME)
-                    .text_size(px(16.0))
-                    .text_color(colors.primary)
-                    .child("\u{f120}"), // nf-fa-terminal
-            )
+            .child(gpui::svg().path("logo.svg").w(px(22.0)).h(px(22.0)))
             .child(
                 div()
                     .text_size(px(13.0))
