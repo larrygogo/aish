@@ -39,6 +39,9 @@ pub struct TextInput {
     bounds_map: Vec<(usize, Bounds<Pixels>)>,
     /// M16 T3：mouse drag select 状态。mouse_down=true，mouse_up=false。
     is_dragging: bool,
+    /// borderless 模式：去 bg / border / 固定高度，让 input 完全融入父容器
+    /// （inline 编辑场景，如 tab title rename）。仍保留 cursor / 选区 / 输入。
+    borderless: bool,
 }
 
 impl TextInput {
@@ -56,6 +59,7 @@ impl TextInput {
             mask_char: None,
             bounds_map: Vec::new(),
             is_dragging: false,
+            borderless: false,
         };
         this.start_blink_timer(cx);
         this
@@ -75,6 +79,13 @@ impl TextInput {
 
     pub fn is_masked(&self) -> bool {
         self.mask_char.is_some()
+    }
+
+    /// 设置 borderless 模式：去 bg / border / 固定高度，input 完全融入父容器。
+    /// 适用于 inline 编辑场景（如 tab title rename / 列表 row 内编辑）。
+    pub fn borderless(&mut self, b: bool) -> &mut Self {
+        self.borderless = b;
+        self
     }
 
     pub fn on_submit(&mut self, h: impl Fn(&str, &mut Window, &mut App) + 'static) -> &mut Self {
@@ -798,18 +809,23 @@ impl Render for TextInput {
                 .into_any_element()
         };
 
-        div()
+        let mut container = div()
             .relative()
             .flex()
             .flex_row()
             .items_center()
-            .h(px(28.0))
-            .px(px(8.0))
-            .rounded(t.radius.sm)
-            .bg(t.colors.input)
-            .border_1()
-            .border_color(border_color)
-            .cursor_text()
+            .cursor_text();
+        if !self.borderless {
+            container = container
+                .h(px(28.0))
+                .px(px(8.0))
+                .rounded(t.radius.sm)
+                .bg(t.colors.input)
+                .border_1()
+                .border_color(border_color);
+        }
+        // 借用 GPUI fluent chain：把 container 后续 listener 链接回去
+        container
             .track_focus(&self.focus_handle)
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 this.handle_key(event, window, cx);

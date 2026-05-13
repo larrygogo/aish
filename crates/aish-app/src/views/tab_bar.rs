@@ -67,10 +67,12 @@ impl TabBarView {
         .detach();
 
         // 重命名输入框：long-lived entity，on_submit 回调内 commit 当前
-        // editing_tab + 清 editing 状态
+        // editing_tab + 清 editing 状态。borderless = true 让 input 融入 tab
+        // 视觉（无 bg / border / 固定 h），原地编辑感觉如同 title 文字变可编辑。
         let rename_input = cx.new(TextInput::new);
         let weak_self = cx.weak_entity();
         rename_input.update(cx, |i, _cx| {
+            i.borderless(true);
             i.on_submit(move |text, _window, cx| {
                 let text = text.to_string();
                 if let Some(this) = weak_self.upgrade() {
