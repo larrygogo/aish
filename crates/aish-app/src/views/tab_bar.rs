@@ -72,9 +72,15 @@ impl TabBarView {
         //   macOS / 浏览器 inline edit 体感）
         // - on_cancel (Esc)：cancel_rename（不保留改动，恢复原 title）
         //
-        // 用 TextInput 默认样式（有 bg + border + focus ring），让用户明显
-        // 看出"这是个输入框可以编辑"。之前 borderless 视觉太干净反而像静态文字。
-        let rename_input = cx.new(TextInput::new);
+        // 用 borderless 模式：input 不自带 h/bg/border/padding，只渲染文字 +
+        // cursor + selection。'input 的视觉外壳'交给外层 editing tab box
+        // 接管（colors.input bg + primary border）—— 整个 tab 看起来就是一个
+        // 完整 input，不是 'tab 里塞了个小 input'。
+        let rename_input = cx.new(|cx| {
+            let mut i = TextInput::new(cx);
+            i.borderless(true);
+            i
+        });
         let weak_submit = cx.weak_entity();
         let weak_blur = cx.weak_entity();
         let weak_cancel = cx.weak_entity();
@@ -334,20 +340,31 @@ impl Render for TabBarView {
                     } else {
                         colors.muted_foreground
                     };
+                    // 整个 tab box 当 input 视觉外壳：
+                    // - bg colors.input：与 HostForm 里 TextInput 视觉一致
+                    // - 1px primary 全围 border：表明'编辑中'，替代 active bar
+                    //   （bar 在 borderless input 下会与 input cursor 冲突）
+                    // - cursor_text：鼠标移入显示文本光标，符合 input 体感
+                    // - my 2px：上下留 2px 让 border 不贴 tab bar 边沿，
+                    //   总高度仍是 40 + 4 = 44 但视觉上和 40px tab 接近
                     return div()
                         .id(gpui::SharedString::from(format!("tab-editing-{}", id)))
-                        .relative()
-                        .h(px(40.0))
+                        .h(px(36.0))
+                        .my(px(2.0))
                         .min_w(px(180.0))
                         .max_w(px(280.0))
                         .flex_shrink_0()
-                        .px(theme.spacing.px_4)
+                        .px(theme.spacing.px_3)
                         .flex()
                         .flex_row()
                         .items_center()
                         .gap(theme.spacing.px_2)
                         .text_size(font_size.sm)
-                        .bg(colors.background)
+                        .rounded(theme.radius.sm)
+                        .bg(colors.input)
+                        .border_1()
+                        .border_color(colors.primary)
+                        .cursor_text()
                         .when(is_connection, |d| {
                             d.child(
                                 div()
@@ -362,16 +379,6 @@ impl Render for TabBarView {
                                 .flex_1()
                                 .min_w(px(0.0))
                                 .child(self.rename_input.clone()),
-                        )
-                        // 底部 2px active bar，与 TabItem.active 视觉一致
-                        .child(
-                            div()
-                                .absolute()
-                                .bottom_0()
-                                .left_0()
-                                .right_0()
-                                .h(px(2.0))
-                                .bg(colors.primary),
                         )
                         .into_any_element();
                 }
