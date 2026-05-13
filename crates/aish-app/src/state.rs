@@ -561,6 +561,38 @@ impl AppState {
         true
     }
 
+    /// 循环切换 tab。delta = +1 下一个、-1 上一个，到边界 wrap 到首/末。
+    /// tabs 空 / 单个 / 无选中时 noop 返 false。
+    pub fn cycle_selected_tab(&mut self, delta: i32) -> bool {
+        if delta == 0 || self.tabs.len() < 2 {
+            return false;
+        }
+        let Some(id) = self.selected_tab else {
+            return false;
+        };
+        let Some(pos) = self.tabs.iter().position(|t| t.id == id) else {
+            return false;
+        };
+        let len = self.tabs.len() as i32;
+        let new_pos = (pos as i32 + delta).rem_euclid(len) as usize;
+        self.selected_tab = Some(self.tabs[new_pos].id);
+        true
+    }
+
+    /// 在末尾追加一个 Default tab 并选中。caller 一般同时切 sidebar 到 Home
+    /// 以触发 host picker。Ctrl+T / + 按钮等"新 tab"入口走此函数。
+    pub fn append_default_tab(&mut self) -> TabId {
+        let id = TabId::new();
+        self.tabs.push(Tab {
+            id,
+            content: TabContent::Default,
+            title: "新连接".into(),
+            title_locked: false,
+        });
+        self.selected_tab = Some(id);
+        id
+    }
+
     /// 把当前选中的 tab 向左 (delta=-1) 或向右 (delta=+1) 移动一格。
     /// 已在边界 / 无选中时 noop。delta != ±1 也 noop（防御性）。
     /// 返回 true 表示真发生了交换，调用方可据此决定是否 cx.notify。
@@ -993,6 +1025,57 @@ mod tests {
         assert_eq!(state.selected_tab, Some(initial_tab_id));
         assert_eq!(state.current_tab().unwrap().title, "腾讯云 #1");
         assert_eq!(state.current_connection(), Some(conn));
+    }
+
+    #[test]
+    fn cycle_selected_tab_wraps_around() {
+        use aish_types::TabId;
+        let mut state = AppState::with_hosts(vec![]);
+        let ids: Vec<_> = (0..3).map(|_| TabId::new()).collect();
+        for id in &ids {
+            state.tabs.push(Tab {
+                id: *id,
+                content: TabContent::Default,
+                title: "t".into(),
+                title_locked: false,
+            });
+        }
+        state.selected_tab = Some(ids[2]);
+        // 最末 +1 → 首
+        assert!(state.cycle_selected_tab(1));
+        assert_eq!(state.selected_tab, Some(ids[0]));
+        // 首 -1 → 末
+        assert!(state.cycle_selected_tab(-1));
+        assert_eq!(state.selected_tab, Some(ids[2]));
+    }
+
+    #[test]
+    fn cycle_selected_tab_single_tab_noop() {
+        use aish_types::TabId;
+        let mut state = AppState::with_hosts(vec![]);
+        let id = TabId::new();
+        state.tabs.push(Tab {
+            id,
+            content: TabContent::Default,
+            title: "t".into(),
+            title_locked: false,
+        });
+        state.selected_tab = Some(id);
+        assert!(!state.cycle_selected_tab(1));
+        assert!(!state.cycle_selected_tab(-1));
+    }
+
+    #[test]
+    fn append_default_tab_adds_and_selects() {
+        let mut state = AppState::with_hosts(vec![]);
+        let len_before = state.tabs.len();
+        let id = state.append_default_tab();
+        assert_eq!(state.tabs.len(), len_before + 1);
+        assert_eq!(state.selected_tab, Some(id));
+        assert!(matches!(
+            state.tabs.last().unwrap().content,
+            TabContent::Default
+        ));
     }
 
     #[test]

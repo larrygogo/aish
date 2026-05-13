@@ -232,6 +232,31 @@ impl TerminalView {
             return;
         }
 
+        // Ctrl+T：新建 Default tab 并切到 Home sidebar 让用户选 host 连接。
+        // 与 tab_bar + 按钮路径一致。覆盖远端 shell Ctrl+T = transpose-chars，
+        // 与 Ctrl+W 一样优先 GUI 操作。
+        if ctrl && !shift && !alt && key.eq_ignore_ascii_case("t") {
+            self.state.update(cx, |s, cx| {
+                s.append_default_tab();
+                s.sidebar = crate::state::SidebarTab::Home;
+                cx.notify();
+            });
+            return;
+        }
+
+        // Ctrl+Tab / Ctrl+Shift+Tab：下一个 / 上一个 tab 循环切换。
+        // 远端 shell 不接受 Ctrl+Tab（key_char = None）所以无冲突；
+        // Tab 单独传给远端走 encode_key（'\t'）路径，本分支只匹配 ctrl 修饰。
+        if ctrl && !alt && key == "tab" {
+            let delta = if shift { -1 } else { 1 };
+            self.state.update(cx, |s, cx| {
+                if s.cycle_selected_tab(delta) {
+                    cx.notify();
+                }
+            });
+            return;
+        }
+
         // 有 key_char 且满足以下任一条件时，交由 WM_CHAR → InputHandler 路径发送：
         //   a) 无 Ctrl/Alt 修饰（普通可打印字符、IME 拼音字母）
         //   b) prefer_character_input（AltGr 欧洲键盘，Ctrl+Alt 实为一个字符键）
