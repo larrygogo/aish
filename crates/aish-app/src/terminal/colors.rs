@@ -8,28 +8,56 @@
 use alacritty_terminal::vte::ansi::{Color as AlacColor, NamedColor, Rgb};
 use gpui::{rgb, Hsla};
 
-/// 默认 16 色 ANSI palette（与 alacritty 默认主题一致）。
+/// 默认 16 色 ANSI palette（VS Code Dark+ 主题，与现代终端如 Windows Terminal /
+/// iTerm2 默认风格接近）。
+///
+/// 比之前 Tomorrow Night palette 有两个关键改进：
+/// 1. 颜色饱和度更高（红更红、绿更绿），在纯黑底上肉眼可辨；之前的橄榄绿
+///    `#b5bd68` 在黑底上偏灰白，看起来像普通文字色。
+/// 2. Bright 系列与 normal 真正区分（之前 BrightGreen/Yellow/Blue 与 normal
+///    完全相同），bold→bright 映射后才有视觉效果。
 pub const DEFAULT_PALETTE: [u32; 16] = [
-    0x1d1f21, // 0  Black
-    0xcc6666, // 1  Red
-    0xb5bd68, // 2  Green
-    0xf0c674, // 3  Yellow
-    0x81a2be, // 4  Blue
-    0xb294bb, // 5  Magenta
-    0x8abeb7, // 6  Cyan
-    0xc5c8c6, // 7  White
-    0x969896, // 8  BrightBlack
-    0xde935f, // 9  BrightRed
-    0xb5bd68, // 10 BrightGreen (alacritty 默认与 Green 同)
-    0xf0c674, // 11 BrightYellow (alacritty 默认与 Yellow 同)
-    0x81a2be, // 12 BrightBlue
-    0xb294bb, // 13 BrightMagenta
-    0x8abeb7, // 14 BrightCyan
+    0x000000, // 0  Black
+    0xcd3131, // 1  Red
+    0x0dbc79, // 2  Green
+    0xe5e510, // 3  Yellow
+    0x2472c8, // 4  Blue
+    0xbc3fbc, // 5  Magenta
+    0x11a8cd, // 6  Cyan
+    0xe5e5e5, // 7  White
+    0x666666, // 8  BrightBlack
+    0xf14c4c, // 9  BrightRed
+    0x23d18b, // 10 BrightGreen
+    0xf5f543, // 11 BrightYellow
+    0x3b8eea, // 12 BrightBlue
+    0xd670d6, // 13 BrightMagenta
+    0x29b8db, // 14 BrightCyan
     0xffffff, // 15 BrightWhite
 ];
 
-pub const DEFAULT_FOREGROUND: u32 = 0xc5c8c6;
-pub const DEFAULT_BACKGROUND: u32 = 0x1d1f21;
+pub const DEFAULT_FOREGROUND: u32 = 0xcccccc;
+pub const DEFAULT_BACKGROUND: u32 = 0x000000;
+
+/// 把 normal 色升级到对应 bright 色。用于 bold 文本：
+/// alacritty / iTerm2 / Windows Terminal 默认行为 'draw bold text in bright
+/// colors'。grid_renderer 在 cell.flags 包含 BOLD 时调用此函数升级 fg 色。
+///
+/// 已经是 bright 色 / Spec / Indexed≥8 / NamedColor::Foreground 等不变。
+pub fn bold_promote(color: AlacColor) -> AlacColor {
+    use NamedColor::*;
+    match color {
+        AlacColor::Named(Black) => AlacColor::Named(BrightBlack),
+        AlacColor::Named(Red) => AlacColor::Named(BrightRed),
+        AlacColor::Named(Green) => AlacColor::Named(BrightGreen),
+        AlacColor::Named(Yellow) => AlacColor::Named(BrightYellow),
+        AlacColor::Named(Blue) => AlacColor::Named(BrightBlue),
+        AlacColor::Named(Magenta) => AlacColor::Named(BrightMagenta),
+        AlacColor::Named(Cyan) => AlacColor::Named(BrightCyan),
+        AlacColor::Named(White) => AlacColor::Named(BrightWhite),
+        AlacColor::Indexed(i) if i < 8 => AlacColor::Indexed(i + 8),
+        other => other,
+    }
+}
 
 /// 主入口：把 alacritty Color 转成 GPUI Hsla。
 ///

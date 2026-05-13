@@ -11,7 +11,7 @@ use alacritty_terminal::index::Point;
 #[cfg(test)]
 use alacritty_terminal::index::{Column, Line};
 use alacritty_terminal::selection::SelectionRange;
-use alacritty_terminal::term::cell::Cell;
+use alacritty_terminal::term::cell::{Cell, Flags};
 use alacritty_terminal::vte::ansi::NamedColor;
 use alacritty_terminal::Term;
 use gpui::{
@@ -179,7 +179,16 @@ pub fn paint_grid(snapshot: &GridSnapshot, layout: &GridLayout, window: &mut Win
             continue;
         }
 
-        let fg: Hsla = colors::to_gpui(indexed.cell.fg, true);
+        // bold 文本：把 normal 色升级到对应 bright 色（'draw bold in bright'，
+        // alacritty / iTerm2 / Windows Terminal 默认行为）。否则 Ubuntu PS1 这种
+        // \033[01;32m (bold green) 显示成普通 green，在黑底上跟默认前景几乎
+        // 没区别，看起来 prompt 颜色'丢了'。
+        let raw_fg = if indexed.cell.flags.contains(Flags::BOLD) {
+            colors::bold_promote(indexed.cell.fg)
+        } else {
+            indexed.cell.fg
+        };
+        let fg: Hsla = colors::to_gpui(raw_fg, true);
         let col = indexed.point.column.0 as i32;
 
         let cell_style = TextRun {
