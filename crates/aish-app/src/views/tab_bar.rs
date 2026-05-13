@@ -66,17 +66,33 @@ impl TabBarView {
         })
         .detach();
 
-        // 重命名输入框：long-lived entity，on_submit 回调内 commit 当前
-        // editing_tab + 清 editing 状态。borderless = true 让 input 融入 tab
-        // 视觉（无 bg / border / 固定 h），原地编辑感觉如同 title 文字变可编辑。
+        // 重命名输入框：long-lived entity，三个 callback：
+        // - on_submit (Enter)：commit_rename
+        // - on_blur (点击 input 外部失焦)：commit_rename（保留改动，符合
+        //   macOS / 浏览器 inline edit 体感）
+        // - on_cancel (Esc)：cancel_rename（不保留改动，恢复原 title）
+        // borderless = true 让 input 视觉融入 tab。
         let rename_input = cx.new(TextInput::new);
-        let weak_self = cx.weak_entity();
+        let weak_submit = cx.weak_entity();
+        let weak_blur = cx.weak_entity();
+        let weak_cancel = cx.weak_entity();
         rename_input.update(cx, |i, _cx| {
             i.borderless(true);
             i.on_submit(move |text, _window, cx| {
                 let text = text.to_string();
-                if let Some(this) = weak_self.upgrade() {
+                if let Some(this) = weak_submit.upgrade() {
                     this.update(cx, move |this, cx| this.commit_rename(text, cx));
+                }
+            });
+            i.on_blur(move |text, _window, cx| {
+                let text = text.to_string();
+                if let Some(this) = weak_blur.upgrade() {
+                    this.update(cx, move |this, cx| this.commit_rename(text, cx));
+                }
+            });
+            i.on_cancel(move |_window, cx| {
+                if let Some(this) = weak_cancel.upgrade() {
+                    this.update(cx, |this, cx| this.cancel_rename(cx));
                 }
             });
         });
@@ -92,7 +108,7 @@ impl TabBarView {
         }
     }
 
-    /// 提交重命名（由 TextInput Enter 触发 on_submit 调用）。
+    /// 提交重命名（由 TextInput Enter / on_blur 触发）。
     fn commit_rename(&mut self, new_title: String, cx: &mut Context<Self>) {
         let trimmed = new_title.trim();
         let final_title = if trimmed.is_empty() {
@@ -106,6 +122,13 @@ impl TabBarView {
                 cx.notify();
             });
         }
+        cx.notify();
+    }
+
+    /// 取消重命名（由 TextInput Esc 触发 on_cancel）：丢弃 input 内容，
+    /// 不写回 tab.title，editing_tab 清掉。
+    fn cancel_rename(&mut self, cx: &mut Context<Self>) {
+        self.editing_tab = None;
         cx.notify();
     }
 
@@ -156,7 +179,11 @@ impl TabBarView {
             self.editing_tab = Some(id);
             self.rename_input.update(cx, |i, cx| {
                 i.set_text(current_title, cx);
+                // 进入编辑自动全选，方便用户直接输入覆盖原 title（与浏览器
+                // / 文件管理器双击重命名一致体感）
+                i.select_all();
                 i.focus(window, cx);
+                cx.notify();
             });
             cx.notify();
             return;

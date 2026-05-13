@@ -19,6 +19,8 @@ use crate::theme::theme;
 
 type SubmitHandler = Rc<dyn Fn(&str, &mut Window, &mut App) + 'static>;
 type ChangeHandler = Rc<dyn Fn(&str, &mut Window, &mut App) + 'static>;
+type CancelHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
+type BlurHandler = Rc<dyn Fn(&str, &mut Window, &mut App) + 'static>;
 
 const BLINK_PERIOD_MS: u64 = 600;
 
@@ -42,6 +44,15 @@ pub struct TextInput {
     /// borderless 模式：去 bg / border / 固定高度，让 input 完全融入父容器
     /// （inline 编辑场景，如 tab title rename）。仍保留 cursor / 选区 / 输入。
     borderless: bool,
+    /// Esc 取消回调。on_submit 是 Enter 提交，on_cancel 是 Esc 放弃 ——
+    /// caller 一般用于清编辑状态、还原原值（不写回）。
+    on_cancel: Option<CancelHandler>,
+    /// 失焦回调。input 上一帧 focused 这一帧 unfocused 时触发，传当前 text
+    /// 给 caller（一般 caller 在此处 commit 编辑保留改动，与"点击外部 commit"
+    /// 体感一致）。
+    on_blur: Option<BlurHandler>,
+    /// 上一帧 focused 状态。render 内对比当前 focused 决定是否 fire on_blur。
+    last_focused: bool,
 }
 
 impl TextInput {
@@ -60,6 +71,9 @@ impl TextInput {
             bounds_map: Vec::new(),
             is_dragging: false,
             borderless: false,
+            on_cancel: None,
+            on_blur: None,
+            last_focused: false,
         };
         this.start_blink_timer(cx);
         this
@@ -95,6 +109,18 @@ impl TextInput {
 
     pub fn on_change(&mut self, h: impl Fn(&str, &mut Window, &mut App) + 'static) -> &mut Self {
         self.on_change = Some(Rc::new(h));
+        self
+    }
+
+    /// Esc 取消回调：用户按 Esc 时触发（同时清 selection，与系统输入框一致）。
+    pub fn on_cancel(&mut self, h: impl Fn(&mut Window, &mut App) + 'static) -> &mut Self {
+        self.on_cancel = Some(Rc::new(h));
+        self
+    }
+
+    /// 失焦回调：input 上一帧 focused 这一帧 unfocused 时触发，传当前 text。
+    pub fn on_blur(&mut self, h: impl Fn(&str, &mut Window, &mut App) + 'static) -> &mut Self {
+        self.on_blur = Some(Rc::new(h));
         self
     }
 
@@ -234,7 +260,7 @@ impl TextInput {
     }
 
     /// 全选（Ctrl+A）。
-    pub(crate) fn select_all(&mut self) {
+    pub fn select_all(&mut self) {
         if !self.text.is_empty() {
             self.selection_anchor = Some(0);
             self.cursor = self.text.len();
@@ -549,6 +575,10 @@ impl TextInput {
             }
             "escape" => {
                 self.clear_selection();
+                // fire on_cancel callback（caller 一般用来退出 inline edit）
+                if let Some(h) = self.on_cancel.clone() {
+                    h(window, cx);
+                }
                 cx.notify();
             }
             _ => {
@@ -715,6 +745,15 @@ impl Render for TextInput {
         // 让失焦时立即视觉降级。blink timer 仍每 100ms notify，状态变化在
         // 下一帧体现（延迟 <= 100ms）。
         let focused = self.focus_handle.is_focused(window) && window.is_window_active();
+        // 失焦边沿检测：上一帧 focused = true，这一帧 false → 触发 on_blur
+        // 让 caller 在"点 input 外部"时 commit 编辑保留改动。
+        if self.last_focused && !focused {
+            if let Some(h) = self.on_blur.clone() {
+                let text = self.text.clone();
+                h(&text, window, cx);
+            }
+        }
+        self.last_focused = focused;
         let show_cursor = focused && self.cursor_visible_now();
 
         let t = theme(cx);
