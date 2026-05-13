@@ -71,13 +71,14 @@ impl TabBarView {
         // - on_blur (点击 input 外部失焦)：commit_rename（保留改动，符合
         //   macOS / 浏览器 inline edit 体感）
         // - on_cancel (Esc)：cancel_rename（不保留改动，恢复原 title）
-        // borderless = true 让 input 视觉融入 tab。
+        //
+        // 用 TextInput 默认样式（有 bg + border + focus ring），让用户明显
+        // 看出"这是个输入框可以编辑"。之前 borderless 视觉太干净反而像静态文字。
         let rename_input = cx.new(TextInput::new);
         let weak_submit = cx.weak_entity();
         let weak_blur = cx.weak_entity();
         let weak_cancel = cx.weak_entity();
         rename_input.update(cx, |i, _cx| {
-            i.borderless(true);
             i.on_submit(move |text, _window, cx| {
                 let text = text.to_string();
                 if let Some(this) = weak_submit.upgrade() {
