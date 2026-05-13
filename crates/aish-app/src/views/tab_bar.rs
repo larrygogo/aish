@@ -13,8 +13,8 @@ use std::sync::Arc;
 
 use aish_types::TabId;
 use gpui::{
-    div, prelude::*, px, App, Context, Entity, FocusHandle, Focusable, KeyDownEvent,
-    MouseDownEvent, Window,
+    div, point, prelude::*, px, App, Context, Entity, FocusHandle, Focusable, KeyDownEvent,
+    MouseDownEvent, ScrollHandle, Window,
 };
 
 use crate::bridge::Bridge;
@@ -31,6 +31,9 @@ pub struct TabBarView {
     edit_buffer: String,
     /// 编辑模式下接收键盘的 focus handle。
     focus_handle: FocusHandle,
+    /// tabs 横向滚动 handle。绑定到 scroll 容器后可读 offset / max_offset 决定
+    /// 是否显示左右 < > 箭头，并通过 set_offset 编程式滚动。
+    scroll_handle: ScrollHandle,
 }
 
 impl TabBarView {
@@ -48,7 +51,27 @@ impl TabBarView {
             editing_tab: None,
             edit_buffer: String::new(),
             focus_handle: cx.focus_handle(),
+            scroll_handle: ScrollHandle::new(),
         }
+    }
+
+    /// 左箭头 click：向左滚 150px（约 1 个 tab 宽度）。GPUI scroll offset.x 是
+    /// **负数**（offset 0 = 未滚动；越负向左滚得越多）。set 后 clamp 到 0 不
+    /// 越过原点。
+    fn handle_scroll_left(&mut self, cx: &mut Context<Self>) {
+        let cur = self.scroll_handle.offset();
+        let new_x = (cur.x + px(150.0)).min(px(0.0));
+        self.scroll_handle.set_offset(point(new_x, cur.y));
+        cx.notify();
+    }
+
+    /// 右箭头 click：向右滚 150px。clamp 到 max_offset.x（负数，越小越向左）。
+    fn handle_scroll_right(&mut self, cx: &mut Context<Self>) {
+        let cur = self.scroll_handle.offset();
+        let max = self.scroll_handle.max_offset();
+        let new_x = (cur.x - px(150.0)).max(max.x);
+        self.scroll_handle.set_offset(point(new_x, cur.y));
+        cx.notify();
     }
 
     /// 处理 tab 标题点击。click_count == 2 进入 rename 模式，否则只切换。
@@ -328,11 +351,54 @@ impl Render for TabBarView {
                     .text_color(colors.muted_foreground),
             );
 
-        // 外层布局：[ tabs 横向滚动容器 ] [ + 按钮固定 ]
-        // tabs 容器 flex_1 + overflow_x_scroll，超出宽度时横向滚动；plus
-        // 按钮 flex_shrink_0 不被压缩，永远显示在最右。
-        // 整个 strip h(40) bg(card) border-b 保持原来视觉，scroll bar 由
-        // GPUI 自绘（仅当内容溢出才出现）。
+        // 外层布局：[ < 箭头?] [ tabs 横向滚动容器 ] [ > 箭头?] [ + 按钮固定 ]
+        // 箭头基于 scroll offset / max_offset 条件显示（Chrome / Edge 模式）。
+        // - offset.x < 0 → 有内容被左侧裁掉 → 显示 <
+        // - offset.x > max_offset.x → 还有内容可向右滚 → 显示 >
+        // 首帧时 max_offset = 0，两个条件都 false，箭头不显示；children 布局
+        // 完成后下一帧（observe state 或交互触发 notify）再计算就准确。
+        let offset_x = self.scroll_handle.offset().x;
+        let max_x = self.scroll_handle.max_offset().x;
+        // Pixels(f32) 字段是 private，用 px(0.5) 做 epsilon 比较
+        let show_left = offset_x < px(-0.5);
+        let show_right = offset_x > max_x + px(0.5);
+
+        let arrow_left = div()
+            .id("tab-bar-arrow-left")
+            .h_full()
+            .w(px(28.0))
+            .flex()
+            .items_center()
+            .justify_center()
+            .cursor_pointer()
+            .text_color(colors.muted_foreground)
+            .hover(move |s| s.bg(colors.secondary_hover).text_color(colors.foreground))
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
+                    this.handle_scroll_left(cx);
+                }),
+            )
+            .child(aish_ui::icon(aish_ui::IconName::ChevronLeft).size(px(14.0)));
+
+        let arrow_right = div()
+            .id("tab-bar-arrow-right")
+            .h_full()
+            .w(px(28.0))
+            .flex()
+            .items_center()
+            .justify_center()
+            .cursor_pointer()
+            .text_color(colors.muted_foreground)
+            .hover(move |s| s.bg(colors.secondary_hover).text_color(colors.foreground))
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
+                    this.handle_scroll_right(cx);
+                }),
+            )
+            .child(aish_ui::icon(aish_ui::IconName::ChevronRight).size(px(14.0)));
+
         div()
             .track_focus(&self.focus_handle)
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _w, cx| {
@@ -346,22 +412,24 @@ impl Render for TabBarView {
             .border_b_1()
             .border_color(colors.border)
             .h(px(40.0))
+            .when(show_left, |d| d.child(arrow_left))
             .child(
                 div()
                     .id("tab-bar-scroll")
                     .flex_1()
-                    // 关键：flex item 默认 min_width=auto 由内容决定，会让
-                    // 容器被 tab_items 总宽度撑大，导致 overflow_x_scroll 失
-                    // 效（实际 = "宽到没溢出"）。设 0 强制可压缩到 0，flex_1
-                    // 才会正确分配到"父 div 剩余空间"，超出的 tab 才走滚动。
+                    // flex item 默认 min_width=auto 拒绝 shrink → tab_items
+                    // 撑大容器让 overflow_x_scroll 失效。min_w(0) 强制允许
+                    // 压缩到 0，flex_1 才取父 div 剩余空间，溢出的 tab 滚动。
                     .min_w(px(0.0))
                     .h_full()
                     .flex()
                     .flex_row()
                     .items_center()
                     .overflow_x_scroll()
+                    .track_scroll(&self.scroll_handle)
                     .children(tab_items),
             )
+            .when(show_right, |d| d.child(arrow_right))
             .child(plus_btn)
     }
 }
