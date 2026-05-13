@@ -328,6 +328,11 @@ impl Render for TabBarView {
                     .text_color(colors.muted_foreground),
             );
 
+        // 外层布局：[ tabs 横向滚动容器 ] [ + 按钮固定 ]
+        // tabs 容器 flex_1 + overflow_x_scroll，超出宽度时横向滚动；plus
+        // 按钮 flex_shrink_0 不被压缩，永远显示在最右。
+        // 整个 strip h(40) bg(card) border-b 保持原来视觉，scroll bar 由
+        // GPUI 自绘（仅当内容溢出才出现）。
         div()
             .track_focus(&self.focus_handle)
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _w, cx| {
@@ -341,7 +346,17 @@ impl Render for TabBarView {
             .border_b_1()
             .border_color(colors.border)
             .h(px(40.0))
-            .children(tab_items)
+            .child(
+                div()
+                    .id("tab-bar-scroll")
+                    .flex_1()
+                    .h_full()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .overflow_x_scroll()
+                    .children(tab_items),
+            )
             .child(plus_btn)
     }
 }
