@@ -43,6 +43,39 @@ pub struct HostFormModal {
     /// 用于检测 modal 切换，避免每帧都把 state.modal 的内容覆盖到 TextInput
     /// （否则用户输入会被覆盖回原值）。
     synced_key: SyncedKey,
+    /// host 字段实时校验错误（None = 无错误 / 空）。on_change 时更新，
+    /// render 时在 host_input 下方显示红色小字。空串不算错误（用户还没填完）。
+    host_error: Option<&'static str>,
+    port_error: Option<&'static str>,
+}
+
+/// host 字段实时校验。空 OK（等 save 时再报必填）；含空格 / 协议前缀 → 错误。
+/// 不做严格 IP / FQDN regex，仅挡明显错误，避免过度阻挠用户输入。
+fn validate_host(s: &str) -> Option<&'static str> {
+    let s = s.trim();
+    if s.is_empty() {
+        return None;
+    }
+    if s.contains(char::is_whitespace) {
+        return Some("不能含空格");
+    }
+    if s.contains("://") {
+        return Some("不要带协议前缀（如 ssh://）");
+    }
+    None
+}
+
+/// port 字段实时校验。空 OK（fallback 22）；非数字 / 越界 → 错误。
+fn validate_port(s: &str) -> Option<&'static str> {
+    let s = s.trim();
+    if s.is_empty() {
+        return None;
+    }
+    match s.parse::<u32>() {
+        Err(_) => Some("必须是数字"),
+        Ok(n) if !(1..=65535).contains(&n) => Some("范围 1 - 65535"),
+        Ok(_) => None,
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -98,6 +131,37 @@ impl HostFormModal {
             i.placeholder("22");
             i
         });
+
+        // 实时校验：on_change 时算 validate_host/port 结果写到 host_error/port_error
+        // 字段，render 在 input 下方显示红色错误提示。
+        let weak_h = cx.weak_entity();
+        host_input.update(cx, |i, _cx| {
+            i.on_change(move |text, _w, cx| {
+                let err = validate_host(text);
+                if let Some(this) = weak_h.upgrade() {
+                    this.update(cx, |this, cx| {
+                        if this.host_error != err {
+                            this.host_error = err;
+                            cx.notify();
+                        }
+                    });
+                }
+            });
+        });
+        let weak_p = cx.weak_entity();
+        port_input.update(cx, |i, _cx| {
+            i.on_change(move |text, _w, cx| {
+                let err = validate_port(text);
+                if let Some(this) = weak_p.upgrade() {
+                    this.update(cx, |this, cx| {
+                        if this.port_error != err {
+                            this.port_error = err;
+                            cx.notify();
+                        }
+                    });
+                }
+            });
+        });
         let user_input = cx.new(|cx| {
             let mut i = TextInput::new(cx);
             i.placeholder("root");
@@ -127,6 +191,8 @@ impl HostFormModal {
             keyfile_input,
             password_input,
             synced_key: SyncedKey::None,
+            host_error: None,
+            port_error: None,
         }
     }
 
@@ -383,16 +449,26 @@ impl Render for HostFormModal {
                 .flex()
                 .flex_col()
                 .gap(spacing.px_3)
-                .child(field_row(cx, "label", self.label_input.clone()))
-                .child(field_row(cx, "host", self.host_input.clone()))
-                .child(field_row(cx, "port", self.port_input.clone()))
-                .child(field_row(cx, "user", self.user_input.clone()))
+                .child(field_row(cx, "label", self.label_input.clone(), None))
+                .child(field_row(
+                    cx,
+                    "host",
+                    self.host_input.clone(),
+                    self.host_error,
+                ))
+                .child(field_row(
+                    cx,
+                    "port",
+                    self.port_input.clone(),
+                    self.port_error,
+                ))
+                .child(field_row(cx, "user", self.user_input.clone(), None))
                 .child(self.auth_tabs.clone())
                 .child(if active == 0 {
                     let kf = self.keyfile_input.clone();
                     keyfile_row(kf, cx).into_any_element()
                 } else {
-                    field_row(cx, "password", self.password_input.clone()).into_any_element()
+                    field_row(cx, "password", self.password_input.clone(), None).into_any_element()
                 })
                 .when_some(err, |d, e| {
                     d.child(
@@ -424,15 +500,45 @@ fn field_label(cx: &App, text: &'static str) -> impl IntoElement {
         .child(text)
 }
 
-fn field_row(cx: &App, label: &'static str, input: Entity<TextInput>) -> impl IntoElement {
+fn field_row(
+    cx: &App,
+    label: &'static str,
+    input: Entity<TextInput>,
+    error: Option<&'static str>,
+) -> impl IntoElement {
     let t = theme(cx);
     div()
         .flex()
-        .flex_row()
-        .items_center()
-        .gap(t.spacing.px_3)
-        .child(field_label(cx, label))
-        .child(div().flex_1().child(input))
+        .flex_col()
+        .gap(t.spacing.px_1)
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(t.spacing.px_3)
+                .child(field_label(cx, label))
+                .child(div().flex_1().child(input)),
+        )
+        // 实时校验错误显示：与 input 同 column 对齐（左侧空 label 宽缩进）。
+        // 用 destructive 红字 xs 小号，不喧宾夺主。空 / 未校验 时不渲染该行。
+        .when_some(error, |d, msg| {
+            d.child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(t.spacing.px_3)
+                    .child(div().w(gpui::px(80.0)))
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_size(t.font_size.xs)
+                            .text_color(t.colors.destructive)
+                            .child(msg),
+                    ),
+            )
+        })
 }
 
 fn keyfile_row(
