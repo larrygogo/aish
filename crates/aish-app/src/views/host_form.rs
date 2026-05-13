@@ -469,19 +469,10 @@ fn buttons_row(
         let t = theme(cx);
         t.spacing.px_2
     };
-    let mut row = div()
-        .flex()
-        .flex_row()
-        .gap(spacing_px_2)
-        .justify_end()
-        .child(
-            Button::new("host-cancel")
-                .label("Cancel")
-                .ghost()
-                .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
-                    this.cancel(cx);
-                })),
-        );
+    // 删 footer 内 "Cancel" 按钮 —— Dialog 顶部已有 X 关闭 + Esc 关闭，重复
+    // 一个 Cancel 让 footer 视觉拥挤且语义重复。保留 Delete + 主操作（Save /
+    // Add / Connect），用户用 X / Esc 取消（与系统 modal 习惯一致）。
+    let mut row = div().flex().flex_row().gap(spacing_px_2).justify_end();
     if show_delete && primary_label != "Delete" {
         // edit 模式额外加一个 Delete 按钮（DeleteConfirm 通过 home.rs 单独触发）
         row = row.child(
