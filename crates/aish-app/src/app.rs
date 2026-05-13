@@ -387,7 +387,11 @@ impl Render for RootView {
             .size_full()
             .bg(rgb(0x000000))
             .child(self.sidebar_nav.clone())
-            .child(div().flex_1().child(main_body));
+            // 主区 flex_1 必须 min_w(0)，否则 main_body 内任何超长子（如 tab_bar
+            // 内的 tab items 总宽 > viewport - sidebar）会撑大 flex item（min_w
+            // 默认 auto = 内容宽度，拒绝 shrink），导致 sidebar 被挤出窗口、
+            // tab_bar overflow_x_scroll 失效（容器宽 = 内容宽 = "没溢出"）。
+            .child(div().flex_1().min_w(px(0.0)).child(main_body));
 
         // ───── 自绘 titlebar（40px strip，与 tab bar 同高）─────
         // appears_transparent=true 后系统不画 titlebar，必须自己提供拖拽区 + 窗口
