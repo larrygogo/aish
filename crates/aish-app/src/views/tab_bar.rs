@@ -179,7 +179,6 @@ impl TabBarView {
     /// 改为只看方向（sign），步长写死 60px ≈ 1/3 tab 宽度。fast scroll 多
     /// tick 累积仍快但每 tick 可预测，不会单 tick 跳过半屏。
     fn handle_wheel(&mut self, ev: &ScrollWheelEvent, cx: &mut Context<Self>) {
-        // 优先用横向 delta（横向滚轮）；没有时用纵向 delta（普通滚轮 → 横滚）
         let sign: f32 = match ev.delta {
             ScrollDelta::Pixels(p) => {
                 let v = if p.x.abs() > p.y.abs() { p.x } else { p.y };

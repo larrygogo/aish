@@ -544,8 +544,11 @@ impl TerminalView {
         if lines == 0 {
             return;
         }
-        // 每 tick 多滚 3 行，体感更接近主流终端。
-        let scroll_amount = lines * 3;
+        // Windows raw wheel delta 一 tick 经常给 10-15 行（OS wheel ratio
+        // 配置 × delta 累积），之前 lines * 3 让一 tick 滚 30-45 行体感粗暴。
+        // 改为 cap 到 ±3 行/tick，与主流终端（iTerm2 / Windows Terminal
+        // / Tabby）一 tick ≈ 3 行步长一致。
+        let scroll_amount = lines.signum() * lines.abs().min(3);
 
         // 两条处理路径，按 alacritty Term mode 决定：
         // 1. MOUSE_MODE 启用（tmux `set -g mouse on` / vim `mouse=a` 等开了
