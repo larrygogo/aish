@@ -533,6 +533,27 @@ impl AppState {
         }
     }
 
+    /// 把当前选中的 tab 向左 (delta=-1) 或向右 (delta=+1) 移动一格。
+    /// 已在边界 / 无选中时 noop。delta != ±1 也 noop（防御性）。
+    /// 返回 true 表示真发生了交换，调用方可据此决定是否 cx.notify。
+    pub fn move_selected_tab(&mut self, delta: i32) -> bool {
+        if delta != -1 && delta != 1 {
+            return false;
+        }
+        let Some(id) = self.selected_tab else {
+            return false;
+        };
+        let Some(pos) = self.tabs.iter().position(|t| t.id == id) else {
+            return false;
+        };
+        let new_pos = pos as i32 + delta;
+        if new_pos < 0 || (new_pos as usize) >= self.tabs.len() {
+            return false;
+        }
+        self.tabs.swap(pos, new_pos as usize);
+        true
+    }
+
     /// 把当前 tab 替换为指定 content/title（用于"在默认页里点了 host 卡片
     /// → 同一个 tab 变成 connection tab"的流程）。
     pub fn replace_current_tab(&mut self, content: TabContent, title: String) {
@@ -944,6 +965,82 @@ mod tests {
         assert_eq!(state.selected_tab, Some(initial_tab_id));
         assert_eq!(state.current_tab().unwrap().title, "腾讯云 #1");
         assert_eq!(state.current_connection(), Some(conn));
+    }
+
+    #[test]
+    fn move_selected_tab_right_swaps_with_neighbor() {
+        use aish_types::TabId;
+        let mut state = AppState::with_hosts(vec![]);
+        let id1 = TabId::new();
+        let id2 = TabId::new();
+        state.tabs.push(Tab {
+            id: id1,
+            content: TabContent::Default,
+            title: "1".into(),
+            title_locked: false,
+        });
+        state.tabs.push(Tab {
+            id: id2,
+            content: TabContent::Default,
+            title: "2".into(),
+            title_locked: false,
+        });
+        state.selected_tab = Some(id1);
+        assert!(state.move_selected_tab(1));
+        assert_eq!(state.tabs[0].id, id2);
+        assert_eq!(state.tabs[1].id, id1);
+        // selected_tab 应该跟着 id1 走（id 不变，pos 变了，但 selected_tab 是 id）
+        assert_eq!(state.selected_tab, Some(id1));
+    }
+
+    #[test]
+    fn move_selected_tab_at_boundary_noop() {
+        use aish_types::TabId;
+        let mut state = AppState::with_hosts(vec![]);
+        let id1 = TabId::new();
+        state.tabs.push(Tab {
+            id: id1,
+            content: TabContent::Default,
+            title: "1".into(),
+            title_locked: false,
+        });
+        state.selected_tab = Some(id1);
+        // 只有一个 tab，左右都到边界
+        assert!(!state.move_selected_tab(-1));
+        assert!(!state.move_selected_tab(1));
+    }
+
+    #[test]
+    fn move_selected_tab_no_selection_noop() {
+        let mut state = AppState::with_hosts(vec![]);
+        // selected_tab = None
+        assert!(!state.move_selected_tab(1));
+        assert!(!state.move_selected_tab(-1));
+    }
+
+    #[test]
+    fn move_selected_tab_invalid_delta_noop() {
+        use aish_types::TabId;
+        let mut state = AppState::with_hosts(vec![]);
+        let id1 = TabId::new();
+        let id2 = TabId::new();
+        state.tabs.push(Tab {
+            id: id1,
+            content: TabContent::Default,
+            title: "1".into(),
+            title_locked: false,
+        });
+        state.tabs.push(Tab {
+            id: id2,
+            content: TabContent::Default,
+            title: "2".into(),
+            title_locked: false,
+        });
+        state.selected_tab = Some(id1);
+        // delta != ±1 拒绝（防御性 —— 调用方应该只传 -1 或 +1）
+        assert!(!state.move_selected_tab(0));
+        assert!(!state.move_selected_tab(2));
+        assert!(!state.move_selected_tab(-2));
     }
 
     #[test]

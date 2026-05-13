@@ -211,6 +211,19 @@ impl TerminalView {
             return;
         }
 
+        // Ctrl+Shift+PageUp / PageDown：左右移动当前 tab。
+        // 在 encode_key（line 230 把 pageup 转 \x1b[5~ 发到远端）之前拦截：
+        // 用户按这个组合时显然是想操作 UI，不是给远端 less/vim 翻页。
+        if ctrl && shift && (key == "pageup" || key == "pagedown") {
+            let delta = if key == "pageup" { -1 } else { 1 };
+            self.state.update(cx, |s, cx| {
+                if s.move_selected_tab(delta) {
+                    cx.notify();
+                }
+            });
+            return;
+        }
+
         // 有 key_char 且满足以下任一条件时，交由 WM_CHAR → InputHandler 路径发送：
         //   a) 无 Ctrl/Alt 修饰（普通可打印字符、IME 拼音字母）
         //   b) prefer_character_input（AltGr 欧洲键盘，Ctrl+Alt 实为一个字符键）
