@@ -53,6 +53,11 @@ pub struct TextInput {
     on_blur: Option<BlurHandler>,
     /// 上一帧 focused 状态。render 内对比当前 focused 决定是否 fire on_blur。
     last_focused: bool,
+    /// 水平 scroll 偏移：text_row 整体 margin-left。0 = 没滚；负数 = 文字向左
+    /// 滚出（让右侧 cursor 重新进可视区）。canvas prepaint callback 比较
+    /// cursor_x 与 viewport bounds 后更新此值，下一帧用新 offset re-render。
+    /// 解决长文本 / cursor 移末尾时'后面的字看不到'问题。
+    scroll_offset: Pixels,
 }
 
 impl TextInput {
@@ -74,6 +79,7 @@ impl TextInput {
             on_cancel: None,
             on_blur: None,
             last_focused: false,
+            scroll_offset: px(0.0),
         };
         this.start_blink_timer(cx);
         this
@@ -184,6 +190,60 @@ impl TextInput {
     /// 这里在 mouse_down / mouse_move 把 displayed-space byte 映射回
     /// source-space byte（中转 char index）。非 mask 时 identity（避免无意义的
     /// 重复 chars().count() 遍历）。
+    /// 水平 scroll 跟随 cursor：在 canvas prepaint 阶段调用（此时 bounds_map
+    /// 已被 glyph_div 填好上一帧的 viewport 位置）。
+    ///
+    /// 算法：拿当前 cursor 对应的 glyph absolute x，比对 viewport 左右边界，
+    /// 调整 scroll_offset 让 cursor 落进 [v_left + margin, v_right - margin]。
+    /// notify 触发下一帧 re-render with new offset。
+    pub(crate) fn update_scroll_to_cursor(
+        &mut self,
+        viewport: Bounds<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        // 计算 displayed cursor byte（mask 模式 cursor 是源串 byte 要转）
+        let displayed_text: String = if let Some(m) = self.mask_char {
+            self.text.chars().map(|_| m).collect()
+        } else {
+            self.text.clone()
+        };
+        let displayed_cursor = self.cursor_for_display(&displayed_text);
+
+        // cursor 当前的 absolute x：bounds_map 找 cursor byte；找不到（cursor 在
+        // 末尾）则用最后一个 glyph 的 right edge；都没有（空文本）用 viewport 左缘
+        let cursor_x = self
+            .bounds_map
+            .iter()
+            .find(|(b, _)| *b == displayed_cursor)
+            .map(|(_, b)| b.origin.x)
+            .or_else(|| {
+                self.bounds_map
+                    .last()
+                    .map(|(_, b)| b.origin.x + b.size.width)
+            })
+            .unwrap_or(viewport.origin.x);
+
+        let margin = px(4.0);
+        let v_left = viewport.origin.x;
+        let v_right = viewport.origin.x + viewport.size.width;
+        let mut new_offset = self.scroll_offset;
+        if cursor_x < v_left + margin {
+            new_offset = self.scroll_offset + (v_left + margin - cursor_x);
+        } else if cursor_x > v_right - margin {
+            new_offset = self.scroll_offset - (cursor_x - v_right + margin);
+        }
+        // clamp：scroll_offset 不应 > 0（文字第一个 char 永远不该被推到 viewport
+        // 左缘右侧 —— 那等于'前面有空隙'）。负方向 clamp 不做：删字 / 短文本时
+        // 短到 < viewport 宽度的情况会自然在下一次 cursor 移动时回到 0。
+        if new_offset > px(0.0) {
+            new_offset = px(0.0);
+        }
+        if new_offset != self.scroll_offset {
+            self.scroll_offset = new_offset;
+            cx.notify();
+        }
+    }
+
     pub(crate) fn cursor_from_click(&self, click_x: Pixels) -> usize {
         if self.mask_char.is_none() {
             // displayed_text == self.text，bounds_map 的 byte 就是 source byte
@@ -842,6 +902,11 @@ impl Render for TextInput {
                 .items_center()
                 .text_size(font_size_sm)
                 .text_color(foreground)
+                // 水平 scroll：scroll_offset 0 / 负数。container.overflow_hidden
+                // 裁掉超出 viewport 的部分；canvas prepaint callback 在每帧
+                // 根据 cursor 位置更新 scroll_offset 让 cursor 始终可见。
+                .ml(self.scroll_offset)
+                .flex_shrink_0()
                 .children(left_divs)
                 .child(cursor_div)
                 .children(right_divs)
@@ -853,6 +918,9 @@ impl Render for TextInput {
             .flex()
             .flex_row()
             .items_center()
+            // overflow_hidden 让超长 text_row（含负 margin-left 滚动）被裁切，
+            // 不溢出到父容器外（之前 borderless 模式下长 title 会画到相邻 tab）。
+            .overflow_hidden()
             .cursor_text();
         if !self.borderless {
             container = container
@@ -927,6 +995,13 @@ impl Render for TextInput {
                             },
                             cx,
                         );
+                        // 水平 scroll 跟随 cursor：bounds_map 已被 text_row
+                        // 子 div 的 prepaint 填好，prepaint_bounds 是 canvas
+                        // 与 container 同尺寸的 viewport。算 cursor_x vs viewport
+                        // 边界，更新 scroll_offset 并 notify 下一帧 re-render。
+                        let _ = weak_view.update(cx, |this, cx_inner| {
+                            this.update_scroll_to_cursor(prepaint_bounds, cx_inner);
+                        });
                     },
                 )
                 .absolute()
