@@ -304,7 +304,7 @@ impl Render for TabBarView {
         let colors = theme.colors;
         let font_size = theme.font_size;
 
-        let tab_items: Vec<_> = app
+        let tab_items: Vec<gpui::AnyElement> = app
             .tabs
             .iter()
             .map(|t| {
@@ -319,6 +319,62 @@ impl Render for TabBarView {
                     TabContent::Connection(c) => app.is_session_active(c),
                     _ => false,
                 };
+
+                // editing 模式：跳过 TabItem，直接渲染一个**更宽、不裁切**的 inline
+                // editor box。原因：TabItem 设计目的是"展示长 title 不撑爆 tab bar"，
+                // 它的 max_w(200) + title 容器 overflow_hidden + text_ellipsis 会把
+                // input 的 cursor / 右侧文字直接裁掉（66px 留给 title，裁切再叠加）。
+                // editing 时这些约束反而是干扰，单独路径完全规避。
+                //
+                // 布局：[● 连接 dot]  [<TextInput>]   — 不带 close/badge（避免误触
+                // 丢编辑），bg 用 background (active 色，editing tab 一定是 selected)。
+                if is_editing {
+                    let dot_color = if is_alive {
+                        colors.success
+                    } else {
+                        colors.muted_foreground
+                    };
+                    return div()
+                        .id(gpui::SharedString::from(format!("tab-editing-{}", id)))
+                        .relative()
+                        .h(px(40.0))
+                        .min_w(px(180.0))
+                        .max_w(px(280.0))
+                        .flex_shrink_0()
+                        .px(theme.spacing.px_4)
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(theme.spacing.px_2)
+                        .text_size(font_size.sm)
+                        .bg(colors.background)
+                        .when(is_connection, |d| {
+                            d.child(
+                                div()
+                                    .text_color(dot_color)
+                                    .text_size(font_size.xs)
+                                    .child("●"),
+                            )
+                        })
+                        // input 占满剩余空间；min_w(0) 让 flex_1 真生效
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w(px(0.0))
+                                .child(self.rename_input.clone()),
+                        )
+                        // 底部 2px active bar，与 TabItem.active 视觉一致
+                        .child(
+                            div()
+                                .absolute()
+                                .bottom_0()
+                                .left_0()
+                                .right_0()
+                                .h(px(2.0))
+                                .bg(colors.primary),
+                        )
+                        .into_any_element();
+                }
 
                 // 关闭按钮（始终可见）
                 let close_btn = aish_ui::IconButton::new(
@@ -351,27 +407,17 @@ impl Render for TabBarView {
                     div().child("").into_any_element()
                 };
 
-                // 标题部分：editing 时用 TextInput entity 替代；否则普通 div + title
-                let title_el: gpui::AnyElement = if is_editing {
-                    // TextInput 自带 IME / 中文 / focus / Enter submit / 选区 etc.
-                    // 给一个 min_w 让输入框不被 TabItem max_w 限制压缩成 0 宽
-                    div()
-                        .min_w(px(120.0))
-                        .child(self.rename_input.clone())
-                        .into_any_element()
+                let title_color = if is_connection && !is_alive {
+                    colors.muted_foreground
+                } else if is_selected {
+                    colors.foreground
                 } else {
-                    let title_color = if is_connection && !is_alive {
-                        colors.muted_foreground
-                    } else if is_selected {
-                        colors.foreground
-                    } else {
-                        colors.secondary_foreground
-                    };
-                    div()
-                        .text_color(title_color)
-                        .child(title)
-                        .into_any_element()
+                    colors.secondary_foreground
                 };
+                let title_el = div()
+                    .text_color(title_color)
+                    .child(title)
+                    .into_any_element();
 
                 // suffix: SSH chip（connection tab 专属）+ 关闭按钮
                 let suffix = div()
@@ -393,6 +439,7 @@ impl Render for TabBarView {
                     .on_click(cx.listener(move |this, ev: &MouseDownEvent, w, cx| {
                         this.handle_tab_click(id, ev.click_count, w, cx);
                     }))
+                    .into_any_element()
             })
             .collect();
 
