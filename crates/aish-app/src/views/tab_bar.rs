@@ -363,7 +363,10 @@ impl Render for TabBarView {
         //   ‖ max_offset.x < 0 兜底（用户滚动后 ScrollHandle 已准确，更可信）。
         let tabs_len = app.tabs.len();
         let viewport_w = window.viewport_size().width;
-        let estimated_tabs_w = px(tabs_len as f32 * 200.0);
+        // 每 tab 估算 240px（TabItem max-w 200 + suffix SSH chip ~30 + close
+        // button 24 + gap padding ≈ 240）。available 减 120（sidebar 48 +
+        // plus 40 + 30 padding）。保守 over-estimate，偏向显示箭头。
+        let estimated_tabs_w = px(tabs_len as f32 * 240.0);
         let available_w = viewport_w - px(120.0);
         let likely_overflow = estimated_tabs_w > available_w;
         let offset_x = self.scroll_handle.offset().x;
