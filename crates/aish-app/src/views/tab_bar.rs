@@ -530,6 +530,14 @@ impl Render for TabBarView {
                         s.background = Some(aish_ui::theme(cx).colors.accent_active.into());
                         s
                     })
+                    // 鼠标中键关闭 tab（Chrome / VSCode 标准）。on_mouse_down
+                    // 直接触发 close，不等 mouse_up —— 与 X 按钮 on_click 行为一致。
+                    .on_mouse_down(
+                        gpui::MouseButton::Middle,
+                        cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
+                            this.handle_close(id, cx);
+                        }),
+                    )
                     .child(tab_item)
                     .into_any_element()
             })

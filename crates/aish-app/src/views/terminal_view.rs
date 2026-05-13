@@ -224,6 +224,14 @@ impl TerminalView {
             return;
         }
 
+        // Ctrl+W：关闭当前 tab（Chrome / VSCode 标准）。
+        // 远端 shell 也有 Ctrl+W = delete-prev-word，但用户在 GUI 终端里期望
+        // Ctrl+W 关 tab 更强（用户能用 prefix-bs 或选词替代远端 ctrl-w）。
+        if ctrl && !shift && !alt && key.eq_ignore_ascii_case("w") {
+            self.close_current_tab(cx);
+            return;
+        }
+
         // 有 key_char 且满足以下任一条件时，交由 WM_CHAR → InputHandler 路径发送：
         //   a) 无 Ctrl/Alt 修饰（普通可打印字符、IME 拼音字母）
         //   b) prefer_character_input（AltGr 欧洲键盘，Ctrl+Alt 实为一个字符键）
@@ -256,6 +264,42 @@ impl TerminalView {
     /// - 行结尾：\r\n / \n → \r（PTY enter = 0x0d，多行命令逐行执行需要 \r）
     /// - bracketed mode（vim/zsh/bash 现代交互模式自动启用）：远端识别为字面字符
     /// - 不在 bracketed mode：直接发，多行命令会逐行执行（用户预期）
+    // 关闭当前选中的 tab。Ctrl+W 触发，与 tab_bar handle_close 等价但用
+    // selected_tab 而非接 id 参数。
+    //
+    // 与 tab_bar handle_close 重复的逻辑（取 conn 后发 Disconnect、
+    // remove_connection、close_tab）暂不抽 helper，state 没法直接发
+    // SessionCommand（需要 bridge），抽出会跨多层 API；20 行内联可接受。
+    fn close_current_tab(&mut self, cx: &mut Context<Self>) {
+        let (id, content) = {
+            let s = self.state.read(cx);
+            let Some(id) = s.selected_tab else {
+                return;
+            };
+            let content = s
+                .tabs
+                .iter()
+                .find(|t| t.id == id)
+                .map(|t| t.content.clone());
+            (id, content)
+        };
+        if let Some(crate::state::TabContent::Connection(conn)) = content {
+            if let Some(sender) = self.state.read(cx).sessions.get(&conn).cloned() {
+                self.bridge.spawn(async move {
+                    let _ = sender.send(SessionCommand::Disconnect).await;
+                });
+            }
+            self.state.update(cx, |s, cx| {
+                s.remove_connection(conn);
+                cx.notify();
+            });
+        }
+        self.state.update(cx, |s, cx| {
+            s.close_tab(id);
+            cx.notify();
+        });
+    }
+
     fn paste(&mut self, conn: aish_types::ConnectionId, cx: &mut Context<Self>) {
         match arboard::Clipboard::new() {
             Err(e) => tracing::warn!("paste: arboard init failed: {e}"),
