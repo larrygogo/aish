@@ -21,7 +21,9 @@ use gpui::{
 };
 
 use crate::bridge::Bridge;
-use crate::state::{humanize_last_connected, AppState, SessionCommand, SshEvent, TmuxState};
+use crate::state::{
+    humanize_last_connected, AppState, SessionCommand, SidebarTab, SshEvent, TmuxState,
+};
 
 pub struct SessionPickerView {
     state: Entity<AppState>,
@@ -69,19 +71,31 @@ impl SessionPickerView {
     }
 
     fn sync_from_state(&mut self, cx: &mut Context<Self>) {
-        let current = self.state.read(cx).pending_session_picker;
-        match (self.is_open_for, current) {
-            (_, None) => {
-                if self.is_open_for.is_some() {
-                    self.is_open_for = None;
-                    self.dialog.update(cx, |d, cx| d.close(cx));
-                }
+        // 只在用户当前看 terminal sidebar + 选中的 tab 正是该 connection 时开。
+        // 用户在 Home / Settings sidebar 不该被 picker 打扰；切换 tab 离开
+        // 该 connection 时 picker 也该关。
+        // pending_session_picker 保留在 state 不清，等 user 切回时再 sync 开。
+        let (pending, should_show) = {
+            let s = self.state.read(cx);
+            let pending = s.pending_session_picker;
+            let show = pending.is_some_and(|c| {
+                s.sidebar == SidebarTab::Terminal && s.current_connection() == Some(c)
+            });
+            (pending, show)
+        };
+
+        if !should_show {
+            if self.is_open_for.is_some() {
+                self.is_open_for = None;
+                self.dialog.update(cx, |d, cx| d.close(cx));
             }
-            (prev, Some(next)) if prev != Some(next) => {
-                self.is_open_for = Some(next);
-                self.dialog.update(cx, |d, cx| d.open(cx));
-            }
-            _ => {}
+            return;
+        }
+        // should_show=true 隐含 pending.is_some()
+        let next = pending.unwrap();
+        if self.is_open_for != Some(next) {
+            self.is_open_for = Some(next);
+            self.dialog.update(cx, |d, cx| d.open(cx));
         }
     }
 

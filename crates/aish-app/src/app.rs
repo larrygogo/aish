@@ -379,7 +379,13 @@ impl Render for RootView {
         let app = self.state.read(cx);
         let sidebar = app.sidebar;
         let modal_open = app.modal.is_some();
-        let picker_open = app.pending_session_picker.is_some();
+        // SessionPicker 只在 Terminal sidebar 且当前 tab 是该 connection 时显示。
+        // 用户在 Home / Settings 时不该被 picker 打扰；连接成功事件触发的
+        // pending_session_picker 仍保留在 state，等用户切回该 conn 的 tab 时
+        // SessionPickerView.sync_from_state 会自动 open。
+        let picker_open = app.pending_session_picker.is_some()
+            && app.sidebar == SidebarTab::Terminal
+            && app.current_connection() == app.pending_session_picker;
         let colors = aish_ui::theme(cx).colors;
         let tabs_empty = app.tabs.is_empty();
         let _ = app;
