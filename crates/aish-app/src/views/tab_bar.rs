@@ -39,7 +39,11 @@ struct TabDragPreview {
 impl gpui::Render for TabDragPreview {
     fn render(&mut self, _w: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = aish_ui::theme(cx);
+        // 防御性限宽 + ellipsis：长 title（如 tmux pane title 几十字）会让 ghost
+        // preview 拉到屏幕宽度。max_w 200 / overflow_hidden / whitespace_nowrap
+        // / text_ellipsis 与 TabItem 限宽规则一致，ghost 看起来跟原 tab 同尺寸。
         div()
+            .max_w(px(200.0))
             .px(t.spacing.px_3)
             .py(t.spacing.px_2)
             .bg(t.colors.popover)
@@ -48,6 +52,9 @@ impl gpui::Render for TabDragPreview {
             .rounded(t.radius.md)
             .text_size(t.font_size.sm)
             .text_color(t.colors.foreground)
+            .overflow_hidden()
+            .whitespace_nowrap()
+            .text_ellipsis()
             // shadow 让拖影"浮起"，与 drop target 区分
             .shadow(vec![gpui::BoxShadow {
                 color: gpui::hsla(0.0, 0.0, 0.0, 0.4),

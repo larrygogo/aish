@@ -371,6 +371,12 @@ impl TerminalView {
     ///    远端高亮）。
     /// 2. 否则 → 本地 alacritty Selection（原行为）。
     fn handle_mouse_down(&mut self, ev: &MouseDownEvent, cx: &mut Context<Self>) {
+        // drag 期间（如 tab 拖拽 reorder）鼠标 hover 到终端区时，不该把鼠标
+        // 事件转 SGR 发到远端 —— 用户是在操作 UI 而不是终端。同样 mouse_move
+        // / mouse_up / scroll_wheel 入口都加此 guard。
+        if cx.has_active_drag() {
+            return;
+        }
         use alacritty_terminal::term::TermMode;
         let conn = match self.state.read(cx).current_connection() {
             Some(c) => c,
@@ -432,6 +438,9 @@ impl TerminalView {
 
     /// 处理鼠标抬起。仅在远端 mouse mode 时发 SGR release。
     fn handle_mouse_up(&mut self, ev: &MouseUpEvent, cx: &mut Context<Self>) {
+        if cx.has_active_drag() {
+            return;
+        }
         use alacritty_terminal::term::TermMode;
         let conn = match self.state.read(cx).current_connection() {
             Some(c) => c,
@@ -462,6 +471,9 @@ impl TerminalView {
 
     /// 处理鼠标拖拽 / 移动。两路分流同 mouse_down。
     fn handle_mouse_move(&mut self, ev: &MouseMoveEvent, cx: &mut Context<Self>) {
+        if cx.has_active_drag() {
+            return;
+        }
         use alacritty_terminal::term::TermMode;
         let conn = match self.state.read(cx).current_connection() {
             Some(c) => c,
@@ -542,6 +554,9 @@ impl TerminalView {
     ///
     /// 本地 alacritty grid 滚动**不改变** PTY size，远端不感知。
     fn handle_scroll(&mut self, ev: &ScrollWheelEvent, cx: &mut Context<Self>) {
+        if cx.has_active_drag() {
+            return;
+        }
         let conn = match self.state.read(cx).current_connection() {
             Some(c) => c,
             None => return,
