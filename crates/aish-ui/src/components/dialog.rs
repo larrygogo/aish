@@ -27,6 +27,10 @@ pub struct Dialog {
     /// caller 注册的额外 key handler。在 Dialog 处理 Esc 关闭之后调用。
     /// 用于 caller 实现 ↑/↓/Enter 等列表导航（如 SessionPicker）。
     on_key: Option<KeyHandler>,
+    /// Tab focus trap：dialog 内可 focus 的元素顺序链。caller 在 dialog
+    /// open 后通过 focus_chain(...) 注册。Tab / Shift+Tab 在此链上循环，
+    /// 不让焦点跑出 dialog 外（无障碍 + 减少误操作）。空 = 不启用 trap。
+    focus_chain: Vec<FocusHandle>,
 }
 
 impl Dialog {
@@ -40,6 +44,7 @@ impl Dialog {
             width: gpui::px(480.0),
             on_close: None,
             on_key: None,
+            focus_chain: Vec::new(),
         }
     }
 
@@ -76,6 +81,14 @@ impl Dialog {
         self
     }
 
+    /// 注册 Tab focus trap 的元素顺序链。Tab / Shift+Tab 在此 chain 上循环。
+    /// caller 应在 modal 打开后填入按视觉顺序的 FocusHandle 列表（每次切换
+    /// modal 状态前清空 + 重设）。空 chain = 不启用 trap（默认）。
+    pub fn focus_chain(&mut self, handles: Vec<FocusHandle>) -> &mut Self {
+        self.focus_chain = handles;
+        self
+    }
+
     pub fn is_open(&self) -> bool {
         self.open
     }
@@ -108,6 +121,25 @@ impl Dialog {
             self.fire_close(window, cx);
             return;
         }
+
+        // Tab focus trap：在 focus_chain 上循环。chain 为空 = caller 没启
+        // trap，跳过让 GPUI 默认行为（通常 noop，但至少不影响）。
+        if !self.focus_chain.is_empty() && event.keystroke.key.as_str() == "tab" {
+            let len = self.focus_chain.len();
+            // 找当前 focused handle 在 chain 中的索引；找不到（焦点在外）
+            // → Tab 拉回首项，Shift+Tab 拉回末项
+            let cur = self.focus_chain.iter().position(|h| h.is_focused(window));
+            let next = match (cur, event.keystroke.modifiers.shift) {
+                (Some(i), false) => (i + 1) % len,
+                (Some(i), true) => (i + len - 1) % len,
+                (None, false) => 0,
+                (None, true) => len - 1,
+            };
+            self.focus_chain[next].focus(window, cx);
+            cx.notify();
+            return;
+        }
+
         // caller 自定义 key handler（如 SessionPicker 的 ↑/↓/Enter）。
         // 在 Esc 之后调用：Esc 由 Dialog 统一处理，caller 无法覆盖。
         if let Some(h) = self.on_key.clone() {

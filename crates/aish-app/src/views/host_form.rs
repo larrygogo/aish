@@ -18,8 +18,8 @@ use std::sync::Arc;
 use aish_types::HostId;
 use aish_ui::{theme, Button, Dialog, Tabs, TextInput};
 use gpui::{
-    div, prelude::*, App, Context, Entity, IntoElement, MouseDownEvent, PathPromptOptions,
-    SharedString, Window,
+    div, prelude::*, App, Context, Entity, Focusable, IntoElement, MouseDownEvent,
+    PathPromptOptions, SharedString, Window,
 };
 
 use crate::bridge::Bridge;
@@ -213,11 +213,25 @@ impl HostFormModal {
                     self.dialog.update(cx, |d, cx| d.close(cx));
                 }
             }
-            // modal 切换：dialog open + 把 draft 内容同步到 input
+            // modal 切换：dialog open + 把 draft 内容同步到 input + 注册
+            // focus_chain（Tab 在 5 个 input 之间循环；keyfile 与 password
+            // 互斥取决于 auth_tabs，但都加进 chain 也无害 —— 隐藏的 input
+            // 也持 FocusHandle，Tab 跳到时再切回可见的也可以接受）
             (prev, Some(next)) if prev != next => {
                 self.synced_key = next;
                 self.fill_inputs_from_modal(cx);
-                self.dialog.update(cx, |d, cx| d.open(cx));
+                let chain = vec![
+                    self.label_input.read(cx).focus_handle(cx),
+                    self.host_input.read(cx).focus_handle(cx),
+                    self.port_input.read(cx).focus_handle(cx),
+                    self.user_input.read(cx).focus_handle(cx),
+                    self.keyfile_input.read(cx).focus_handle(cx),
+                    self.password_input.read(cx).focus_handle(cx),
+                ];
+                self.dialog.update(cx, |d, cx| {
+                    d.focus_chain(chain);
+                    d.open(cx);
+                });
             }
             // 同 key 不动（用户正在编辑，避免覆盖输入）
             _ => {}
