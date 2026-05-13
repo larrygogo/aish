@@ -13,7 +13,7 @@
 //! Ctrl+1/2/3 路由到 sidebar tab 等留 backlog。
 
 use aish_ui::theme::{ColorTokens, FontSize};
-use aish_ui::{theme, toast_warning, Card, Switch};
+use aish_ui::{theme, Card, Switch};
 use gpui::{div, prelude::*, px, AnyElement, Context, IntoElement, SharedString, Window};
 
 pub struct SettingsView {
@@ -72,13 +72,34 @@ fn two_column_row(left: &str, right: &str, colors: ColorTokens, fs: FontSize) ->
         .into_any_element()
 }
 
-/// 标签 + 控件横向行（用于 Appearance 的 Dark mode 这种 label + Switch）。
+/// 标签 + 可选副标题 + 控件横向行（用于 Appearance 的 Dark mode 这种
+/// label + Switch）。helper 非空时在 label 下方显示 muted_foreground xs 灰字，
+/// 用于提示控件状态 / 限制（如"Light theme not implemented"）。
 fn control_row(
     label: &'static str,
+    helper: Option<&'static str>,
     control: AnyElement,
     colors: ColorTokens,
     fs: FontSize,
 ) -> AnyElement {
+    let left = div()
+        .flex()
+        .flex_col()
+        .gap_0p5()
+        .child(
+            div()
+                .text_size(fs.sm)
+                .text_color(colors.foreground)
+                .child(label),
+        )
+        .when_some(helper, |d, h| {
+            d.child(
+                div()
+                    .text_size(fs.xs)
+                    .text_color(colors.muted_foreground)
+                    .child(h),
+            )
+        });
     div()
         .flex()
         .flex_row()
@@ -86,12 +107,7 @@ fn control_row(
         .justify_between()
         .px_4()
         .py(px(10.0))
-        .child(
-            div()
-                .text_size(fs.sm)
-                .text_color(colors.foreground)
-                .child(label),
-        )
+        .child(left)
         .child(control)
         .into_any_element()
 }
@@ -112,31 +128,30 @@ impl Render for SettingsView {
             .child("Settings");
 
         // ───── Appearance ─────
+        // Light theme 未实现 → Switch 直接 disabled 关闭交互（之前 onclick 弹
+        // toast + 视觉硬切回弹的体感很差）。row 下方 helper text 提前告知用户。
         let dark_switch = Switch::new("settings-dark-mode")
             .checked(dark)
+            .disabled(true)
             .on_change(cx.listener(|this, new_value: &bool, _w, cx| {
-                if !*new_value {
-                    // 切到 Light：未实现，弹 toast + Switch 视觉回弹
-                    toast_warning(cx, "Light theme not yet implemented");
-                    // 不更新 this.dark_mode → 下一帧 render 时
-                    // Switch 用 dark=true 自动回弹到 on。
-                    cx.notify();
-                } else {
+                if *new_value {
                     this.dark_mode = true;
                     cx.notify();
                 }
+                // 切 Light 路径被 disabled() 拦下不会执行，分支不需要
             }))
             .into_any_element();
 
         let appearance_card = Card::new("settings-appearance")
             .outlined()
             .header(section_header("Appearance", colors, fs))
-            .body(
-                div()
-                    .flex()
-                    .flex_col()
-                    .child(control_row("Dark mode", dark_switch, colors, fs)),
-            );
+            .body(div().flex().flex_col().child(control_row(
+                "Dark mode",
+                Some("Light theme not yet implemented"),
+                dark_switch,
+                colors,
+                fs,
+            )));
 
         // ───── Keyboard Shortcuts ─────
         // 当前仅文档级展示（实际键盘路由 backlog）。Inbox 删除后顺序：

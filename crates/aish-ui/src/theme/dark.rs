@@ -37,9 +37,10 @@ impl Theme {
                 // 视觉像"洞"，与用户对 input 的直觉相反）
                 border: hex(0x1f1f1f),
                 input: hex(0x0d0d0d),
-                // focus ring 独立保持鲜绿（与 accent 解耦：accent 已暗化做容器 hover，
-                // focus 时仍需高对比的"光圈"感）
-                ring: hex(0x00cc33),
+                // focus ring 比 primary 亮一档（与 primary_hover 同 #00e63a），让
+                // focused button 与 idle button 视觉明显区分（之前 ring=primary 完全
+                // 同色 → focus 时按钮看着和未 focus 一样，外圈 ring 也分不清）
+                ring: hex(0x00e63a),
                 success: hex(0x9ece6a),
                 warning: hex(0xe0af68),
                 // M15 阶梯（lightness 单调递增 idle→hover→active）

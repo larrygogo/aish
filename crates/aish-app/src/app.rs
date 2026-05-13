@@ -347,11 +347,13 @@ impl Render for RootView {
             .child(self.sidebar_nav.clone())
             .child(div().flex_1().child(main_body));
 
-        // ───── 自绘 titlebar（36px strip）─────
+        // ───── 自绘 titlebar（40px strip，与 tab bar 同高）─────
         // appears_transparent=true 后系统不画 titlebar，必须自己提供拖拽区 + 窗口
         // 控件。布局：左 logo+标题 / 中拖拽区 / 右 minimize+maximize+close。
-        // 整个 titlebar bg=card（与 tab bar 同色无缝衔接）。
-        // logo + 标题（Nerd Font 终端 + "aish"）
+        // 整个 titlebar bg=card（与 tab bar 同色无缝衔接），36 改 40 与 tab bar
+        // 齐高避免"上窄下宽"。
+        // logo + 标题（Nerd Font 终端 + "aish"）。logo 16px 主色绿，aish 13px
+        // foreground SEMIBOLD，比原来 14/12 normal 在 40px 高 titlebar 里更稳。
         let titlebar_left = div()
             .flex()
             .flex_row()
@@ -361,13 +363,14 @@ impl Render for RootView {
             .child(
                 div()
                     .font_family(crate::terminal::font::FONT_NAME)
-                    .text_size(px(14.0))
+                    .text_size(px(16.0))
                     .text_color(colors.primary)
                     .child("\u{f120}"), // nf-fa-terminal
             )
             .child(
                 div()
-                    .text_size(px(12.0))
+                    .text_size(px(13.0))
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
                     .text_color(colors.foreground)
                     .child("aish"),
             );
@@ -428,7 +431,7 @@ impl Render for RootView {
             .flex()
             .flex_row()
             .items_center()
-            .h(px(36.0))
+            .h(px(40.0))
             .w_full()
             .bg(colors.card)
             .border_b_1()
