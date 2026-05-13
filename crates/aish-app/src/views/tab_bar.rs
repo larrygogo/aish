@@ -215,7 +215,7 @@ impl Focusable for TabBarView {
 }
 
 impl Render for TabBarView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let app = self.state.read(cx);
         let selected = app.selected_tab;
         let editing_tab = self.editing_tab;
@@ -353,20 +353,24 @@ impl Render for TabBarView {
 
         // 外层布局：[ < 箭头?] [ tabs 横向滚动容器 ] [ > 箭头?] [ + 按钮固定 ]
         //
-        // 滚动箭头显示条件（混合 heuristic + 精确判断）：
-        // - 左箭头 show_left：offset.x < 0（已经向右滚了，可以回左）
-        //   offset 是用户交互后 GPUI 实时更新，render 能准确读到。
-        // - 右箭头 show_right：tabs.len() >= 4 时**总是显示**（粗略 heuristic，
-        //   避免依赖 max_offset 首帧 = 0 的延迟）。当 tabs 实际没溢出时，click
-        //   箭头会被 set_offset clamp 到 max=0 noop，无害。tabs < 4 时不显示
-        //   避免占位干扰。
-        // 设计取舍：精确依赖 max_offset 需要 prepaint 完成后下一帧 notify，
-        // 但 GPUI 没有 scroll 自动 notify 机制，首次 mount 时箭头永远不出现 →
-        // 用户陷入"看着溢出但没箭头可点"。粗略阈值能保证 tabs 多时一定有入口。
+        // 滚动箭头显示条件：
+        // - show_left：offset.x < 0（已向右滚了，可以回左）—— GPUI offset 是
+        //   用户交互后实时更新，render 准确。
+        // - show_right：基于 window viewport 宽度 + tabs 数粗估总占用，
+        //   超出可用空间则显示。粗估按每 tab 200px max-width 上限算（实际可能
+        //   短于 max，所以是保守 over-estimate → 偏向显示箭头），减去 sidebar
+        //   (48) + plus (40) + 各 padding（~30）≈ 120 留白。
+        //   ‖ max_offset.x < 0 兜底（用户滚动后 ScrollHandle 已准确，更可信）。
         let tabs_len = app.tabs.len();
+        let viewport_w = window.viewport_size().width;
+        let estimated_tabs_w = px(tabs_len as f32 * 200.0);
+        let available_w = viewport_w - px(120.0);
+        let likely_overflow = estimated_tabs_w > available_w;
         let offset_x = self.scroll_handle.offset().x;
+        let max_x = self.scroll_handle.max_offset().x;
+        let confirmed_overflow = max_x < px(-0.5);
         let show_left = offset_x < px(-0.5);
-        let show_right = tabs_len >= 4;
+        let show_right = likely_overflow || confirmed_overflow;
 
         let arrow_left = div()
             .id("tab-bar-arrow-left")
