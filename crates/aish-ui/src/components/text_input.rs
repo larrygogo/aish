@@ -6,7 +6,7 @@
 
 use std::ops::Range;
 use std::rc::Rc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use arboard::Clipboard;
 use gpui::{
@@ -58,6 +58,15 @@ pub struct TextInput {
     /// cursor_x 与 viewport bounds 后更新此值，下一帧用新 offset re-render。
     /// 解决长文本 / cursor 移末尾时'后面的字看不到'问题。
     scroll_offset: Pixels,
+    /// drag select 当前鼠标 x（mouse_move 时更新）。drag-to-edge auto-scroll
+    /// timer 比对 viewport 边界用，鼠标接近边沿时主动扩 cursor + 滚动。
+    drag_target_x: Option<Pixels>,
+    /// 上一帧 viewport bounds（canvas prepaint 写入）。drag auto-scroll 用。
+    viewport_bounds: Option<Bounds<Pixels>>,
+    /// drag 期间的 auto-scroll task。mouse_down 启，mouse_up 时 take() 丢弃
+    /// 自动 abort。drag 期间 30ms 周期检查 drag_target_x 是否接近 viewport
+    /// 边沿，扩 cursor 一格。
+    drag_task: Option<gpui::Task<()>>,
 }
 
 impl TextInput {
@@ -80,6 +89,9 @@ impl TextInput {
             on_blur: None,
             last_focused: false,
             scroll_offset: px(0.0),
+            drag_target_x: None,
+            viewport_bounds: None,
+            drag_task: None,
         };
         this.start_blink_timer(cx);
         this
@@ -179,17 +191,6 @@ impl TextInput {
         self.bounds_map.clear();
     }
 
-    /// 鼠标 click 像素位置 → self.text 的 byte offset（**source space**）。
-    ///
-    /// bounds_map 里的 byte 来自 render 中 glyph_div 的 `byte` 参数，
-    /// 而 glyph_div 接收的是 displayed_text 的 byte（mask 模式下显示串与
-    /// 原文 byte 数不同：'•' 在 UTF-8 中 3 字节，ASCII char 1 字节 ——
-    /// 直接把 displayed byte 设进 self.cursor 会让 cursor 超出 self.text.len()，
-    /// 下次按 backspace/delete 时 `self.text[..self.cursor]` slice 越界 panic）。
-    ///
-    /// 这里在 mouse_down / mouse_move 把 displayed-space byte 映射回
-    /// source-space byte（中转 char index）。非 mask 时 identity（避免无意义的
-    /// 重复 chars().count() 遍历）。
     /// 水平 scroll 跟随 cursor：在 canvas prepaint 阶段调用（此时 bounds_map
     /// 已被 glyph_div 填好上一帧的 viewport 位置）。
     ///
@@ -244,6 +245,74 @@ impl TextInput {
         }
     }
 
+    /// drag-to-edge auto-scroll 单步：drag 期间 30ms 触发一次。
+    /// 鼠标 x 落在 viewport 左/右边沿 20px 内 → cursor 向对应方向扩一字符，
+    /// 后续 update_scroll_to_cursor 会自然把 scroll_offset 调到让新 cursor 可见。
+    ///
+    /// 返回 true = task 应继续；false = 退出 timer。
+    fn step_drag_auto_scroll(&mut self, cx: &mut Context<Self>) -> bool {
+        if !self.is_dragging {
+            return false;
+        }
+        let (Some(x), Some(vb)) = (self.drag_target_x, self.viewport_bounds) else {
+            return true;
+        };
+        let margin = px(20.0);
+        let v_left = vb.origin.x;
+        let v_right = vb.origin.x + vb.size.width;
+        let cursor_was = self.cursor;
+        if x > v_right - margin && self.cursor < self.text.len() {
+            // 向右扩 cursor 一字符
+            let next = self.text[self.cursor..]
+                .char_indices()
+                .nth(1)
+                .map(|(i, _)| self.cursor + i)
+                .unwrap_or(self.text.len());
+            self.cursor = next;
+        } else if x < v_left + margin && self.cursor > 0 {
+            // 向左扩 cursor 一字符
+            let prev = self.text[..self.cursor]
+                .char_indices()
+                .last()
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+            self.cursor = prev;
+        }
+        if self.cursor != cursor_was {
+            self.reset_blink();
+            cx.notify();
+        }
+        true
+    }
+
+    /// 启动 drag auto-scroll task：30ms 周期调 step_drag_auto_scroll。
+    /// task 由 self.drag_task 持有所有权，mouse_up 时 take() Drop 自动 abort。
+    fn start_drag_auto_scroll(&mut self, cx: &mut Context<Self>) {
+        let task = cx.spawn(async move |this, cx| loop {
+            cx.background_executor()
+                .timer(Duration::from_millis(30))
+                .await;
+            let cont = this
+                .update(cx, |this, cx| this.step_drag_auto_scroll(cx))
+                .unwrap_or(false);
+            if !cont {
+                break;
+            }
+        });
+        self.drag_task = Some(task);
+    }
+
+    /// 鼠标 click 像素位置 → self.text 的 byte offset（**source space**）。
+    ///
+    /// bounds_map 里的 byte 来自 render 中 glyph_div 的 `byte` 参数，
+    /// 而 glyph_div 接收的是 displayed_text 的 byte（mask 模式下显示串与
+    /// 原文 byte 数不同：'•' 在 UTF-8 中 3 字节，ASCII char 1 字节 ——
+    /// 直接把 displayed byte 设进 self.cursor 会让 cursor 超出 self.text.len()，
+    /// 下次按 backspace/delete 时 `self.text[..self.cursor]` slice 越界 panic）。
+    ///
+    /// 这里在 mouse_down / mouse_move 把 displayed-space byte 映射回
+    /// source-space byte（中转 char index）。非 mask 时 identity（避免无意义的
+    /// 重复 chars().count() 遍历）。
     pub(crate) fn cursor_from_click(&self, click_x: Pixels) -> usize {
         if self.mask_char.is_none() {
             // displayed_text == self.text，bounds_map 的 byte 就是 source byte
@@ -948,7 +1017,11 @@ impl Render for TextInput {
                     // byte（mask 模式必要，否则 cursor 超过 self.text.len() 引发 panic）。
                     let byte = this.cursor_from_click(ev.position.x);
                     this.is_dragging = true; // M16 T3: 开始 drag
+                    this.drag_target_x = Some(ev.position.x);
                     this.handle_mouse_down_at(byte, cx);
+                    // drag-to-edge auto-scroll：启 30ms timer task，鼠标停在
+                    // viewport 边沿时持续扩 cursor + 滚动（不靠 mouse_move 持续触发）。
+                    this.start_drag_auto_scroll(cx);
                     // 阻止 mouse_down 冒泡到父：典型场景是 TabBar inline rename
                     // —— TabItem 自己也注册了 on_mouse_down(切 tab)，若不拦，
                     // 点 input 内任意位置都会同时触发 TabItem.on_click 把 editing
@@ -966,6 +1039,8 @@ impl Render for TextInput {
                 if !this.is_dragging {
                     return;
                 }
+                // 实时更新 drag_target_x 让 auto-scroll timer 拿到最新位置。
+                this.drag_target_x = Some(ev.position.x);
                 let byte = this.cursor_from_click(ev.position.x);
                 if byte != this.cursor {
                     this.cursor = byte;
@@ -976,9 +1051,10 @@ impl Render for TextInput {
             .on_mouse_up(
                 MouseButton::Left,
                 cx.listener(|this, _ev: &MouseUpEvent, _w, cx| {
-                    // 当前 is_dragging 不参与 render，notify 是防御性的（未来若
-                    // render 引用 is_dragging，松手立即重绘以清掉旧状态）
                     this.is_dragging = false;
+                    this.drag_target_x = None;
+                    // Take 丢弃 Task，GPUI Task drop 自动 abort timer loop。
+                    this.drag_task.take();
                     cx.notify();
                 }),
             )
@@ -1000,6 +1076,7 @@ impl Render for TextInput {
                         // 与 container 同尺寸的 viewport。算 cursor_x vs viewport
                         // 边界，更新 scroll_offset 并 notify 下一帧 re-render。
                         let _ = weak_view.update(cx, |this, cx_inner| {
+                            this.viewport_bounds = Some(prepaint_bounds);
                             this.update_scroll_to_cursor(prepaint_bounds, cx_inner);
                         });
                     },
