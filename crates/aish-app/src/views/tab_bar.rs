@@ -350,6 +350,11 @@ impl Render for TabBarView {
                 div()
                     .id("tab-bar-scroll")
                     .flex_1()
+                    // 关键：flex item 默认 min_width=auto 由内容决定，会让
+                    // 容器被 tab_items 总宽度撑大，导致 overflow_x_scroll 失
+                    // 效（实际 = "宽到没溢出"）。设 0 强制可压缩到 0，flex_1
+                    // 才会正确分配到"父 div 剩余空间"，超出的 tab 才走滚动。
+                    .min_w(px(0.0))
                     .h_full()
                     .flex()
                     .flex_row()
