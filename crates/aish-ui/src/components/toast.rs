@@ -7,7 +7,10 @@
 
 use std::time::{Duration, Instant};
 
-use gpui::{div, prelude::*, px, App, Context, Entity, IntoElement, Render, SharedString, Window};
+use gpui::{
+    div, hsla, point, prelude::*, px, App, BoxShadow, Context, Entity, IntoElement, Render,
+    SharedString, Window,
+};
 
 use crate::icons::{icon, IconName};
 use crate::theme::theme;
@@ -161,26 +164,52 @@ fn render_toast(
                 }
             });
 
+    // 视觉：左 4px 粗状态色条（VSCode notification 风）+ rounded card + shadow。
+    // 之前样式：单边 1px border 全围染色 + popover 暗 bg，单薄、像 dev-tool 提示。
+    // 新样式：4px 左条聚焦状态色，整卡 popover bg + 大圆角 + shadow 浮起，
+    // 内部 padding 更宽松，icon / 文字 / close 三层有呼吸感。
     div()
-        .min_w(gpui::px(240.0))
-        .px(t.spacing.px_3)
-        .py(t.spacing.px_2)
-        .rounded(t.radius.md)
+        .relative()
+        .min_w(px(300.0))
+        .max_w(px(440.0))
+        .pl(px(16.0))
+        .pr(px(8.0))
+        .py(px(12.0))
+        .rounded(t.radius.lg)
         .bg(t.colors.popover)
-        .border_1()
-        .border_color(border_color)
+        .overflow_hidden() // 让左条 rounded 不溢出
+        // shadow：black 40% alpha，向下偏移 4px + 12px blur，浮起感
+        // 不带 spread，让 shadow 紧贴卡片轮廓不发散
+        .shadow(vec![BoxShadow {
+            color: hsla(0.0, 0.0, 0.0, 0.4),
+            offset: point(px(0.0), px(4.0)),
+            blur_radius: px(12.0),
+            spread_radius: px(0.0),
+        }])
         .flex()
         .flex_row()
-        .items_center()
-        .gap(t.spacing.px_2)
+        .items_start() // icon 与文字第一行顶部对齐（长文字换行时仍对齐）
+        .gap(px(12.0))
+        // 4px 左条状态色：用 absolute div 而非 border-l，让 rounded 在 outer
+        // 容器生效（border-l 与 rounded 一起会让左条边角不平滑）
+        .child(
+            div()
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .left_0()
+                .w(px(4.0))
+                .bg(border_color),
+        )
         .child(
             icon(toast.kind.icon_name())
-                .size(t.font_size.base)
+                .size(px(18.0))
                 .text_color(border_color),
         )
         .child(
             div()
                 .flex_1()
+                .pt(px(1.0)) // 让文字 baseline 与 icon 中心更对齐
                 .text_size(t.font_size.sm)
                 .text_color(fg_color)
                 .child(toast.message),
