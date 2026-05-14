@@ -277,7 +277,7 @@ impl Render for InputBarView {
                                 .w(px(60.0))
                                 .overflow_hidden()
                                 .text_size(px(9.0))
-                                .text_color(rgb(0x888899))
+                                .text_color(t.colors.muted_foreground)
                                 .child(name),
                         )
                 })

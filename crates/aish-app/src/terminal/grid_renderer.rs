@@ -15,7 +15,7 @@ use alacritty_terminal::term::cell::{Cell, Flags};
 use alacritty_terminal::vte::ansi::NamedColor;
 use alacritty_terminal::Term;
 use gpui::{
-    fill, font, hsla, point, size, App, Bounds, Font, Hsla, Pixels, SharedString, TextRun, Window,
+    fill, font, point, size, App, Bounds, Font, Hsla, Pixels, SharedString, TextRun, Window,
 };
 
 use super::colors;
@@ -116,8 +116,9 @@ pub fn paint_grid(snapshot: &GridSnapshot, layout: &GridLayout, window: &mut Win
     let offset = snapshot.display_offset as i32;
 
     // --- Pass 1: 背景色矩形 + 选中高亮 ---
-    // 选中色：#3a3a8a 80% 不透明度
-    let selection_bg: Hsla = hsla(243.0 / 360.0, 0.4, 0.38, 0.8);
+    // 选中色：dark 用 #3a3a8a α=0.8 / light 用 #bfdbfe α=0.7（colors::
+    // selection_bg_for 内决策）。alpha 让底下字符仍可见。
+    let selection_bg: Hsla = colors::selection_bg_for(theme_kind);
 
     for indexed in &snapshot.cells {
         let display_line = indexed.point.line.0 + offset;

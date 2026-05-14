@@ -78,6 +78,18 @@ pub fn default_background_for(kind: aish_ui::ThemeKind) -> u32 {
     }
 }
 
+/// 终端选区高亮 bg。dark 用偏暗紫蓝（与黑底对比），light 用浅天蓝（与白底
+/// 对比）。两者 alpha=0.6~0.8 让底下字符仍可见。
+pub fn selection_bg_for(kind: aish_ui::ThemeKind) -> gpui::Hsla {
+    use gpui::hsla;
+    match kind {
+        // #3a3a8a 蓝紫 α=0.8
+        aish_ui::ThemeKind::Dark => hsla(243.0 / 360.0, 0.4, 0.38, 0.8),
+        // #bfdbfe 浅天蓝 α=0.7（macOS / Web 风浅蓝选区，浅底上对比足）
+        aish_ui::ThemeKind::Light => hsla(213.0 / 360.0, 0.96, 0.87, 0.7),
+    }
+}
+
 /// 把 normal 色升级到对应 bright 色。用于 bold 文本：
 /// alacritty / iTerm2 / Windows Terminal 默认行为 'draw bold text in bright
 /// colors'。grid_renderer 在 cell.flags 包含 BOLD 时调用此函数升级 fg 色。
