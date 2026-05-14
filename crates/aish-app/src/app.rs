@@ -425,12 +425,24 @@ impl Render for RootView {
                 if tabs_empty {
                     self.empty_terminal.clone().into_any_element()
                 } else {
+                    // session_picker 挂在 terminal viewport 内（relative 容器
+                    // 子级 absolute backdrop+dialog），仅遮挡 terminal + input_bar
+                    // 区域；sidebar / titlebar / tab_bar 不被挡，用户仍可切
+                    // tab / 切 home / 关窗口。
+                    let mut terminal_area = div()
+                        .relative()
+                        .flex_1()
+                        .min_h(px(0.0))
+                        .child(self.terminal.clone());
+                    if picker_open {
+                        terminal_area = terminal_area.child(self.session_picker.clone());
+                    }
                     div()
                         .size_full()
                         .flex()
                         .flex_col()
                         .child(self.tab_bar.clone())
-                        .child(div().flex_1().child(self.terminal.clone()))
+                        .child(terminal_area)
                         .child(self.input_bar.clone())
                         .into_any_element()
                 }
@@ -588,9 +600,9 @@ impl Render for RootView {
 
         let mut root = div().relative().size_full().child(root_with_titlebar);
 
-        if picker_open {
-            root = root.child(self.session_picker.clone());
-        }
+        // session_picker 不在 root 而在 terminal_area 内（见 main_body Terminal
+        // 分支）—— 让 backdrop 仅遮 terminal viewport，不挡 sidebar / titlebar /
+        // tab_bar，用户可继续切 tab / 切 home 不被锁死。
         if modal_open {
             root = root.child(self.host_form.clone());
         }
