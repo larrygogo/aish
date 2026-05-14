@@ -10,13 +10,41 @@
 
 ## 当前状态
 
-- **活跃分支**：main（2026-05-14 完成 M18 + M19，待 push origin/main）
-- **下一里程碑**：M20 候选 — TextInput 多行 vertical drag-to-edge auto-scroll（M19 T5b 留）/ TextInput 多行 vertical scrollbar UI / Settings 实质内容（build info / open config dir / GitHub link）/ collapse-orphan-conn（关 tab 保 actor，Home 加 active sessions 区块）
+- **活跃分支**：main（2026-05-14 完成 M18 / M19 / M20，待 push origin/main）
+- **下一里程碑**：M21 候选 — 多行 vertical drag-to-edge auto-scroll + vertical scrollbar UI（M19 T5b / M20 未做） / Settings 实质内容（build info / open config dir / GitHub link） / collapse-orphan-conn（关 tab 保 actor，Home 加 active sessions 区块）
 - **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **180** + aish-app 126 + 其他 crate) 全过
 
 ---
 
 ## Milestones（按时间倒序）
+
+### M20 — InputBar send-flow 状态机 + chat-card 视觉重塑（2026-05-14）— ✅ 已完成
+- 性质：M19 multiline 落地后的用户反馈驱动 polish pass，20 commits 跨 3 个主题，不走 spec/plan（M18 风格）
+- 主题 1：multiline TextInput 高度 / 宽度 / 容器细节修复（`07f718f` `d3d00be` `390c1b0` `eb73b1b` `a246af1` `ca32b53` `2ac2a62` `9febf6a` `2a4bca9`）
+  - 删 text_row 固定 h(40) 让多行 input 撑开 row 高度（07f718f）
+  - cursor_up_visual / cursor_down_visual 加 floor_char_boundary clamp 防 CJK 中点 panic（d3d00be，"按 ↓ 闪退"）
+  - paste 多行保留 \n / set_text / clear 清 preferred_col（390c1b0）
+  - cursor 不可见时自动垂直滚到可见行（eb73b1b）
+  - 容器固定 h = visible_lines * line_h + py * 2 修达上限后 ↑↓ 抖动（a246af1 / 9febf6a / 2a4bca9）
+  - container + 内部 wrapper 都 w_full 让 flex_col 横向撑满父剩余空间（ca32b53 / 2ac2a62）
+- 主题 2：chat-card 视觉重塑（`d3baec3` `62fe859` `58ff71b` `2e1d24a` `2aa7b23` `343963e`）
+  - 外层 rounded card + border + bg(card)，TextInput borderless 不嵌套两套盒子（d3baec3）
+  - card 内 padding / gap 调舒适（62fe859）
+  - multiline placeholder 包 flex_col 顶部对齐（textarea-like 行为，58ff71b）
+  - focus 时 card border 改 ring 色（textarea-like 焦点反馈，2e1d24a）
+  - + / Send 按钮贴 row 底部（items_end，2aa7b23；343963e 中线对齐版本后被 2aa7b23 推翻）
+- 主题 3：Send 流程状态机闭环（`41dd514` `525027a` `a47d044` `e628aa9` `3e1bf3c`）
+  - 阶段 1 — Send 按钮 loading + 缩略图依次消失 + BatchDone 边沿才清 images + input（41dd514）
+  - send 派发后立即写 pending_uploads(0, total) 让 loading 立即生效（不等 actor 第一张完成，525027a）
+  - Braille spinner 10 帧 80ms / frame 动画接到 Send 按钮 label（a47d044）
+  - 上传中锁定 TextInput + `+` 按钮 + 缩略图 × 按钮防误操作（e628aa9）
+  - 阶段 2 — SFTP 单张 30s 超时 + 任一失败 abort batch + 已成功 drain 缩略图 + 剩余 images / text 保留 retry（3e1bf3c）
+- 测试：aish-ui / aish-app 测试集不变（全是 UI/UX 修复 + 状态机逻辑修复，不引入新单元逻辑）
+- 关键 token 沉淀：
+  - **GPUI 容器宽度撑满**：flex_col 内子元素需要显式 `.w_full()`，无法靠父 flex_1 间接撑满
+  - **GPUI Pixels 算术**：`px * f32` OK，`px * px` 不允许，需 `line_h * cursor_vl as f32`
+  - **char-boundary safety**：visual_pos_to_byte 的 col 可能落 CJK char 中点，必须 `floor_char_boundary` 后再 slice
+  - **状态机 idempotency**：边沿检测（last_uploading bool）+ deferred clear（cx.spawn → entity.update）避免 listener 链中 double-borrow
 
 ### M19 — TextInput 多行 + word-wrap + auto-grow（2026-05-14）— ✅ 已完成
 - spec：[`specs/2026-05-14-aish-m19-textinput-multiline-design.md`](specs/2026-05-14-aish-m19-textinput-multiline-design.md)
