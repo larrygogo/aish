@@ -75,6 +75,11 @@ pub struct TextInput {
     /// caller 通常先调 mask_char(Some('•')) 再 show_mask_toggle(true)。
     /// 点击眼睛：mask_char Some('•') ↔ None 切换。
     show_mask_toggle: bool,
+    /// 禁用编辑：上传中 / 表单只读 等场景。
+    /// disabled=true 时：handle_key 早 return，IME replace_text_in_range 跳过；
+    /// mouse 仍可点击定位 cursor + select 文本（与浏览器 disabled input 一致
+    /// 行为是完全不响应，aish 折中：允许选择 + 复制，禁止编辑）。
+    disabled: bool,
     /// M19：多行模式。true 时 Enter 插 \n / Ctrl+Enter 触发 on_submit /
     /// 按 \n 拆 logical lines + word-wrap 成 visual lines / auto-grow 到
     /// max_lines 上限后内部滚动。默认 false（单行行为完全不变）。
@@ -115,6 +120,7 @@ impl TextInput {
             viewport_bounds: None,
             drag_task: None,
             show_mask_toggle: false,
+            disabled: false,
             multiline: false,
             max_lines: 6,
             preferred_col: None,
@@ -149,6 +155,13 @@ impl TextInput {
     /// 右侧加"眼睛"按钮切换 mask 显示。caller 通常先 .mask_char(Some('•'))
     /// 再 .show_mask_toggle(true)。点击：mask_char Some('•') ↔ None 切换，
     /// icon 在 Eye / EyeOff 间切换（masked = EyeOff 提示"目前隐藏"）。
+    /// 禁用编辑（上传中 / 只读 等场景）：键盘 / IME 输入跳过；mouse 仍可定位
+    /// cursor + selection（保留 copy 能力）。
+    pub fn disabled(&mut self, b: bool) -> &mut Self {
+        self.disabled = b;
+        self
+    }
+
     pub fn show_mask_toggle(&mut self, b: bool) -> &mut Self {
         self.show_mask_toggle = b;
         self
@@ -915,6 +928,11 @@ impl TextInput {
     }
 
     fn handle_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        // disabled：键盘输入完全跳过（上传中 / 只读场景）。注意 mouse_down
+        // path 不受影响，用户仍可点选 + 复制。
+        if self.disabled {
+            return;
+        }
         // 横向操作 / typing / 删字 时清 preferred_col（标准 textarea 行为：
         // 用户横向走光标后再 ↑/↓ 应该用"当前 col"重新记忆）
         let ctrl = event.keystroke.modifiers.control;
@@ -1320,6 +1338,10 @@ impl InputHandler for TextInputImeHandler {
         cx: &mut App,
     ) {
         if let Ok((Some(h), new_text)) = self.view.update(cx, |this, cx| {
+            // disabled：IME 输入完全跳过（与 handle_key 同行为）
+            if this.disabled {
+                return (None, this.text.clone());
+            }
             this.insert_str(text);
             cx.notify();
             (this.on_change.clone(), this.text.clone())

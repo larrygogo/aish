@@ -295,6 +295,12 @@ impl Render for InputBarView {
         }
         self.last_uploading = is_uploading;
 
+        // 上传中锁定 TextInput：键盘 / IME 输入跳过，但 mouse 仍可选择复制。
+        // 同步设到 input entity（每帧 sync 因为 is_uploading 可能变化）。
+        self.input.update(cx, |i, _cx| {
+            i.disabled(is_uploading);
+        });
+
         let progress_row = upload_progress.map(|(done, total)| {
             div()
                 .flex()
@@ -341,32 +347,35 @@ impl Render for InputBarView {
                                         .h_full()
                                         .object_fit(ObjectFit::Cover),
                                 )
-                                .child(
-                                    div()
-                                        .absolute()
-                                        .top(px(1.0))
-                                        .right(px(1.0))
-                                        .w(px(14.0))
-                                        .h(px(14.0))
-                                        .flex()
-                                        .items_center()
-                                        .justify_center()
-                                        .rounded_full()
-                                        .bg(rgb(0x00000099))
-                                        .cursor_pointer()
-                                        .on_mouse_down(
-                                            gpui::MouseButton::Left,
-                                            cx.listener(move |this, _, _window, cx| {
-                                                this.remove_image(i, cx);
-                                            }),
-                                        )
-                                        .child(
-                                            div()
-                                                .text_size(px(9.0))
-                                                .text_color(rgb(0xffffff))
-                                                .child("×"),
-                                        ),
-                                ),
+                                // × 删除按钮：上传中不渲染（锁定缩略图）
+                                .when(!is_uploading, |d| {
+                                    d.child(
+                                        div()
+                                            .absolute()
+                                            .top(px(1.0))
+                                            .right(px(1.0))
+                                            .w(px(14.0))
+                                            .h(px(14.0))
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .rounded_full()
+                                            .bg(rgb(0x00000099))
+                                            .cursor_pointer()
+                                            .on_mouse_down(
+                                                gpui::MouseButton::Left,
+                                                cx.listener(move |this, _, _window, cx| {
+                                                    this.remove_image(i, cx);
+                                                }),
+                                            )
+                                            .child(
+                                                div()
+                                                    .text_size(px(9.0))
+                                                    .text_color(rgb(0xffffff))
+                                                    .child("×"),
+                                            ),
+                                    )
+                                }),
                         )
                         .child(
                             div()
@@ -404,6 +413,8 @@ impl Render for InputBarView {
                 aish_ui::IconButton::new("input-bar-pick", aish_ui::IconName::Plus)
                     .small()
                     .secondary()
+                    // 上传中锁定：禁止再添加图片（与 Send 按钮同步 disabled）
+                    .disabled(is_uploading)
                     .on_click(
                         cx.listener(|this, _ev: &gpui::MouseDownEvent, _window, cx| {
                             this.pick_images(cx);
