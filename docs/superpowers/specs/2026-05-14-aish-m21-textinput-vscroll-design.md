@@ -147,3 +147,45 @@ scrollbar thumb / track 是装饰元素，mouse_down 在 scrollbar 上不参与 
 ## 7. Plan 引用
 
 见 [`../plans/2026-05-14-aish-m21-textinput-vscroll.md`](../plans/2026-05-14-aish-m21-textinput-vscroll.md)
+
+---
+
+## 8. 实施记录（2026-05-14 完成）
+
+T1-T4 已实施，T5 文档收尾。
+
+### 实际 commits
+
+| Task | Commit | 内容 |
+|---|---|---|
+| spec + plan | `a07d484` | 本文件 + plan 起草 |
+| T1 | `cd30f99` | drag_target_y + step_drag_auto_scroll vertical 路径 + 4 单测 |
+| T2 | `0860a08` | cursor_dirty_for_scroll 守门 + reset_blink 集中 set dirty + 4 单测 |
+| T3 | `e4f9a02` | handle_wheel(multiline) 滚 scroll_offset_y + on_scroll_wheel listener + 5 单测 |
+| T4 | `78888a9` | scrollbar thumb overlay 渲染 + opacity 0.5/0.9 hover |
+
+### Risk 实际遇到
+
+- **R1（wheel 与 update_scroll_to_cursor 冲突）**：T2 dirty flag 完整解决。reset_blink 集中 set dirty 路径覆盖所有 cursor 写点；wheel 不调 reset_blink 自然保持 dirty=false。
+- **R2（scrollbar 占 6px 影响 wrap）**：scrollbar 用 absolute overlay 不挤压 text_row 横向空间，wrap 边界基于 viewport_bounds.size.width 不变。
+- **R5（wheel 截走父容器 scroll）**：multiline + content > max_lines 才接管 wheel，其余情况 handle_wheel early return 让 GPUI 默认 bubble。InputBar 父级 wheel 路径仍通畅。
+- **R6（thumb 不可拖用户尝试）**：mouse_down stop_propagation 防冒泡，没引诱 drag 的 cursor 样式（沿用默认）；backlog 列出 thumb drag 实现可后续做。
+
+### Pixels 算术 lesson
+
+GPUI `Pixels(pub(crate) f32)` 字段外部不可访问，转 f32 走 `f32::from(p)` / `p.to_f64()`。`Pixels * f32 = Pixels` 可用，`Pixels / Pixels` 不允许（需要先转 f32 取 ratio）。
+
+### 未做（M22+）
+
+- thumb 可 drag 改 scroll_offset_y（capture mouse + 算 ratio + 防抖动）
+- thumb auto-hide（无 hover 渐隐 — 现在常驻）
+- 平滑滚动动画（wheel 后 jump 一行而非 smooth scroll）
+
+### 测试增量
+
+- aish-ui 180 → **195**（+15）
+  - T1 +4: simulate_vertical_drag_step（down / up / singleline no-op / first-line no-op）
+  - T2 +4: cursor_dirty 转换（initial / set on nav / cleared after update / wheel no-set）
+  - T3 +5: simulate_wheel（scrolls / clamp upper / clamp lower / singleline no-op / short content no-op）
+  - T4 跳过单测（render 逻辑手测，几何算法 trivial）
+  - 加上 baseline 偏差 2 个其他 test（INDEX 旧基线 180 已含未结余）

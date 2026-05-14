@@ -10,13 +10,34 @@
 
 ## 当前状态
 
-- **活跃分支**：main（2026-05-14 完成 M18 / M19 / M20，待 push origin/main）
-- **下一里程碑**：M21 候选 — 多行 vertical drag-to-edge auto-scroll + vertical scrollbar UI（M19 T5b / M20 未做） / Settings 实质内容（build info / open config dir / GitHub link） / collapse-orphan-conn（关 tab 保 actor，Home 加 active sessions 区块）
-- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **180** + aish-app 126 + 其他 crate) 全过
+- **活跃分支**：main（2026-05-14 完成 M18 / M19 / M20 / M21，待 push origin/main）
+- **下一里程碑**：M22 候选 — Settings 实质内容（build info / open config dir / GitHub link） / collapse-orphan-conn（关 tab 保 actor，Home 加 active sessions 区块） / scrollbar thumb 可拖（M21 backlog）
+- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **195** + aish-app 126 + 其他 crate) 全过
 
 ---
 
 ## Milestones（按时间倒序）
+
+### M21 — TextInput 多行 vertical drag-to-edge + scrollbar（2026-05-14）— ✅ 已完成
+- spec：[`specs/2026-05-14-aish-m21-textinput-vscroll-design.md`](specs/2026-05-14-aish-m21-textinput-vscroll-design.md)
+- plan：[`plans/2026-05-14-aish-m21-textinput-vscroll.md`](plans/2026-05-14-aish-m21-textinput-vscroll.md)
+- 范围：补齐 M19 留的两件 vertical 交互
+  - drag-to-edge auto-scroll vertical 路径（drag_target_y + step_drag_auto_scroll 多行分支）
+  - wheel 多行路由 scroll_offset_y（不动 cursor，textarea 标准）
+  - cursor_dirty_for_scroll dirty flag 守门 update_scroll_to_cursor（防 wheel 滚位被下一帧拉回 cursor 位置）
+  - vertical scrollbar thumb overlay（仅 content > max_lines 时画，比例计算 + 最小 20px 防过短）
+- 关键 commits：
+  - `a07d484` — spec + plan
+  - `cd30f99` — T1 drag_target_y + step_drag_auto_scroll vertical + 4 单测
+  - `0860a08` — T2 cursor_dirty_for_scroll + reset_blink 集中 set dirty + 4 单测
+  - `e4f9a02` — T3 handle_wheel + on_scroll_wheel listener + 5 单测
+  - `78888a9` — T4 scrollbar thumb 渲染（absolute overlay + opacity hover）
+- 测试：aish-ui 180 → **195**（+15：vertical drag 4 / dirty flag 4 / wheel 5 + 基线偏差 2）
+- 已知边界 / 留 M22+：
+  - scrollbar thumb 不可拖（M21 仅可视，drag thumb 留 backlog）
+  - 无 auto-hide（thumb 常驻，可后续加 hover/focus 渐显逻辑）
+  - wheel 走 jump 而非 smooth scroll
+- Pixels lesson：`Pixels.0` pub(crate) 外部不可访问，`f32::from(p)` 转 f32；`Pixels * f32` 可用，`Pixels / Pixels` 需先转 f32 取 ratio
 
 ### M20 — InputBar send-flow 状态机 + chat-card 视觉重塑（2026-05-14）— ✅ 已完成
 - 性质：M19 multiline 落地后的用户反馈驱动 polish pass，20 commits 跨 3 个主题，不走 spec/plan（M18 风格）
