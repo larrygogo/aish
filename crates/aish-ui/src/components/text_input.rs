@@ -1063,6 +1063,7 @@ impl TextInput {
     /// 字节）静默返回 false 走 text paste fallback。
     fn try_paste_image(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let Some(handler) = self.on_paste_image.clone() else {
+            tracing::debug!("text_input: try_paste_image — 无 on_paste_image callback");
             return false;
         };
         let mut cb = match Clipboard::new() {
@@ -1074,12 +1075,27 @@ impl TextInput {
         };
         let img = match cb.get_image() {
             Ok(i) => i,
-            Err(_) => return false, // 剪贴板无图片 — 走 text fallback
+            Err(e) => {
+                tracing::debug!("text_input: try_paste_image — get_image 失败: {}", e);
+                return false; // 剪贴板无图片 — 走 text fallback
+            }
         };
         let w = img.width as u32;
         let h = img.height as u32;
+        let rgba_len = img.bytes.len();
+        tracing::info!(
+            w = w,
+            h = h,
+            rgba_len = rgba_len,
+            "text_input: try_paste_image — 拿到图片，调 handler"
+        );
         let rgba = img.bytes.into_owned();
-        handler(w, h, rgba, window, cx)
+        let consumed = handler(w, h, rgba, window, cx);
+        tracing::info!(
+            consumed = consumed,
+            "text_input: try_paste_image — handler 返回"
+        );
+        consumed
     }
 
     pub(crate) fn paste(&mut self) -> bool {
@@ -1234,19 +1250,28 @@ impl TextInput {
                 }
             }
             "v" if event.keystroke.modifiers.control => {
-                // paste 优先级：files → image → text
-                // files：用户从文件管理器 Ctrl+C 图片再 Ctrl+V 的场景，剪贴板
-                //   存的是 file 路径列表（Win CF_HDROP / macOS NSFilenamesPboardType
-                //   / Linux text/uri-list），arboard 拿不到 — 走 GPUI ClipboardItem
-                //   ExternalPaths entry。caller 通常 filter image ext 后入队。
-                // image：arboard 拿到的 RGBA bytes（QQ 截图 / 网页 Ctrl+C 图片）
-                // text：普通文字 fallback
-                // disabled 时（上传中等）跳过 image / files，仍可走 text paste。
-                let consumed = !self.disabled
-                    && (self.try_paste_files(window, cx) || self.try_paste_image(window, cx));
-                if !consumed && self.paste() {
-                    cx.notify();
-                    self.fire_change(window, cx);
+                // paste 三条路径并行处理（不互斥，剪贴板可同时含多种）：
+                // 1. files：file 路径列表（用户从文件管理器 Ctrl+C 图片场景）
+                //    走 GPUI ClipboardItem ExternalPaths entry。caller 通常
+                //    filter image ext 后入队。consumed=true 跳过 image/text
+                //    （文件操作通常不伴随 text，剪贴板的 path 字符串当文字插
+                //    更不符合用户预期）。
+                // 2. image：arboard 拿到的 RGBA bytes（截图 / 网页 / Slack
+                //    复制图文混合都会含 image format）。caller 入队后**继续**
+                //    走 text paste — 图文并存时两者都吃。
+                // 3. text：普通文字 fallback / 图文场景的文字部分。
+                // disabled 时（上传中）跳过 image / files，仍可走 text paste。
+                let files_consumed = !self.disabled && self.try_paste_files(window, cx);
+                if !files_consumed {
+                    if !self.disabled {
+                        self.try_paste_image(window, cx);
+                        // image 消费成功不阻断 text — 图文同时存在时
+                        // image 入 caller 队列 + text 仍插入 input 内
+                    }
+                    if self.paste() {
+                        cx.notify();
+                        self.fire_change(window, cx);
+                    }
                 }
             }
             "escape" => {
