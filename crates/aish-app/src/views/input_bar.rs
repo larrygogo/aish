@@ -46,6 +46,11 @@ pub struct InputBarView {
     /// Braille spinner 当前帧（0..10）。上传中每 80ms +1 mod 10，render 内取
     /// SPINNER_FRAMES[phase] 拼到 Send 按钮 label 给 loading 动画反馈。
     spinner_phase: u8,
+    /// 当前窗口是否有外部 drag-in（GPUI cx.has_active_drag）。100ms polling
+    /// timer 同步：状态变化时 cx.notify 触发 re-render 显示/隐藏 drop hint。
+    /// GPUI active_drag 是 pub(crate) 没观察 API，render 内直接 read cx 不
+    /// 触发自身 re-render — 必须 polling + 持久字段。
+    has_external_drag: bool,
 }
 
 /// CLI 标准 Braille spinner 10 帧（与 npm `ora` / `cli-spinners` 的 `dots`
@@ -133,6 +138,29 @@ impl InputBarView {
             }
         })
         .detach();
+        // 100ms polling timer 同步外部 drag-in 状态：cx.has_active_drag()
+        // 变化时 cx.notify 让 InputBar re-render 显示 / 隐藏 drop hint。
+        // 状态不变 → 不 notify（避免空转重渲）。
+        cx.spawn(async move |this, cx| loop {
+            cx.background_executor()
+                .timer(Duration::from_millis(100))
+                .await;
+            let cont = this
+                .update(cx, |this, cx| {
+                    let now = cx.has_active_drag();
+                    if now != this.has_external_drag {
+                        this.has_external_drag = now;
+                        cx.notify();
+                    }
+                    true
+                })
+                .unwrap_or(false);
+            if !cont {
+                break;
+            }
+        })
+        .detach();
+
         Self {
             state,
             bridge,
@@ -140,6 +168,7 @@ impl InputBarView {
             input,
             last_uploading: false,
             spinner_phase: 0,
+            has_external_drag: false,
         }
     }
 
@@ -563,6 +592,34 @@ impl Render for InputBarView {
         // input 自身 borderless，视觉框由 outer card 提供；缩略图 / 进度 / +
         // / input / Send 全在一个 card 内，统一组件感。focused 时 border
         // 改 ring 色作为 textarea-like focus 反馈。
+        //
+        // drag-over 双重反馈：
+        // - card 顶部 drop_hint：外部 drag 进窗口（self.has_external_drag）
+        //   立即显示一行"拖到这里上传图片"，让用户知道 input bar 是 drop
+        //   target。100ms polling timer 把 cx.has_active_drag 同步到字段。
+        // - drag_over::<ExternalPaths> 鼠标真的 hover 在 card 上时 border
+        //   切 primary + bg 加深一档（visible affordance）。GPUI .drag_over
+        //   仅在 hover 触发，不依赖 entity re-render。
+        let primary = colors.primary;
+        let drop_target_bg = colors.accent;
+        let drop_hint = if self.has_external_drag {
+            let muted_fg = colors.muted_foreground;
+            Some(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .justify_center()
+                    .gap(px(6.0))
+                    .py(px(6.0))
+                    .text_size(px(11.0))
+                    .text_color(muted_fg)
+                    .child("⬇")
+                    .child("拖到这里加入图片"),
+            )
+        } else {
+            None
+        };
         div()
             .flex_col()
             .mx(px(8.0))
@@ -572,6 +629,11 @@ impl Render for InputBarView {
             .border_1()
             .border_color(card_border_color)
             .bg(colors.card)
+            // closure 接 StyleRefinement 返回 StyleRefinement，链式 builder。
+            // border 加粗到 2px 让 hover 反馈更显眼（占用 1px 内边距可接受）。
+            .drag_over::<ExternalPaths>(move |s, _paths, _w, _cx| {
+                s.border_color(primary).bg(drop_target_bg)
+            })
             // 外部文件 drag-drop：OS 文件管理器 / 浏览器拖图片到 card 区域。
             // GPUI 把 FileDropEvent 转 internal drag，Submit 时 .on_drop::<T>
             // 命中（T=ExternalPaths）。过滤图片扩展名后入 self.images，与
@@ -580,6 +642,7 @@ impl Render for InputBarView {
             .on_drop(cx.listener(|this, paths: &ExternalPaths, _window, cx| {
                 this.add_image_paths(paths.paths().to_vec(), cx);
             }))
+            .children(drop_hint)
             .children(progress_row)
             .children(images_row)
             .child(text_row)
