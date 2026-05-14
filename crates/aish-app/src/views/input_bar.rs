@@ -13,6 +13,8 @@ use gpui::{
     PathPromptOptions, SharedString, Window,
 };
 
+use aish_types::ConnectionId;
+
 use crate::bridge::Bridge;
 use crate::state::{AppState, SessionCommand};
 
@@ -35,6 +37,13 @@ fn is_image_path(p: &Path) -> bool {
 }
 
 pub struct InputBarView {
+    /// 本视图绑定的 connection。每个 ConnectionId 一个独立 InputBarView entity，
+    /// 草稿（input 文字 + images 缩略图）天然按 conn 隔离。M22 之前 InputBarView
+    /// 是全局单例 + 内部读 `state.current_connection()`，导致多个 shell tab 共
+    /// 享同一份草稿；现改成 RootView 持 `HashMap<ConnectionId, Entity<Self>>`
+    /// 按 conn lazy 创建。conn 销毁（remove_connection）→ RootView observe 内
+    /// retain → entity drop → 草稿一并丢弃。
+    conn: ConnectionId,
     state: Entity<AppState>,
     bridge: Arc<Bridge>,
     images: Vec<PendingImage>,
@@ -58,7 +67,12 @@ pub struct InputBarView {
 const SPINNER_FRAMES: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 impl InputBarView {
-    pub fn new(state: Entity<AppState>, bridge: Arc<Bridge>, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        conn: ConnectionId,
+        state: Entity<AppState>,
+        bridge: Arc<Bridge>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         // observe state → BatchProgress / BatchDone 改 pending_uploads 时本视图
         // 同步重绘（显示/隐藏进度行 + 切换发送按钮 disabled 状态）。
         cx.observe(&state, |_this, _state, cx| cx.notify()).detach();
@@ -122,11 +136,9 @@ impl InputBarView {
             let cont = this
                 .update(cx, |this, cx| {
                     this.spinner_phase = (this.spinner_phase + 1) % SPINNER_FRAMES.len() as u8;
-                    let uploading = this
-                        .state
-                        .read(cx)
-                        .current_connection()
-                        .is_some_and(|c| this.state.read(cx).pending_uploads.contains_key(&c));
+                    // 仅看本 conn（self.conn）是否在上传；M22 之前读
+                    // current_connection 会让其他 tab 的上传也驱动本 spinner。
+                    let uploading = this.state.read(cx).pending_uploads.contains_key(&this.conn);
                     if uploading {
                         cx.notify();
                     }
@@ -162,6 +174,7 @@ impl InputBarView {
         .detach();
 
         Self {
+            conn,
             state,
             bridge,
             images: Vec::new(),
@@ -253,13 +266,10 @@ impl InputBarView {
         true
     }
 
-    /// 当前 conn 是否有进行中的批量上传。drop / paste image 时拒绝入队避免
-    /// batch 进行中混入新图。
+    /// 本 conn（self.conn）是否有进行中的批量上传。drop / paste image 时拒绝
+    /// 入队避免 batch 进行中混入新图。
     fn is_uploading(&self, cx: &Context<Self>) -> bool {
-        self.state
-            .read(cx)
-            .current_connection()
-            .is_some_and(|c| self.state.read(cx).pending_uploads.contains_key(&c))
+        self.state.read(cx).pending_uploads.contains_key(&self.conn)
     }
 
     fn remove_image(&mut self, index: usize, cx: &mut Context<Self>) {
@@ -296,15 +306,10 @@ impl InputBarView {
     fn send(&mut self, text: String, _window: &mut Window, cx: &mut Context<Self>) {
         let text = text.trim().to_string();
 
-        let conn = match self.state.read(cx).current_connection() {
-            Some(c) => c,
-            None => {
-                self.defer_clear_input(cx);
-                self.images.clear();
-                cx.notify();
-                return;
-            }
-        };
+        // M22：每个 InputBarView 绑死 self.conn，不再从 current_connection 派生
+        // —— per-conn entity 必有 conn，原 None 兜底分支删除。RootView 在 Default
+        // tab（current_connection == None）下根本不挂 InputBar 元素。
+        let conn = self.conn;
 
         // 发送期间禁止再次按发送：当前 conn 有上传中 → 直接 return，不再发起新
         // 一轮 UploadBatch / SendBytes。Enter 路径 + 按钮 click 路径都走 send，
@@ -403,13 +408,10 @@ impl Render for InputBarView {
             colors.border
         };
 
-        // 当前 conn 的批量上传进度（BatchProgress 更新 / BatchDone 清除）。
-        // Some((done, total)) 时显示进度行 + 发送按钮 disabled。
-        let upload_progress: Option<(usize, usize)> = self
-            .state
-            .read(cx)
-            .current_connection()
-            .and_then(|c| self.state.read(cx).pending_uploads.get(&c).copied());
+        // 本 conn（self.conn）的批量上传进度（BatchProgress 更新 / BatchDone
+        // 清除）。Some((done, total)) 时显示进度行 + 发送按钮 disabled。
+        let upload_progress: Option<(usize, usize)> =
+            self.state.read(cx).pending_uploads.get(&self.conn).copied();
         let is_uploading = upload_progress.is_some();
 
         // BatchDone / BatchAborted 边沿检测：上一帧 uploading=true & 本帧 false → 结束。
@@ -418,20 +420,22 @@ impl Render for InputBarView {
         //   + 用户文字供 retry。消费 last_aborted_batch entry。
         // - 否则正常完成：清 images + defer clear input（render 内不能直接 mut input）。
         if self.last_uploading && !is_uploading {
-            let cur_conn = self.state.read(cx).current_connection();
-            let aborted =
-                cur_conn.and_then(|c| self.state.read(cx).last_aborted_batch.get(&c).copied());
+            let aborted = self
+                .state
+                .read(cx)
+                .last_aborted_batch
+                .get(&self.conn)
+                .copied();
             if let Some((succeeded, _total)) = aborted {
                 // 失败 retry 路径：移除前 N 张已传成功的缩略图，保留剩余 + text
                 let drain_n = succeeded.min(self.images.len());
                 if drain_n > 0 {
                     self.images.drain(0..drain_n);
                 }
-                if let Some(conn) = cur_conn {
-                    self.state.update(cx, |s, _| {
-                        s.last_aborted_batch.remove(&conn);
-                    });
-                }
+                let conn = self.conn;
+                self.state.update(cx, |s, _| {
+                    s.last_aborted_batch.remove(&conn);
+                });
             } else {
                 self.images.clear();
                 self.defer_clear_input(cx);

@@ -1,7 +1,9 @@
 //! aish GPUI 主应用入口。
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
+use aish_types::ConnectionId;
 use gpui::{
     div, prelude::*, px, size, App, Bounds, Context, Entity, SharedString, TitlebarOptions, Window,
     WindowBounds, WindowControlArea, WindowOptions,
@@ -343,6 +345,8 @@ pub fn run() {
 /// HostFormModal / SessionPickerView 作为顶层叠加 modal。
 struct RootView {
     state: Entity<AppState>,
+    /// bridge 保留用于 lazy 创建 per-conn InputBarView（M22 改造）。
+    bridge: Arc<Bridge>,
     sidebar_nav: Entity<crate::views::SidebarNavView>,
     tab_bar: Entity<crate::views::TabBarView>,
     home: Entity<crate::views::HomeView>,
@@ -351,7 +355,11 @@ struct RootView {
     settings: Entity<crate::views::SettingsView>,
     host_form: Entity<crate::views::HostFormModal>,
     session_picker: Entity<crate::views::SessionPickerView>,
-    input_bar: Entity<crate::views::InputBarView>,
+    /// M22：每个 ConnectionId 一个独立 InputBarView entity，草稿（文字 + 图片
+    /// 缩略图 + TextInput cursor / IME）天然按 conn 隔离。lazy 创建于 render
+    /// 内首次遇到该 conn 时；conn 销毁（state.connections 不再包含）→ observe
+    /// 回调内 retain 清掉 entry → Entity 自动 drop 释放 timer + 内存。
+    input_bars: HashMap<ConnectionId, Entity<crate::views::InputBarView>>,
     toast_manager: Entity<aish_ui::ToastManager>,
     /// 全局 key handler 用 focus_handle 让 root 在 focus dispatch path 上，
     /// 接 Ctrl+1/2/3 切 sidebar tab。不主动 .focus()，子 view（terminal /
@@ -366,7 +374,17 @@ impl RootView {
         tx: tokio::sync::mpsc::Sender<SshEvent>,
         cx: &mut Context<Self>,
     ) -> Self {
-        cx.observe(&state, |_this, _state, cx| cx.notify()).detach();
+        // M22：state.notify 每次都做 InputBar HashMap reconcile —— 把已被
+        // remove_connection 清掉的 conn 对应 entity 也从 input_bars 删除（drop
+        // 释放 timer + 草稿内存）。retain 是 O(N) 且 N=同时 alive 的 conn 数，
+        // 通常 < 10；feed_bytes 高频 notify 也无所谓，无 alloc。
+        cx.observe(&state, |this, state, cx| {
+            let alive_state = state.read(cx);
+            this.input_bars
+                .retain(|conn, _| alive_state.connections.contains_key(conn));
+            cx.notify();
+        })
+        .detach();
 
         let sidebar_nav = cx.new(|cx| crate::views::SidebarNavView::new(state.clone(), cx));
         let tab_bar = cx
@@ -385,13 +403,12 @@ impl RootView {
         let session_picker = cx.new(|cx| {
             crate::views::SessionPickerView::new(state.clone(), bridge.clone(), tx.clone(), cx)
         });
-        let input_bar =
-            cx.new(|cx| crate::views::InputBarView::new(state.clone(), bridge.clone(), cx));
 
         let toast_manager = cx.global::<aish_ui::ToastHandle>().0.clone();
 
         Self {
             state,
+            bridge,
             sidebar_nav,
             tab_bar,
             home,
@@ -400,7 +417,7 @@ impl RootView {
             settings,
             host_form,
             session_picker,
-            input_bar,
+            input_bars: HashMap::new(),
             toast_manager,
             focus_handle: cx.focus_handle(),
         }
@@ -464,14 +481,38 @@ impl Render for RootView {
                     if picker_open {
                         terminal_area = terminal_area.child(self.session_picker.clone());
                     }
-                    div()
+                    // M22：lazy 拿 / 建当前 conn 的 InputBarView entity。
+                    // - Default tab（current_connection() == None）：不挂 InputBar
+                    //   元素，main_body 只 tab_bar + terminal_area。语义对齐
+                    //   "没 shell 没 input"。
+                    // - Connection tab：HashMap 没该 conn → 先 cx.new 建一个
+                    //   per-conn entity 插进 input_bars（分两步借局部变量绕
+                    //   borrow checker：cx.new 借 &mut cx，insert 借 &mut self，
+                    //   合在 entry().or_insert_with 闭包里会双 mut borrow 报错）。
+                    let current_conn = self.state.read(cx).current_connection();
+                    let input_bar_el = current_conn.map(|conn| {
+                        if !self.input_bars.contains_key(&conn) {
+                            let state = self.state.clone();
+                            let bridge = self.bridge.clone();
+                            let entity = cx
+                                .new(|cx| crate::views::InputBarView::new(conn, state, bridge, cx));
+                            self.input_bars.insert(conn, entity);
+                        }
+                        self.input_bars
+                            .get(&conn)
+                            .expect("input_bars 刚 insert 必存在")
+                            .clone()
+                    });
+                    let mut col = div()
                         .size_full()
                         .flex()
                         .flex_col()
                         .child(self.tab_bar.clone())
-                        .child(terminal_area)
-                        .child(self.input_bar.clone())
-                        .into_any_element()
+                        .child(terminal_area);
+                    if let Some(ib) = input_bar_el {
+                        col = col.child(ib);
+                    }
+                    col.into_any_element()
                 }
             }
             SidebarTab::Settings => self.settings.clone().into_any_element(),
