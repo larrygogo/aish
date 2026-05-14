@@ -1548,7 +1548,11 @@ impl Render for TextInput {
                 .into_any_element()
         };
 
-        let mut container = div().relative().cursor_text();
+        // w_full 让 container 撑满父 flex_1 给的剩余空间。否则 container
+        // 自然宽 = content（placeholder 一行 ~264px），父 flex_1 给 1200px
+        // 也只占 264 — input border 显示 264 宽，Send 按钮被推到屏幕最右，
+        // 中间留大空白。w_full 让 input 撑满有效宽度，符合标准 input 体感。
+        let mut container = div().relative().w_full().cursor_text();
         if self.multiline {
             // M19 T3 + scroll polish: 多行容器**固定高度** = min(n_lines, max_lines)
             // * line_h。content 行数 ≤ max_lines 时容器跟 content 增高；超出
