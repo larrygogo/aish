@@ -24,6 +24,10 @@ pub struct DropdownMenu {
     items: Vec<MenuItem>,
     on_select: Option<SelectHandler>,
     min_width: Option<Pixels>,
+    /// 键盘导航当前选中的 item 索引（用 secondary_hover bg + 左 2px primary
+    /// indicator 高亮）。`None` = 无键盘选中态（首次显示 / 纯鼠标交互）。
+    /// caller 维护此值，每帧 render 时通过 selected_idx 传入。
+    selected_idx: Option<usize>,
 }
 
 impl DropdownMenu {
@@ -33,7 +37,14 @@ impl DropdownMenu {
             items: Vec::new(),
             on_select: None,
             min_width: None,
+            selected_idx: None,
         }
+    }
+
+    /// 设置键盘选中态索引。caller 通过 ↑/↓ key event 改自己 state 后传入。
+    pub fn selected_idx(mut self, idx: Option<usize>) -> Self {
+        self.selected_idx = idx;
+        self
     }
 
     pub fn items(mut self, items: Vec<MenuItem>) -> Self {
@@ -56,6 +67,7 @@ impl RenderOnce for DropdownMenu {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let t = theme(cx);
         let on_select = self.on_select;
+        let selected_idx = self.selected_idx;
 
         let mut container = div().id(self.id).flex().flex_col().py(t.spacing.px_1);
 
@@ -65,6 +77,7 @@ impl RenderOnce for DropdownMenu {
 
         container.children(self.items.into_iter().enumerate().map(|(i, item)| {
             let is_disabled = item.disabled;
+            let is_kb_selected = selected_idx == Some(i);
             let fg = if is_disabled {
                 t.colors.muted_foreground
             } else {
@@ -72,6 +85,7 @@ impl RenderOnce for DropdownMenu {
             };
 
             let mut row = div()
+                .relative()
                 .h(gpui::px(28.0))
                 .px(t.spacing.px_3)
                 .flex()
@@ -80,6 +94,20 @@ impl RenderOnce for DropdownMenu {
                 .gap(t.spacing.px_2)
                 .text_size(t.font_size.sm)
                 .text_color(fg);
+
+            // 键盘选中态：secondary_hover bg + 左 2px primary 竖条 indicator
+            // 与 SessionPicker / 其它列表 selection 视觉一致。
+            if is_kb_selected {
+                row = row.bg(t.colors.secondary_hover).child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .bottom_0()
+                        .left_0()
+                        .w(gpui::px(2.0))
+                        .bg(t.colors.primary),
+                );
+            }
 
             if let Some(icon_name) = item.icon {
                 row = row.child(icon(icon_name).size(gpui::px(14.0)).text_color(fg));

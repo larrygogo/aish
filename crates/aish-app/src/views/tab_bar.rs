@@ -14,8 +14,8 @@ use std::time::Duration;
 
 use aish_types::TabId;
 use gpui::{
-    div, point, prelude::*, px, App, Context, Entity, FocusHandle, Focusable, MouseDownEvent,
-    ScrollDelta, ScrollHandle, ScrollWheelEvent, Window,
+    div, point, prelude::*, px, App, Context, Entity, FocusHandle, Focusable, KeyDownEvent,
+    MouseDownEvent, ScrollDelta, ScrollHandle, ScrollWheelEvent, Window,
 };
 
 use aish_ui::{ContextMenu, DropdownMenu, IconName, MenuItem, TextInput};
@@ -88,7 +88,14 @@ pub struct TabBarView {
     /// 当前右键菜单针对的 tab id。`None` = 菜单关闭 / 不渲染 content。
     /// 设置 / 清除时通过 ContextMenu.on_close 同步。
     menu_tab_id: Option<TabId>,
+    /// 键盘导航当前选中的菜单项索引。0..MENU_ITEM_COUNT。
+    /// 右键打开时重置 0，↑/↓ 调整，Enter 触发 handle_menu_select。
+    menu_active_idx: usize,
 }
+
+/// tab 右键菜单 item 数量。与 build menu items 数量一致（见 render 内
+/// DropdownMenu.items() 长度）。
+const TAB_MENU_ITEM_COUNT: usize = 3;
 
 impl TabBarView {
     pub fn new(
@@ -157,12 +164,19 @@ impl TabBarView {
         // 用户点 menu 外 / Esc 关菜单时清状态，下帧 render 不再设 content。
         let context_menu = cx.new(ContextMenu::new);
         let weak_menu_close = cx.weak_entity();
+        let weak_menu_key = cx.weak_entity();
         context_menu.update(cx, move |m, _cx| {
             m.on_close(move |_w, cx| {
                 if let Some(this) = weak_menu_close.upgrade() {
                     this.update(cx, |this, _cx| {
                         this.menu_tab_id = None;
                     });
+                }
+            });
+            // 键盘导航：↑/↓/Enter
+            m.on_key(move |ev, w, cx| {
+                if let Some(this) = weak_menu_key.upgrade() {
+                    this.update(cx, |this, cx| this.handle_menu_key(ev, w, cx));
                 }
             });
         });
@@ -177,6 +191,33 @@ impl TabBarView {
             rename_input,
             context_menu,
             menu_tab_id: None,
+            menu_active_idx: 0,
+        }
+    }
+
+    /// context menu 键盘导航：↑/↓ 移动 active_idx，Enter 触发选中项 action。
+    fn handle_menu_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(tab_id) = self.menu_tab_id else {
+            return;
+        };
+        match ev.keystroke.key.as_str() {
+            "up" => {
+                self.menu_active_idx = if self.menu_active_idx == 0 {
+                    TAB_MENU_ITEM_COUNT - 1
+                } else {
+                    self.menu_active_idx - 1
+                };
+                cx.notify();
+            }
+            "down" => {
+                self.menu_active_idx = (self.menu_active_idx + 1) % TAB_MENU_ITEM_COUNT;
+                cx.notify();
+            }
+            "enter" => {
+                let idx = self.menu_active_idx;
+                self.handle_menu_select(tab_id, idx, window, cx);
+            }
+            _ => {}
         }
     }
 
@@ -418,6 +459,7 @@ impl Render for TabBarView {
                     MenuItem::new("关闭其他"),
                 ])
                 .min_width(gpui::px(180.0))
+                .selected_idx(Some(self.menu_active_idx))
                 .on_select(move |idx, window, cx| {
                     let idx = *idx;
                     if let Some(this) = weak.upgrade() {
@@ -628,6 +670,8 @@ impl Render for TabBarView {
                         gpui::MouseButton::Right,
                         cx.listener(move |this, ev: &MouseDownEvent, _w, cx| {
                             this.menu_tab_id = Some(id);
+                            // 键盘导航：每次新打开重置 active_idx = 0 (首项)
+                            this.menu_active_idx = 0;
                             let pos = ev.position;
                             this.context_menu.update(cx, |m, cx| m.open_at(pos, cx));
                             cx.notify();

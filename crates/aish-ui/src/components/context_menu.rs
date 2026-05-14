@@ -33,6 +33,7 @@ use gpui::{
 use crate::theme::theme;
 
 type CloseHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
+type KeyHandler = Rc<dyn Fn(&KeyDownEvent, &mut Window, &mut App) + 'static>;
 
 pub struct ContextMenu {
     focus_handle: FocusHandle,
@@ -41,6 +42,10 @@ pub struct ContextMenu {
     content: Option<AnyElement>,
     position: Option<Point<Pixels>>,
     on_close: Option<CloseHandler>,
+    /// caller 注册的额外 key handler。Esc 处理之后调用，让 caller 实现
+    /// ↑/↓/Enter 等列表导航键位（典型用 DropdownMenu.selected_idx 高亮 +
+    /// Enter 触发 on_select）。
+    on_key: Option<KeyHandler>,
 }
 
 impl ContextMenu {
@@ -52,6 +57,7 @@ impl ContextMenu {
             content: None,
             position: None,
             on_close: None,
+            on_key: None,
         }
     }
 
@@ -63,6 +69,16 @@ impl ContextMenu {
 
     pub fn on_close(&mut self, h: impl Fn(&mut Window, &mut App) + 'static) -> &mut Self {
         self.on_close = Some(Rc::new(h));
+        self
+    }
+
+    /// 注册额外 key handler。Esc 处理之后调用，让 caller 实现 ↑/↓/Enter 等
+    /// 列表导航键位。同 Dialog::on_key 设计。
+    pub fn on_key(
+        &mut self,
+        h: impl Fn(&KeyDownEvent, &mut Window, &mut App) + 'static,
+    ) -> &mut Self {
+        self.on_key = Some(Rc::new(h));
         self
     }
 
@@ -96,6 +112,12 @@ impl ContextMenu {
         if event.keystroke.key.as_str() == "escape" {
             self.close(cx);
             self.fire_close(window, cx);
+            return;
+        }
+        // caller 自定义 key 路径（↑/↓/Enter 等）。Esc 之后调用：Esc 由
+        // ContextMenu 统一处理，caller 不能覆盖。
+        if let Some(h) = self.on_key.clone() {
+            h(event, window, cx);
         }
     }
 }

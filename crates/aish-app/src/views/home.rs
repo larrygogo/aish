@@ -7,7 +7,9 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use aish_types::{ConnectionId, HostId};
-use gpui::{div, prelude::*, px, rgb, Context, Entity, MouseButton, MouseDownEvent, Window};
+use gpui::{
+    div, prelude::*, px, rgb, Context, Entity, KeyDownEvent, MouseButton, MouseDownEvent, Window,
+};
 
 use crate::bridge::Bridge;
 use crate::state::{
@@ -23,7 +25,12 @@ pub struct HomeView {
     context_menu: Entity<aish_ui::ContextMenu>,
     /// 当前右键菜单针对的 host id。`None` = 菜单关闭。
     menu_host_id: Option<HostId>,
+    /// 键盘导航当前选中菜单项索引。打开时重置 0，↑/↓ 调，Enter 触发。
+    menu_active_idx: usize,
 }
+
+/// host 右键菜单 item 数量（编辑 / 复制 / 删除）。与 render 内 items() 匹配。
+const HOST_MENU_ITEM_COUNT: usize = 3;
 
 impl HomeView {
     pub fn new(
@@ -35,12 +42,19 @@ impl HomeView {
         cx.observe(&state, |_, _, cx| cx.notify()).detach();
         let context_menu = cx.new(aish_ui::ContextMenu::new);
         let weak_close = cx.weak_entity();
+        let weak_key = cx.weak_entity();
         context_menu.update(cx, move |m, _cx| {
             m.on_close(move |_w, cx| {
                 if let Some(this) = weak_close.upgrade() {
                     this.update(cx, |this, _cx| {
                         this.menu_host_id = None;
                     });
+                }
+            });
+            // 键盘 ↑/↓/Enter 导航
+            m.on_key(move |ev, _w, cx| {
+                if let Some(this) = weak_key.upgrade() {
+                    this.update(cx, |this, cx| this.handle_menu_key(ev, cx));
                 }
             });
         });
@@ -50,6 +64,33 @@ impl HomeView {
             tx,
             context_menu,
             menu_host_id: None,
+            menu_active_idx: 0,
+        }
+    }
+
+    /// context menu 键盘导航：↑/↓ 改 active_idx，Enter 触发选中项。
+    fn handle_menu_key(&mut self, ev: &KeyDownEvent, cx: &mut Context<Self>) {
+        let Some(host_id) = self.menu_host_id else {
+            return;
+        };
+        match ev.keystroke.key.as_str() {
+            "up" => {
+                self.menu_active_idx = if self.menu_active_idx == 0 {
+                    HOST_MENU_ITEM_COUNT - 1
+                } else {
+                    self.menu_active_idx - 1
+                };
+                cx.notify();
+            }
+            "down" => {
+                self.menu_active_idx = (self.menu_active_idx + 1) % HOST_MENU_ITEM_COUNT;
+                cx.notify();
+            }
+            "enter" => {
+                let idx = self.menu_active_idx;
+                self.handle_menu_select(host_id, idx, cx);
+            }
+            _ => {}
         }
     }
 
@@ -214,6 +255,7 @@ impl Render for HomeView {
                     aish_ui::MenuItem::new("删除").icon(aish_ui::IconName::Trash),
                 ])
                 .min_width(gpui::px(200.0))
+                .selected_idx(Some(self.menu_active_idx))
                 .on_select(move |idx, _w, cx| {
                     let idx = *idx;
                     if let Some(this) = weak.upgrade() {
@@ -562,6 +604,7 @@ impl Render for HomeView {
                         gpui::MouseButton::Right,
                         cx.listener(move |this, ev: &MouseDownEvent, _w, cx| {
                             this.menu_host_id = Some(id);
+                            this.menu_active_idx = 0; // 重置键盘选中态
                             let pos = ev.position;
                             this.context_menu.update(cx, |m, cx| m.open_at(pos, cx));
                             cx.notify();
