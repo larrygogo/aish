@@ -150,9 +150,10 @@ impl RenderOnce for IconButton {
                 ButtonVariant::Ghost => (
                     gpui::transparent_black(),
                     // Ghost hover/active 比"大容器 hover"亮一档（详见 button.rs 同
-                    // 处注释）：hover=secondary_active 容器 hover+1 档，active 再+1
+                    // 处注释）：hover=secondary_active 容器 hover+1 档，
+                    // active=secondary_strongest 再亮一档。
                     t.colors.secondary_active,
-                    gpui::rgb(0x525252).into(),
+                    t.colors.secondary_strongest,
                     t.colors.foreground,
                 ),
             }

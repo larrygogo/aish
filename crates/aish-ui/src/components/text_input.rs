@@ -67,6 +67,10 @@ pub struct TextInput {
     /// 自动 abort。drag 期间 30ms 周期检查 drag_target_x 是否接近 viewport
     /// 边沿，扩 cursor 一格。
     drag_task: Option<gpui::Task<()>>,
+    /// 是否显示右侧"眼睛"按钮切换 mask 显示（password 字段典型用例）。
+    /// caller 通常先调 mask_char(Some('•')) 再 show_mask_toggle(true)。
+    /// 点击眼睛：mask_char Some('•') ↔ None 切换。
+    show_mask_toggle: bool,
 }
 
 impl TextInput {
@@ -92,6 +96,7 @@ impl TextInput {
             drag_target_x: None,
             viewport_bounds: None,
             drag_task: None,
+            show_mask_toggle: false,
         };
         this.start_blink_timer(cx);
         this
@@ -118,6 +123,25 @@ impl TextInput {
     pub fn borderless(&mut self, b: bool) -> &mut Self {
         self.borderless = b;
         self
+    }
+
+    /// 右侧加"眼睛"按钮切换 mask 显示。caller 通常先 .mask_char(Some('•'))
+    /// 再 .show_mask_toggle(true)。点击：mask_char Some('•') ↔ None 切换，
+    /// icon 在 Eye / EyeOff 间切换（masked = EyeOff 提示"目前隐藏"）。
+    pub fn show_mask_toggle(&mut self, b: bool) -> &mut Self {
+        self.show_mask_toggle = b;
+        self
+    }
+
+    /// 切换 mask_char Some('•') ↔ None。caller 一般不需要直接调用 —— 用
+    /// show_mask_toggle 启用 UI 按钮，按钮 click 内部自调。
+    pub fn toggle_mask(&mut self, cx: &mut Context<Self>) {
+        self.mask_char = if self.mask_char.is_some() {
+            None
+        } else {
+            Some('•')
+        };
+        cx.notify();
     }
 
     pub fn on_submit(&mut self, h: impl Fn(&str, &mut Window, &mut App) + 'static) -> &mut Self {
@@ -450,6 +474,20 @@ impl TextInput {
             self.selection_anchor = Some(byte_offset);
             self.last_click = Some((now, byte_offset));
         }
+        self.reset_blink();
+        cx.notify();
+    }
+
+    /// shift+click：扩选模式。anchor 保留（若 None 则用旧 cursor 作 anchor），
+    /// 只更新 cursor 到 click byte。后续若 drag 也按扩选走（drag 期间 anchor
+    /// 不变，cursor 跟鼠标走，selection_range = anchor..cursor 自然扩展）。
+    /// last_click 清空避免被误判为双击的第二次。
+    fn handle_shift_click_at(&mut self, byte_offset: usize, cx: &mut Context<Self>) {
+        if self.selection_anchor.is_none() {
+            self.selection_anchor = Some(self.cursor);
+        }
+        self.cursor = byte_offset;
+        self.last_click = None;
         self.reset_blink();
         cx.notify();
     }
@@ -1018,7 +1056,14 @@ impl Render for TextInput {
                     let byte = this.cursor_from_click(ev.position.x);
                     this.is_dragging = true; // M16 T3: 开始 drag
                     this.drag_target_x = Some(ev.position.x);
-                    this.handle_mouse_down_at(byte, cx);
+                    // shift+click：扩选模式（保留 anchor，cursor 跳新位置）；
+                    // 后续若 drag 也按扩选走，cursor 跟鼠标，anchor 不变。
+                    // 无 shift：原 drag select 行为（清旧 anchor，新 anchor=byte）。
+                    if ev.modifiers.shift {
+                        this.handle_shift_click_at(byte, cx);
+                    } else {
+                        this.handle_mouse_down_at(byte, cx);
+                    }
                     // drag-to-edge auto-scroll：启 30ms timer task，鼠标停在
                     // viewport 边沿时持续扩 cursor + 滚动（不靠 mouse_move 持续触发）。
                     this.start_drag_auto_scroll(cx);
@@ -1059,6 +1104,43 @@ impl Render for TextInput {
                 }),
             )
             .child(text_row)
+            // 右侧眼睛 toggle 按钮（password 字段典型）：点击切换 mask_char
+            // Some('•') ↔ None。flex_shrink_0 防止被 text_row 挤掉。
+            // 用 div 而非 IconButton —— IconButton stateful div id 在容器内
+            // 会与外层 input 容器冲突；这里手画一个简易 ghost icon button。
+            .when(self.show_mask_toggle, |d| {
+                let masked = self.mask_char.is_some();
+                let eye_icon = if masked {
+                    crate::icons::IconName::EyeOff
+                } else {
+                    crate::icons::IconName::Eye
+                };
+                let muted = t.colors.muted_foreground;
+                let fg = t.colors.foreground;
+                let hover_bg = t.colors.secondary_active;
+                d.child(
+                    div()
+                        .id("text-input-mask-toggle")
+                        .flex_shrink_0()
+                        .w(px(20.0))
+                        .h(px(20.0))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(t.radius.sm)
+                        .cursor_pointer()
+                        .text_color(muted)
+                        .hover(move |s| s.bg(hover_bg).text_color(fg))
+                        .child(crate::icons::icon(eye_icon).size(px(14.0)).text_color(muted))
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
+                                this.toggle_mask(cx);
+                                cx.stop_propagation();
+                            }),
+                        ),
+                )
+            })
             .child(
                 canvas(
                     |bounds, _window, _cx| bounds,

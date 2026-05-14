@@ -30,6 +30,8 @@ pub enum IconName {
     Settings,
     Trash,
     Pencil,
+    Eye,
+    EyeOff,
     // Linux 发行版 logo（来源：simpleicons.org，单色 path，由 svg
     // text_color 注入颜色；调用方在 host 卡片 avatar 用"品牌色背景 + 白色
     // logo"组合渲染）。其他识别但未列入这里的发行版（mint/manjaro 等）
@@ -63,6 +65,8 @@ impl IconName {
         IconName::Settings,
         IconName::Trash,
         IconName::Pencil,
+        IconName::Eye,
+        IconName::EyeOff,
         IconName::DistroUbuntu,
         IconName::DistroDebian,
         IconName::DistroArch,
@@ -91,6 +95,8 @@ impl IconName {
             IconName::Settings => "icons/settings.svg",
             IconName::Trash => "icons/trash.svg",
             IconName::Pencil => "icons/pencil.svg",
+            IconName::Eye => "icons/eye.svg",
+            IconName::EyeOff => "icons/eye-off.svg",
             IconName::DistroUbuntu => "icons/distros/ubuntu.svg",
             IconName::DistroDebian => "icons/distros/debian.svg",
             IconName::DistroArch => "icons/distros/arch.svg",
@@ -120,6 +126,8 @@ impl IconName {
             IconName::Settings => include_bytes!("../../assets/icons/settings.svg"),
             IconName::Trash => include_bytes!("../../assets/icons/trash.svg"),
             IconName::Pencil => include_bytes!("../../assets/icons/pencil.svg"),
+            IconName::Eye => include_bytes!("../../assets/icons/eye.svg"),
+            IconName::EyeOff => include_bytes!("../../assets/icons/eye-off.svg"),
             IconName::DistroUbuntu => {
                 include_bytes!("../../assets/icons/distros/ubuntu.svg")
             }

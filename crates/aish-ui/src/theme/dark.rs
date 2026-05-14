@@ -57,6 +57,10 @@ impl Theme {
                 // M17：accent 按下反馈，比 accent 更深（与 M15 方向相反）
                 // accent 暗绿系：#2f6e3e → #1f4a2c
                 accent_active: hex(0x1f4a2c),
+                // M18：Ghost button active 用，比 secondary_active 再亮一档
+                // 灰阶序列：secondary #1a1a1a → hover #2a2a2a → active #404040
+                //        → strongest #525252
+                secondary_strongest: hex(0x525252),
             },
             radius: Radius::default(),
             spacing: Spacing::default(),
@@ -138,5 +142,12 @@ mod tests {
         let t = Theme::dark();
         // M17：accent_active 比 accent 更深（容器按下"沉下去"，与 M15 系列变亮方向相反）
         assert!(t.colors.accent_active.l < t.colors.accent.l);
+    }
+
+    #[test]
+    fn dark_secondary_strongest_is_lighter_than_active() {
+        let t = Theme::dark();
+        // M18：secondary_strongest 比 active 再亮一档（Ghost button 按下反馈）
+        assert!(t.colors.secondary_strongest.l > t.colors.secondary_active.l);
     }
 }

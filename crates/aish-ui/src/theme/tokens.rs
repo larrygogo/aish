@@ -35,6 +35,11 @@ pub struct ColorTokens {
     pub destructive_active: Hsla,
     // M17 新加：accent 系列容器按下反馈
     pub accent_active: Hsla,
+    // M18 新加：secondary_strongest — Ghost button active 用，比 secondary_active
+    // 再亮一档。原因：Ghost 按钮常嵌 Card / Row 内，容器 hover 时已经是
+    // secondary_hover，Ghost active 若同等级色块会与容器融为一体；跳一档保证
+    // active 状态在任何容器背景下都可识别。
+    pub secondary_strongest: Hsla,
 }
 
 #[derive(Clone, Copy)]

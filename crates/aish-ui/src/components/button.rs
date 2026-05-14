@@ -125,14 +125,13 @@ impl RenderOnce for Button {
                     // Ghost hover/active 比"大容器 hover"亮一档：
                     //   idle: transparent
                     //   hover: secondary_active (#404040)  ← 容器 hover (#2a2a2a) + 一档
-                    //   active: 比 hover 再亮一档 (#525252)
+                    //   active: secondary_strongest (#525252) ← 再亮一档
                     // 原因：Ghost button 常嵌在 Card / Row 内部，当容器自己处于
                     // hover 状态（bg=secondary_hover #2a2a2a），按钮 hover 若同色
                     // 会与容器融为一体看不出。跳一档保证任何容器状态下按钮 hover
-                    // 都有可识别的色块凸显。
-                    // TODO: 把 #525252 token 化为 secondary_strongest（下个 polish 轮）
+                    // 都有可识别的色块凸显。M18 token 化 #525252 → secondary_strongest。
                     t.colors.secondary_active,
-                    gpui::rgb(0x525252).into(),
+                    t.colors.secondary_strongest,
                     t.colors.foreground,
                 ),
             }
