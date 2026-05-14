@@ -25,6 +25,10 @@ pub struct InputBarView {
     bridge: Arc<Bridge>,
     images: Vec<PendingImage>,
     input: Entity<TextInput>,
+    /// 上一帧的上传中状态（state.pending_uploads has self conn）。render 内
+    /// 边沿检测：上一帧 true 且本帧 false → BatchDone 完成 → 清 images + input。
+    /// 避免 send 瞬间立即清掉造成"看着已发送但实际还在上传"误导。
+    last_uploading: bool,
 }
 
 impl InputBarView {
@@ -65,6 +69,7 @@ impl InputBarView {
             bridge,
             images: Vec::new(),
             input,
+            last_uploading: false,
         }
     }
 
@@ -147,6 +152,7 @@ impl InputBarView {
             return;
         }
 
+        // 无图片：纯文字 → 立即发送 + 清 input（无上传过程不存在"半途撤销"）
         if self.images.is_empty() {
             if !text.is_empty() {
                 if let Some(sender) = self.state.read(cx).sessions.get(&conn).cloned() {
@@ -178,6 +184,7 @@ impl InputBarView {
         }
 
         if image_data.is_empty() {
+            // 所有图片读取失败 → 退化到纯文字路径
             if !text.is_empty() {
                 if let Some(sender) = self.state.read(cx).sessions.get(&conn).cloned() {
                     let bytes = format!("{}\r", text).into_bytes();
@@ -186,7 +193,15 @@ impl InputBarView {
                     });
                 }
             }
+            self.defer_clear_input(cx);
+            self.images.clear();
+            cx.notify();
         } else if let Some(sender) = self.state.read(cx).sessions.get(&conn).cloned() {
+            // 有图片：派发 UploadBatch。**不**立即清 images + input —— 等
+            // BatchDone（render 内 last_uploading 边沿检测）后再清，保证：
+            // - 缩略图依次消失（render 时按 done 数 skip 前 N 张）
+            // - 文字内容直到完整上传完成才清空，给用户"上传中"的可见反馈
+            // - 任一图片失败仍保留 input bar 状态用于 retry（M19 stage 2）
             self.bridge.spawn(async move {
                 let _ = sender
                     .send(SessionCommand::UploadBatch {
@@ -195,24 +210,26 @@ impl InputBarView {
                     })
                     .await;
             });
+            cx.notify();
         }
-
-        self.images.clear();
-        self.defer_clear_input(cx);
-        cx.notify();
     }
 }
 
 impl Render for InputBarView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = theme(cx);
+        // 先把 theme 字段 copy 出来释放 cx immut borrow（下面 BatchDone
+        // 边沿检测要 mut borrow cx 调 defer_clear_input）
+        let (colors, radius) = {
+            let t = theme(cx);
+            (t.colors, t.radius)
+        };
         // input focused 时 card border 改 ring 色（textarea-like 焦点反馈）。
         // borderless 模式下 input 自身没视觉 focus indicator，靠 card 给。
         let input_focused = self.input.read(cx).is_focused(window);
         let card_border_color = if input_focused {
-            t.colors.ring
+            colors.ring
         } else {
-            t.colors.border
+            colors.border
         };
 
         // 当前 conn 的批量上传进度（BatchProgress 更新 / BatchDone 清除）。
@@ -224,6 +241,15 @@ impl Render for InputBarView {
             .and_then(|c| self.state.read(cx).pending_uploads.get(&c).copied());
         let is_uploading = upload_progress.is_some();
 
+        // BatchDone 边沿检测：上一帧 uploading=true & 本帧 false → 完成。
+        // 清 images vec + defer clear input（render 内不能直接 mut input，
+        // spawn async task 在下一 tick 调 input.clear）。
+        if self.last_uploading && !is_uploading {
+            self.images.clear();
+            self.defer_clear_input(cx);
+        }
+        self.last_uploading = is_uploading;
+
         let progress_row = upload_progress.map(|(done, total)| {
             div()
                 .flex()
@@ -233,17 +259,21 @@ impl Render for InputBarView {
                 .px(px(8.0))
                 .py(px(4.0))
                 .text_size(px(11.0))
-                .text_color(t.colors.muted_foreground)
+                .text_color(colors.muted_foreground)
                 .child(format!("上传中  {}/{}", done, total))
         });
 
-        let images_row = if self.images.is_empty() {
+        // 上传中已完成的图片数（视觉跳过前 done 张缩略图，实现"发完一个去掉一个"）
+        let done_count = upload_progress.map(|(d, _)| d).unwrap_or(0);
+
+        let images_row = if self.images.len() <= done_count {
             None
         } else {
             let thumbs: Vec<_> = self
                 .images
                 .iter()
                 .enumerate()
+                .skip(done_count)
                 .map(|(i, img_item)| {
                     let path = img_item.path.clone();
                     let name = img_item.name.clone();
@@ -298,7 +328,7 @@ impl Render for InputBarView {
                                 .w(px(60.0))
                                 .overflow_hidden()
                                 .text_size(px(9.0))
-                                .text_color(t.colors.muted_foreground)
+                                .text_color(colors.muted_foreground)
                                 .child(name),
                         )
                 })
@@ -338,7 +368,12 @@ impl Render for InputBarView {
             .child(div().flex_1().child(self.input.clone()))
             .child(
                 aish_ui::Button::new("input-bar-send")
-                    .label("发送")
+                    // 上传中显示 "上传中 X/Y..."；空闲态 "发送"
+                    .label(if let Some((d, n)) = upload_progress {
+                        SharedString::from(format!("上传中 {}/{}", d, n))
+                    } else {
+                        SharedString::from("发送")
+                    })
                     .primary()
                     // 上传期间发送按钮 disabled：视觉灰化 + 不响应 click。
                     // send() 内部还有一层 pending_uploads 检查兜底（防 Enter
@@ -361,10 +396,10 @@ impl Render for InputBarView {
             .mx(px(8.0))
             .mb(px(8.0))
             .mt(px(4.0))
-            .rounded(t.radius.md)
+            .rounded(radius.md)
             .border_1()
             .border_color(card_border_color)
-            .bg(t.colors.card)
+            .bg(colors.card)
             .children(progress_row)
             .children(images_row)
             .child(text_row)
