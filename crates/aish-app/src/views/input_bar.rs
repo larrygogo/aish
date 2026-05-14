@@ -307,14 +307,16 @@ impl Render for InputBarView {
             .flex()
             .flex_row()
             // input 高度跟 visible_lines 走（1~6 行 = 28~128px），按钮高度
-            // 固定（+ 24 / Send 28）。items_end 在单行时让按钮顶超出 input
-            // 顶（按钮比 input 高 ≥4px），视觉错位；改 items_center 让按钮
-            // 中线 = input 中线 —— 单行时所有 child 齐中，多行时按钮浮在
-            // input 垂直中点（与 input 末行不齐但视觉重心稳定）。
+            // 固定（+ 24 / Send 28）。items_center 让按钮中线 = input 中线
+            // 单行时所有 child 齐中，多行时按钮浮在 input 垂直中点。
+            //
+            // gap / padding 调舒适些：
+            // - gap(10): 按钮 ↔ input 之间距离明显，不挤
+            // - px(12)/py(8): card 内边距给"chat box"呼吸感（vs px(8)/py(6) 偏挤）
             .items_center()
-            .gap(px(6.0))
-            .px(px(8.0))
-            .py(px(6.0))
+            .gap(px(10.0))
+            .px(px(12.0))
+            .py(px(8.0))
             .child(
                 aish_ui::IconButton::new("input-bar-pick", aish_ui::IconName::Plus)
                     .small()
