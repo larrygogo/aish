@@ -8,7 +8,8 @@ use std::time::SystemTime;
 
 use aish_types::{ConnectionId, HostId};
 use gpui::{
-    div, prelude::*, px, rgb, Context, Entity, KeyDownEvent, MouseButton, MouseDownEvent, Window,
+    div, point, prelude::*, px, rgb, Context, Entity, KeyDownEvent, MouseButton, MouseDownEvent,
+    ScrollDelta, ScrollHandle, ScrollWheelEvent, Window,
 };
 
 use crate::bridge::Bridge;
@@ -27,6 +28,10 @@ pub struct HomeView {
     menu_host_id: Option<HostId>,
     /// 键盘导航当前选中菜单项索引。打开时重置 0，↑/↓ 调，Enter 触发。
     menu_active_idx: usize,
+    /// hosts 列表纵向滚动 handle —— GPUI 内置 overflow_y_scroll wheel
+    /// handler 在 RootView 多层 flex 嵌套下不触发，改 ScrollHandle +
+    /// 手写 wheel handler 显式 set_offset 强制滚动可用。
+    scroll_handle: ScrollHandle,
 }
 
 /// host 右键菜单 item 数量（编辑 / 复制 / 删除）。与 render 内 items() 匹配。
@@ -65,7 +70,43 @@ impl HomeView {
             context_menu,
             menu_host_id: None,
             menu_active_idx: 0,
+            scroll_handle: ScrollHandle::new(),
         }
+    }
+
+    /// wheel 滚 hosts 列表 — 固定 60px/tick（与 tab_bar.handle_wheel 同模式）。
+    /// 只看 delta sign 不看大小，防高 DPI 鼠标单 tick 跨半屏。
+    fn handle_wheel(&mut self, ev: &ScrollWheelEvent, cx: &mut Context<Self>) {
+        let sign: f32 = match ev.delta {
+            ScrollDelta::Pixels(p) => {
+                if p.y > px(0.0) {
+                    1.0
+                } else if p.y < px(0.0) {
+                    -1.0
+                } else {
+                    0.0
+                }
+            }
+            ScrollDelta::Lines(l) => {
+                if l.y > 0.0 {
+                    1.0
+                } else if l.y < 0.0 {
+                    -1.0
+                } else {
+                    0.0
+                }
+            }
+        };
+        if sign == 0.0 {
+            return;
+        }
+        // wheel up (delta.y > 0) = 看上方 = offset y 趋 0；反之趋 -max
+        let step = px(60.0 * sign);
+        let cur = self.scroll_handle.offset();
+        let max = self.scroll_handle.max_offset();
+        let new_y = (cur.y + step).clamp(-max.y, px(0.0));
+        self.scroll_handle.set_offset(point(cur.x, new_y));
+        cx.notify();
     }
 
     /// context menu 键盘导航：↑/↓ 改 active_idx，Enter 触发选中项。
@@ -650,6 +691,10 @@ impl Render for HomeView {
             .bg(colors.background)
             .child(
                 aish_ui::ScrollPage::new("home-scroll")
+                    .track_scroll(&self.scroll_handle)
+                    .on_wheel(cx.listener(|this, ev: &ScrollWheelEvent, _w, cx| {
+                        this.handle_wheel(ev, cx);
+                    }))
                     .child(header)
                     .children(active_section)
                     .child(
