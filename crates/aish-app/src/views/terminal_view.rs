@@ -879,7 +879,12 @@ impl Render for TerminalView {
         // focused 是构造时初始值（true），从不更新。Render 内拿 focus_handle
         // 的 is_focused 写入派生 cursor_state，paint_cursor 据此分实心 / 空心
         // + 是否闪烁。epoch（blink 相位）保留 self 的不每帧 reset。
-        let focused_now = self.focus_handle.is_focused(window);
+        //
+        // 双重检查：
+        // - is_focused(window)：element 在窗口内是否获焦（切到 InputBar / 别 tab 会 false）
+        // - window.is_window_active()：OS 窗口是否激活（切到别 App 会 false）
+        // 任一 false 都算失焦，paint 走静态空心不闪。与 TextInput 同语义。
+        let focused_now = self.focus_handle.is_focused(window) && window.is_window_active();
         let cursor_state = CursorState {
             focused: focused_now,
             ..self.cursor_state
