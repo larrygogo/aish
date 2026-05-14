@@ -38,7 +38,11 @@ impl InputBarView {
         input.update(cx, |i, _cx| {
             i.placeholder("输入文字（Enter 换行，Ctrl+Enter 发送）")
                 .multiline(true)
-                .max_lines(6);
+                .max_lines(6)
+                // 关键：borderless 让 TextInput 不画自己的 bg / border，
+                // 视觉框由外层 InputBar card 提供（统一 chat-card 美感，
+                // 避免 input border + InputBar border 双层框）。
+                .borderless(true);
             // 把 callback 收到的 text 直接传给 send，避免 send 内再
             // self.input.read(cx) —— Enter 调用链里 TextInput entity 已被
             // listener mut-borrow，read 同一 entity 会触发 double_lease panic。
@@ -338,11 +342,18 @@ impl Render for InputBarView {
                     })),
             );
 
+        // InputBar 整体改 chat-card 风：rounded + border + bg(card)。
+        // input 自身 borderless，视觉框由 outer card 提供；缩略图 / 进度 / +
+        // / input / Send 全在一个 card 内，统一组件感。
         div()
             .flex_col()
-            .border_t_1()
+            .mx(px(8.0))
+            .mb(px(8.0))
+            .mt(px(4.0))
+            .rounded(t.radius.md)
+            .border_1()
             .border_color(t.colors.border)
-            .bg(t.colors.background)
+            .bg(t.colors.card)
             .children(progress_row)
             .children(images_row)
             .child(text_row)
