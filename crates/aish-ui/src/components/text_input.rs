@@ -1673,10 +1673,19 @@ impl Render for TextInput {
                     cx.notify();
                 }),
             )
-            // text_row 包 flex_1 + min_w(0) 占满 input 内剩余空间，让眼睛
-            // toggle 按钮自然贴右。没此包装时 text_row 内容宽 = inline glyph
-            // 累加（空 input ~0px），眼睛会贴在文字末尾而不是 input 右边。
-            .child(div().flex_1().min_w(px(0.0)).child(text_row))
+            // text_row 包 flex_1 + min_w(0) + w_full 让其撑满 input 内剩余空间。
+            // 单行 container 是 flex_row → flex_1 在 main axis 横向 grow ✓；
+            // 多行 container 是 flex_col → flex_1 在 main axis **纵向** grow，
+            // 不撑横向，需 w_full 显式取 cross axis (horizontal) 父宽。
+            // 没此包装时 text_row 内容宽 = inline glyph 累加（空 input ~0px），
+            // 眼睛 toggle / Send 按钮会贴在文字末尾而不是 input 右边。
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .w_full()
+                    .child(text_row),
+            )
             // 右侧眼睛 toggle 按钮（password 字段典型）：点击切换 mask_char
             // Some('•') ↔ None。flex_shrink_0 防止被 text_row 挤掉。
             // 用 div 而非 IconButton —— IconButton stateful div id 在容器内
