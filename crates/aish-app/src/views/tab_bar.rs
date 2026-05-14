@@ -95,7 +95,9 @@ pub struct TabBarView {
 
 /// tab 右键菜单 item 数量。与 build menu items 数量一致（见 render 内
 /// DropdownMenu.items() 长度）。
-const TAB_MENU_ITEM_COUNT: usize = 3;
+/// tab 右键菜单项数（重命名 / 折叠到 Home / 关闭 / 关闭其他）。
+/// 与 render 内 DropdownMenu.items(...) 顺序绑定。
+const TAB_MENU_ITEM_COUNT: usize = 4;
 
 impl TabBarView {
     pub fn new(
@@ -405,15 +407,43 @@ impl TabBarView {
         match idx {
             // Rename → 复用 handle_tab_click(click_count=2) 逻辑进编辑模式
             0 => self.handle_tab_click(tab_id, 2, window, cx),
-            // Close
-            1 => self.handle_close(tab_id, cx),
+            // 折叠到 Home（保 actor 仅关 tab）
+            1 => self.handle_detach(tab_id, cx),
+            // Close（disconnect + 关 tab）
+            2 => self.handle_close(tab_id, cx),
             // Close others
-            2 => self.close_others(tab_id, cx),
+            3 => self.close_others(tab_id, cx),
             _ => {}
         }
         // action 执行后关闭菜单
         self.context_menu.update(cx, |m, cx| m.close(cx));
         self.menu_tab_id = None;
+    }
+
+    /// 折叠到 Home：close_tab 删 tab 但**不** Disconnect / remove_connection，
+    /// actor 后台跑，Home Active Sessions 区列出 orphan conn 让用户随时
+    /// 点 Open 重 attach 新 tab。Default tab 没 actor 可保，fallback close_tab。
+    fn handle_detach(&mut self, id: TabId, cx: &mut Context<Self>) {
+        let content = self
+            .state
+            .read(cx)
+            .tabs
+            .iter()
+            .find(|t| t.id == id)
+            .map(|t| t.content.clone());
+        // Default tab 无 actor，与"关闭"等价
+        let is_conn = matches!(content, Some(TabContent::Connection(_)));
+        self.state.update(cx, |s, cx| {
+            s.close_tab(id);
+            if is_conn {
+                // 折叠后切到 Home，让用户立刻看到 Active Sessions 内的 orphan
+                s.sidebar = crate::state::SidebarTab::Home;
+            }
+            cx.notify();
+        });
+        if self.editing_tab == Some(id) {
+            self.editing_tab = None;
+        }
     }
 
     /// 关闭除 keep_id 之外的所有 tab。逐个调 handle_close（含 Disconnect 发送）。
@@ -451,10 +481,14 @@ impl Render for TabBarView {
         // 每帧重设 context menu content（AnyElement 不 Clone，render 内 take 消耗）。
         // 仅当 menu 目标 tab 已选定时构造内容，避免无谓 DropdownMenu 实例化。
         if let Some(tab_id) = self.menu_tab_id {
+            // "折叠到 Home" 仅对 Connection tab 有意义（Default tab 没 actor 可保），
+            // 但简化版统一展示让用户操作一致，handler 内对 Default tab fallback
+            // 走 close_tab（与"关闭"等价）。
             let weak = cx.weak_entity();
             let menu = DropdownMenu::new("tab-context-menu")
                 .items(vec![
                     MenuItem::new("重命名").icon(IconName::Pencil),
+                    MenuItem::new("折叠到 Home"),
                     MenuItem::new("关闭").icon(IconName::X).shortcut("Ctrl+W"),
                     MenuItem::new("关闭其他"),
                 ])
