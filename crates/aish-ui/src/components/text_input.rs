@@ -1436,15 +1436,22 @@ impl Render for TextInput {
         };
 
         let text_row = if placeholder_visible {
-            div()
+            // placeholder row（单行使用，多行嵌进 flex_col container 顶部）
+            let row = div()
                 .flex()
                 .flex_row()
                 .items_center()
                 .text_size(font_size_sm)
                 .text_color(muted_foreground)
                 .child(cursor_div)
-                .child(div().child(self.placeholder.clone()))
-                .into_any_element()
+                .child(div().child(self.placeholder.clone()));
+            if self.multiline {
+                // 多行 placeholder：放进 flex_col 让其顶端对齐（与 textarea 一致），
+                // 而非在 container vertical-center 看着浮在中间。
+                div().flex().flex_col().child(row).into_any_element()
+            } else {
+                row.into_any_element()
+            }
         } else if self.multiline {
             // M19 T3: 多行路径。算 visual_lines + 按行画 inline-glyph row。
             // cursor 落在某 visual line 的某 col，该行 inline 流中插 cursor_div。
