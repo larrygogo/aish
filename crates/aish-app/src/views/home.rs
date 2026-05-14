@@ -8,8 +8,8 @@ use std::time::SystemTime;
 
 use aish_types::{ConnectionId, HostId};
 use gpui::{
-    div, point, prelude::*, px, rgb, Context, Entity, KeyDownEvent, MouseButton, MouseDownEvent,
-    ScrollDelta, ScrollHandle, ScrollWheelEvent, Window,
+    div, prelude::*, px, rgb, Context, Entity, KeyDownEvent, MouseButton, MouseDownEvent,
+    ScrollHandle, Window,
 };
 
 use crate::bridge::Bridge;
@@ -72,42 +72,6 @@ impl HomeView {
             menu_active_idx: 0,
             scroll_handle: ScrollHandle::new(),
         }
-    }
-
-    /// wheel 滚 hosts 列表 — 固定 60px/tick（与 tab_bar.handle_wheel 同模式）。
-    /// 只看 delta sign 不看大小，防高 DPI 鼠标单 tick 跨半屏。
-    fn handle_wheel(&mut self, ev: &ScrollWheelEvent, cx: &mut Context<Self>) {
-        let sign: f32 = match ev.delta {
-            ScrollDelta::Pixels(p) => {
-                if p.y > px(0.0) {
-                    1.0
-                } else if p.y < px(0.0) {
-                    -1.0
-                } else {
-                    0.0
-                }
-            }
-            ScrollDelta::Lines(l) => {
-                if l.y > 0.0 {
-                    1.0
-                } else if l.y < 0.0 {
-                    -1.0
-                } else {
-                    0.0
-                }
-            }
-        };
-        if sign == 0.0 {
-            return;
-        }
-        let cur = self.scroll_handle.offset();
-        let max = self.scroll_handle.max_offset();
-        // wheel up (delta.y > 0) = 看上方 = offset y 趋 0；反之趋 -max
-        let step = px(60.0 * sign);
-        let new_y = (cur.y + step).clamp(-max.y, px(0.0));
-        self.scroll_handle.set_offset(point(cur.x, new_y));
-        cx.stop_propagation();
-        cx.notify();
     }
 
     /// context menu 键盘导航：↑/↓ 改 active_idx，Enter 触发选中项。
@@ -683,59 +647,10 @@ impl Render for HomeView {
             .text_size(font_size.xs)
             .child("HOSTS");
 
-        // scrollbar thumb 计算：viewport_h 从 ScrollHandle.bounds() 拿（首
-        // paint 后才有，首帧 fallback 0 不画 thumb）；content_h = viewport_h
-        // + max_offset.y；thumb_h 比例 + 最小 20px 防过短；thumb_top 按
-        // -offset.y / max_offset.y ratio 映射到 (viewport_h - thumb_h)。
-        let vp = self.scroll_handle.bounds();
-        let viewport_h = vp.size.height;
-        let max_y = self.scroll_handle.max_offset().y;
-        let cur_y = self.scroll_handle.offset().y;
-        let scrollbar = if max_y > px(0.0) && viewport_h > px(0.0) {
-            let viewport_h_f = f32::from(viewport_h);
-            let max_y_f = f32::from(max_y);
-            let content_h_f = viewport_h_f + max_y_f;
-            let thumb_h_f = (viewport_h_f * viewport_h_f / content_h_f).max(20.0);
-            let thumb_h = px(thumb_h_f);
-            let ratio = (-f32::from(cur_y) / max_y_f).clamp(0.0, 1.0);
-            let thumb_top = px((viewport_h_f - thumb_h_f) * ratio);
-            let muted = colors.muted_foreground;
-            Some(
-                div()
-                    .absolute()
-                    .right(px(2.0))
-                    .top(px(0.0))
-                    .h(viewport_h)
-                    .w(px(6.0))
-                    .child(
-                        div()
-                            .id("home-scrollbar-thumb")
-                            .absolute()
-                            .top(thumb_top)
-                            .left(px(0.0))
-                            .w(px(6.0))
-                            .h(thumb_h)
-                            .rounded(px(3.0))
-                            .bg(muted)
-                            .opacity(0.5)
-                            .hover(|s| s.opacity(0.9)),
-                    ),
-            )
-        } else {
-            None
-        };
-
-        // 完全照搬 tab_bar.rs 的稳定 scroll pattern（已验证 work）：
-        // - 外层 flex_col + size_full：给 inner scroll 容器一个 fit 的父
-        // - scroll 容器 .flex_1().min_h(0)：严格 fit remaining height 不被
-        //   children 撑大
-        // - overflow_hidden（不是 overflow_y_scroll）+ track_scroll(&handle)
-        //   + 手写 on_scroll_wheel：caller 唯一接管 wheel → set_offset
-        // - children 用 block layout（容器不带 .flex()）—— children 走 block
-        //   flow 自然纵向，不会因 flex-shrink 被压扁
-        //
-        // scrollbar 用 absolute 叠在 outer .relative 内 + scroll 容器同级
-        // (在 scroll viewport **外**)，不被 scroll transform 影响位置稳定。
+        // ScrollPage 内部封装了 wheel + scrollbar + flex_1/min_h(0) layout。
+        // caller 只需：父 flex_col + 持 ScrollHandle 字段。ContextMenu 平级
+        // 挂 outer 内（不在 ScrollPage 内 — absolute backdrop 会被 scroll
+        // viewport 裁切）。
         div()
             .relative()
             .flex()
@@ -743,15 +658,9 @@ impl Render for HomeView {
             .size_full()
             .bg(colors.background)
             .child(
-                div()
-                    .id("home-scroll")
+                aish_ui::ScrollPage::new("home-scroll")
+                    .scroll_handle(&self.scroll_handle)
                     .flex_1()
-                    .min_h(px(0.0))
-                    .overflow_hidden()
-                    .track_scroll(&self.scroll_handle)
-                    .on_scroll_wheel(cx.listener(|this, ev: &ScrollWheelEvent, _w, cx| {
-                        this.handle_wheel(ev, cx);
-                    }))
                     .child(header)
                     .children(active_section)
                     .child(
@@ -766,7 +675,6 @@ impl Render for HomeView {
                             .children(empty_hint),
                     ),
             )
-            .children(scrollbar)
             .child(self.context_menu.clone())
     }
 }

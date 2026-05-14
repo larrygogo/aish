@@ -1,52 +1,42 @@
-//! ScrollPage — 整页 scroll wrapper：size_full + overflow_y_scroll + 可选 bg/padding。
+//! ScrollPage — 整页 scroll wrapper：viewport 内部 overflow scroll +
+//! 自带 wheel handler + 内置 thumb scrollbar。
 //!
-//! 解决 Home / Settings / 未来 page-level view 共用的 boilerplate +
-//! 易踩的 flex-shrink pitfall：
+//! ## 用法
 //!
-//! - scroll 容器**必须** stateful（`.id()`）+ `.overflow_y_scroll()`，少一样
-//!   scroll 都不生效
-//! - **不能**在 scroll 容器上设 `.flex().flex_col()` —— flex 子级默认
-//!   flex-shrink: 1，当 children 总高超出 container 时会被压扁而不是触发
-//!   scroll，scrollbar 永远不出现
-//!
-//! 本组件直接走 block layout（无 flex），children 自然纵向流，溢出时
-//! overflow_y_scroll 触发滚动。
-//!
-//! ## ScrollHandle（推荐持有）
-//!
-//! GPUI 的 `overflow_y_scroll` 在某些 layout 嵌套下内置 wheel handler 不
-//! 触发；推荐 caller 持有 `ScrollHandle` 字段（在 view struct 内），通过
-//! `.track_scroll(&handle)` 传入 — 这样 caller 还能手写 `on_scroll_wheel`
-//! handler 强制 wheel → handle.set_offset，可靠跨 layout。
+//! 简单页面（内容很可能不溢出）— 不传 scroll_handle，走 GPUI 内置
+//! overflow_y_scroll：
 //!
 //! ```ignore
-//! use aish_ui::ScrollPage;
-//! use gpui::{px, ScrollHandle};
-//!
-//! pub struct MyView { scroll_handle: ScrollHandle }
-//!
-//! impl Render for MyView {
-//!     fn render(&mut self, _w, cx) -> impl IntoElement {
-//!         ScrollPage::new("my-scroll")
-//!             .track_scroll(&self.scroll_handle)
-//!             .on_wheel(cx.listener(|this, ev: &ScrollWheelEvent, _, cx| {
-//!                 this.handle_wheel(ev, cx);
-//!             }))
-//!             .child(...)
-//!     }
-//! }
+//! ScrollPage::new("settings").bg(...).px(...).py(...).child(...)
 //! ```
 //!
-//! 需要 ContextMenu / Toast 等 overlay 时，把 ScrollPage 放在 `relative()`
-//! 父容器内，overlay 与 ScrollPage 平级 child（overlay **不能**放 ScrollPage
-//! 内部 —— absolute 定位的 backdrop / 菜单会被 scroll viewport 裁切）。
+//! 真正可能溢出的页面（推荐）— caller 持 ScrollHandle 字段传入，ScrollPage
+//! 自动 wheel + scrollbar：
+//!
+//! ```ignore
+//! pub struct MyView { scroll_handle: ScrollHandle }
+//!
+//! ScrollPage::new("my-scroll")
+//!     .scroll_handle(&self.scroll_handle)
+//!     .flex_1()  // caller 父必须 .flex().flex_col()
+//!     .child(...)
+//! ```
+//!
+//! ## CSS 三栏布局必知
+//!
+//! flex item 默认 `min-width: auto / min-height: auto` 拒绝 shrink —
+//! children 撑大时 item 跟着撑大，下游 scroll 容器拿到的 bounds 跟着膨胀
+//! 让 scroll_max = 0 滚动失效。RootView 那层每个 flex_1 wrapper **都要**
+//! 加 `min_w(0)` / `min_h(0)`，scroll 容器才能严格 fit viewport。
 
 use std::rc::Rc;
 
 use gpui::{
-    div, prelude::*, AnyElement, App, ElementId, Hsla, IntoElement, Pixels, ScrollHandle,
-    ScrollWheelEvent, Window,
+    div, prelude::*, px, AnyElement, App, ElementId, Hsla, IntoElement, Pixels, Point, ScrollDelta,
+    ScrollHandle, ScrollWheelEvent, Window,
 };
+
+use crate::theme::theme;
 
 type WheelHandler = Rc<dyn Fn(&ScrollWheelEvent, &mut Window, &mut App) + 'static>;
 
@@ -58,11 +48,6 @@ pub struct ScrollPage {
     py: Option<Pixels>,
     scroll_handle: Option<ScrollHandle>,
     on_wheel: Option<WheelHandler>,
-    /// true = 走 flex_1 + min_h(0) 而非 size_full —— caller 父必须 flex_col。
-    /// flex_1 严格限制 height 为 remaining space，children 撑大也不撑大本容器，
-    /// content_size > bounds.size → scroll_max > 0 → 滚动真生效。
-    /// size_full 在某些嵌套（block 父内）会被 children 撑大让 scroll_max=0，
-    /// 这是用户实测发现的根因（"body 没有适配高度"）。
     flex_1: bool,
     children: Vec<AnyElement>,
 }
@@ -81,14 +66,6 @@ impl ScrollPage {
         }
     }
 
-    /// 切换到 flex_1 + min_h(0) 模式（caller 父必须 flex_col）。
-    /// 用于 home / settings 这种 page 容器在 flex_col 内严格 fit remaining
-    /// height — 见 struct 字段注释。
-    pub fn flex_1(mut self) -> Self {
-        self.flex_1 = true;
-        self
-    }
-
     pub fn bg(mut self, color: Hsla) -> Self {
         self.bg = Some(color);
         self
@@ -104,16 +81,29 @@ impl ScrollPage {
         self
     }
 
-    /// 关联 caller 持有的 ScrollHandle — 让 caller 能在 view struct 内
-    /// 拿到 offset / max_offset / set_offset，常配合手写 on_wheel 使用。
-    pub fn track_scroll(mut self, handle: &ScrollHandle) -> Self {
+    /// 启用 flex_1 + min_h(0) 模式（caller 父必须 flex_col）。
+    /// flex_1 严格 fit remaining height，min_h(0) 强制允许 shrink 不被
+    /// children 撑大 — scroll_max > 0 滚动真生效。
+    pub fn flex_1(mut self) -> Self {
+        self.flex_1 = true;
+        self
+    }
+
+    /// 关联 caller 持有的 ScrollHandle —— 启用后 ScrollPage 自动：
+    /// - .track_scroll(handle) 让 children 按 offset transform paint
+    /// - .overflow_hidden 让 GPUI 内置 wheel 不与 caller wheel 冲突
+    /// - on_scroll_wheel 自带 wheel handler（60px/tick set_offset）
+    /// - render scrollbar thumb（仅 max_offset.y > 0 时）
+    ///
+    /// caller 唯一职责：在 view struct 保有 `ScrollHandle` 字段（不能放
+    /// 局部变量 — 每帧重建 handle 状态会丢失），其余不用管。
+    pub fn scroll_handle(mut self, handle: &ScrollHandle) -> Self {
         self.scroll_handle = Some(handle.clone());
         self
     }
 
-    /// 接管 wheel 事件 — caller 自己算 step + set_offset，可靠跨 layout
-    /// 触发。设此 handler 后建议同时调 `.track_scroll(...)`，否则 wheel
-    /// handler 拿不到 ScrollHandle 改 offset 没用。
+    /// override 内部默认 wheel handler — caller 想自己定 step / 方向 / 边界
+    /// 行为时用。一般不用，默认 60px/tick 与 tab_bar / textarea 一致。
     pub fn on_wheel(
         mut self,
         h: impl Fn(&ScrollWheelEvent, &mut Window, &mut App) + 'static,
@@ -129,48 +119,146 @@ impl ParentElement for ScrollPage {
     }
 }
 
+/// wheel sign helper — Pixels / Lines 都归到 -1 / 0 / 1，防高 DPI 鼠标
+/// 单 tick 跨半屏。与 tab_bar.handle_wheel 同模式。
+fn wheel_sign_y(delta: ScrollDelta) -> f32 {
+    match delta {
+        ScrollDelta::Pixels(p) => {
+            if p.y > px(0.0) {
+                1.0
+            } else if p.y < px(0.0) {
+                -1.0
+            } else {
+                0.0
+            }
+        }
+        ScrollDelta::Lines(l) => {
+            if l.y > 0.0 {
+                1.0
+            } else if l.y < 0.0 {
+                -1.0
+            } else {
+                0.0
+            }
+        }
+    }
+}
+
+/// 默认 wheel handler — 60px/tick 滚 ScrollHandle.offset.y，clamp 到
+/// [-max_offset.y, 0]。返回 true 表示有变化（调用方 refresh）。
+fn default_wheel_step_y(handle: &ScrollHandle, ev: &ScrollWheelEvent) -> bool {
+    let sign = wheel_sign_y(ev.delta);
+    if sign == 0.0 {
+        return false;
+    }
+    let step = px(60.0 * sign);
+    let cur = handle.offset();
+    let max = handle.max_offset();
+    let new_y = (cur.y + step).clamp(-max.y, px(0.0));
+    if new_y == cur.y {
+        return false;
+    }
+    handle.set_offset(Point::new(cur.x, new_y));
+    true
+}
+
 impl RenderOnce for ScrollPage {
-    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
-        // 两套滚动模式（互斥）：
-        // - caller 持 ScrollHandle：用 overflow_hidden + track_scroll（与
-        //   tab_bar.rs 同稳定模式）。GPUI 内置 wheel 仅在 overflow.y=Scroll
-        //   时跑，用 overflow_hidden 让它不跑，caller 的 on_wheel 唯一接管
-        //   wheel → set_offset；track_scroll 不依赖 overflow，仍让 children
-        //   按 offset transform paint，滚动生效。
-        // - caller 没传 ScrollHandle：fallback 走 GPUI 内置 overflow_y_scroll
-        //   wheel handler（settings 这种简单 page 够用）。
-        //
-        // height 模式：
-        // - flex_1=true：用 .flex_1().min_h(0) 严格 fit remaining height
-        //   （caller 父必须 flex_col）
-        // - flex_1=false：fallback .size_full()（block 父）
-        let mut d = div().id(self.id);
-        if self.flex_1 {
-            d = d.flex_1().min_h(gpui::px(0.0));
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        // scrollbar thumb：仅 scroll_handle 模式 + max_offset.y > 0（内容
+        // 溢出）时画。viewport_h 从 ScrollHandle.bounds() 拿（首 paint 后才
+        // 有），首帧 bounds 是空 size → max_offset 也是 0 → 自动不画 thumb。
+        let muted_fg = theme(cx).colors.muted_foreground;
+        let scrollbar_overlay = self.scroll_handle.as_ref().and_then(|h| {
+            let vp = h.bounds();
+            let viewport_h = vp.size.height;
+            let max_y = h.max_offset().y;
+            let cur_y = h.offset().y;
+            if max_y <= px(0.0) || viewport_h <= px(0.0) {
+                return None;
+            }
+            let viewport_h_f = f32::from(viewport_h);
+            let max_y_f = f32::from(max_y);
+            let content_h_f = viewport_h_f + max_y_f;
+            let thumb_h_f = (viewport_h_f * viewport_h_f / content_h_f).max(20.0);
+            let thumb_h = px(thumb_h_f);
+            let ratio = (-f32::from(cur_y) / max_y_f).clamp(0.0, 1.0);
+            let thumb_top = px((viewport_h_f - thumb_h_f) * ratio);
+            Some(
+                div()
+                    .absolute()
+                    .right(px(2.0))
+                    .top(px(0.0))
+                    .h(viewport_h)
+                    .w(px(6.0))
+                    .child(
+                        div()
+                            .id("scroll-page-thumb")
+                            .absolute()
+                            .top(thumb_top)
+                            .left(px(0.0))
+                            .w(px(6.0))
+                            .h(thumb_h)
+                            .rounded(px(3.0))
+                            .bg(muted_fg)
+                            .opacity(0.5)
+                            .hover(|s| s.opacity(0.9)),
+                    ),
+            )
+        });
+
+        // scroll 容器构建。
+        // scroll_div 永远在 outer wrapper (.flex_col) 内作 flex_1 + min_h(0)：
+        // outer wrapper 高度由 caller 控（flex_1 模式则在 caller 父 strict
+        // fit；否则 size_full），scroll_div 在 wrapper 内严格 fit wrapper。
+        // - 持 ScrollHandle：.overflow_hidden + .track_scroll + 自带 wheel
+        // - 无 ScrollHandle：.overflow_y_scroll fallback GPUI 内置 wheel
+        let mut scroll_div = div().id(self.id).flex_1().min_h(px(0.0));
+        scroll_div = if self.scroll_handle.is_some() {
+            scroll_div.overflow_hidden()
         } else {
-            d = d.size_full();
-        }
-        if self.scroll_handle.is_some() {
-            d = d.overflow_hidden();
-        } else {
-            d = d.overflow_y_scroll();
-        }
+            scroll_div.overflow_y_scroll()
+        };
         if let Some(c) = self.bg {
-            d = d.bg(c);
+            scroll_div = scroll_div.bg(c);
         }
         if let Some(p) = self.px {
-            d = d.px(p);
+            scroll_div = scroll_div.px(p);
         }
         if let Some(p) = self.py {
-            d = d.py(p);
+            scroll_div = scroll_div.py(p);
         }
-        if let Some(h) = self.scroll_handle {
-            d = d.track_scroll(&h);
+        if let Some(h) = &self.scroll_handle {
+            scroll_div = scroll_div.track_scroll(h);
+            // wheel handler 优先级：caller override > 默认 60px/tick
+            if let Some(custom) = self.on_wheel.clone() {
+                scroll_div = scroll_div.on_scroll_wheel(move |ev, w, cx| custom(ev, w, cx));
+            } else {
+                let handle = h.clone();
+                scroll_div = scroll_div.on_scroll_wheel(move |ev, _w, cx| {
+                    if default_wheel_step_y(&handle, ev) {
+                        // App 上没 cx.notify(entity)，用 refresh_windows 触发
+                        // 全 window 重绘 — wheel 频率低（用户实操），不耗。
+                        cx.refresh_windows();
+                        cx.stop_propagation();
+                    }
+                });
+            }
+        } else if let Some(custom) = self.on_wheel.clone() {
+            scroll_div = scroll_div.on_scroll_wheel(move |ev, w, cx| custom(ev, w, cx));
         }
-        if let Some(handler) = self.on_wheel {
-            d = d.on_scroll_wheel(move |ev, w, cx| handler(ev, w, cx));
-        }
-        d.children(self.children)
+        scroll_div = scroll_div.children(self.children);
+
+        // outer wrapper：.relative 让 scrollbar absolute 定位绑到此层，与
+        // scroll 容器同 bounds 但不在 scroll viewport 内（不被 transform）。
+        // flex_col 让 inner scroll_div 走 flex_1 + min_h(0) 严格 fit。
+        // flex_1 模式：在 caller flex_col 内拿 remaining；否则 size_full。
+        let mut wrapper = div().relative().flex().flex_col();
+        wrapper = if self.flex_1 {
+            wrapper.flex_1().min_h(px(0.0))
+        } else {
+            wrapper.size_full()
+        };
+        wrapper.child(scroll_div).children(scrollbar_overlay)
     }
 }
 
@@ -187,6 +275,7 @@ mod tests {
         assert!(p.py.is_none());
         assert!(p.scroll_handle.is_none());
         assert!(p.on_wheel.is_none());
+        assert!(!p.flex_1);
     }
 
     #[test]
@@ -194,10 +283,12 @@ mod tests {
         let p = ScrollPage::new("test")
             .bg(gpui::rgb(0x000000).into())
             .px(gpui::px(16.0))
-            .py(gpui::px(8.0));
+            .py(gpui::px(8.0))
+            .flex_1();
         assert!(p.bg.is_some());
         assert_eq!(p.px, Some(gpui::px(16.0)));
         assert_eq!(p.py, Some(gpui::px(8.0)));
+        assert!(p.flex_1);
     }
 
     #[test]
@@ -212,15 +303,41 @@ mod tests {
     }
 
     #[test]
-    fn track_scroll_sets_handle() {
+    fn scroll_handle_sets_handle() {
         let handle = ScrollHandle::new();
-        let p = ScrollPage::new("test").track_scroll(&handle);
+        let p = ScrollPage::new("test").scroll_handle(&handle);
         assert!(p.scroll_handle.is_some());
     }
 
     #[test]
-    fn on_wheel_sets_handler() {
+    fn on_wheel_override_sets_handler() {
         let p = ScrollPage::new("test").on_wheel(|_ev, _w, _cx| {});
         assert!(p.on_wheel.is_some());
+    }
+
+    #[test]
+    fn wheel_sign_y_pixels() {
+        assert_eq!(
+            wheel_sign_y(ScrollDelta::Pixels(gpui::point(px(0.0), px(10.0)))),
+            1.0
+        );
+        assert_eq!(
+            wheel_sign_y(ScrollDelta::Pixels(gpui::point(px(0.0), px(-5.0)))),
+            -1.0
+        );
+        assert_eq!(
+            wheel_sign_y(ScrollDelta::Pixels(gpui::point(px(0.0), px(0.0)))),
+            0.0
+        );
+    }
+
+    #[test]
+    fn wheel_sign_y_lines() {
+        assert_eq!(wheel_sign_y(ScrollDelta::Lines(gpui::point(0.0, 3.0))), 1.0);
+        assert_eq!(
+            wheel_sign_y(ScrollDelta::Lines(gpui::point(0.0, -2.0))),
+            -1.0
+        );
+        assert_eq!(wheel_sign_y(ScrollDelta::Lines(gpui::point(0.0, 0.0))), 0.0);
     }
 }
