@@ -683,6 +683,48 @@ impl Render for HomeView {
             .text_size(font_size.xs)
             .child("HOSTS");
 
+        // scrollbar thumb 计算：viewport_h 从 ScrollHandle.bounds() 拿（首
+        // paint 后才有，首帧 fallback 0 不画 thumb）；content_h = viewport_h
+        // + max_offset.y；thumb_h 比例 + 最小 20px 防过短；thumb_top 按
+        // -offset.y / max_offset.y ratio 映射到 (viewport_h - thumb_h)。
+        let vp = self.scroll_handle.bounds();
+        let viewport_h = vp.size.height;
+        let max_y = self.scroll_handle.max_offset().y;
+        let cur_y = self.scroll_handle.offset().y;
+        let scrollbar = if max_y > px(0.0) && viewport_h > px(0.0) {
+            let viewport_h_f = f32::from(viewport_h);
+            let max_y_f = f32::from(max_y);
+            let content_h_f = viewport_h_f + max_y_f;
+            let thumb_h_f = (viewport_h_f * viewport_h_f / content_h_f).max(20.0);
+            let thumb_h = px(thumb_h_f);
+            let ratio = (-f32::from(cur_y) / max_y_f).clamp(0.0, 1.0);
+            let thumb_top = px((viewport_h_f - thumb_h_f) * ratio);
+            let muted = colors.muted_foreground;
+            Some(
+                div()
+                    .absolute()
+                    .right(px(2.0))
+                    .top(px(0.0))
+                    .h(viewport_h)
+                    .w(px(6.0))
+                    .child(
+                        div()
+                            .id("home-scrollbar-thumb")
+                            .absolute()
+                            .top(thumb_top)
+                            .left(px(0.0))
+                            .w(px(6.0))
+                            .h(thumb_h)
+                            .rounded(px(3.0))
+                            .bg(muted)
+                            .opacity(0.5)
+                            .hover(|s| s.opacity(0.9)),
+                    ),
+            )
+        } else {
+            None
+        };
+
         // 完全照搬 tab_bar.rs 的稳定 scroll pattern（已验证 work）：
         // - 外层 flex_col + size_full：给 inner scroll 容器一个 fit 的父
         // - scroll 容器 .flex_1().min_h(0)：严格 fit remaining height 不被
@@ -692,8 +734,8 @@ impl Render for HomeView {
         // - children 用 block layout（容器不带 .flex()）—— children 走 block
         //   flow 自然纵向，不会因 flex-shrink 被压扁
         //
-        // 暂时**绕开 ScrollPage 抽象**直接 inline 写 — 验证是否 ScrollPage
-        // 自身有边角 bug；如果 inline work 后续再抽回组件。
+        // scrollbar 用 absolute 叠在 outer .relative 内 + scroll 容器同级
+        // (在 scroll viewport **外**)，不被 scroll transform 影响位置稳定。
         div()
             .relative()
             .flex()
@@ -724,6 +766,7 @@ impl Render for HomeView {
                             .children(empty_hint),
                     ),
             )
+            .children(scrollbar)
             .child(self.context_menu.clone())
     }
 }
