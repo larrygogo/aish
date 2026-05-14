@@ -41,8 +41,15 @@ aish-tmux = { path = "crates/aish-tmux" }
 aish-sftp = { path = "crates/aish-sftp" }
 aish-secrets = { path = "crates/aish-secrets" }
 aish-ui = { path = "crates/aish-ui" }
-gpui = { git = "https://github.com/zed-industries/zed", rev = "11f0ca5881ee8c32728244ee5ce3abedc851010f" }
-gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "11f0ca5881ee8c32728244ee5ce3abedc851010f" }
+gpui = { git = "https://github.com/zed-industries/zed", rev = "aa16a3bf9d579ed858490d2bd1765df6d9cef5aa" }
+# gpui_platform 必须显式启用 `font-kit` feature —— 否则它的 default = []
+# 导致 gpui_macos 的 `font-kit` feature 也关掉（gpui_platform 的 font-kit
+# = ["gpui_macos/font-kit"]），结果 gpui_macos 内 `#[cfg(feature = "font-kit")]`
+# gated 的整个 text_system 模块（CoreText/CTFont 调用全部在内）从源码里
+# 消失，binary 不链接 CoreText.framework → 窗口能开但任何文字 / image /
+# svg（走 sprite atlas + glyph raster 的路径）一律不渲染，只有 quad/border
+# 正常。zed 自家 hello_world 默认启用 font-kit 所以能跑出文字。
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "aa16a3bf9d579ed858490d2bd1765df6d9cef5aa", features = ["font-kit"] }
 russh = "0.46"
 russh-keys = "0.46"
 alacritty_terminal = "0.26"

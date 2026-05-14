@@ -43,7 +43,11 @@ image = { workspace = true }
 tempfile = { workspace = true }
 
 [build-dependencies]
-resvg = "0.47"
+# 必须与 GPUI 内部使用的 resvg 版本一致 —— 否则会触发 cargo feature
+# unification 把 fontdb / tiny-skia / usvg 等收敛到不兼容版本，破坏 GPUI
+# 的字体光栅化路径（表现为整窗文字不渲染但纯色 quad 正常）。
+# GPUI rev aa16a3b 内部用 resvg 0.45，所以 build-dep 也固定 0.45。
+resvg = "=0.45.1"
 icns  = "0.4"
 ico   = "0.5"
 
