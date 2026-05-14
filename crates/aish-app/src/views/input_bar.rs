@@ -16,7 +16,7 @@ use gpui::{
 use aish_types::ConnectionId;
 
 use crate::bridge::Bridge;
-use crate::state::{AppState, SessionCommand};
+use crate::state::{AppState, ConnectionPhase, SessionCommand};
 
 struct PendingImage {
     name: String,
@@ -413,6 +413,17 @@ impl Render for InputBarView {
         let upload_progress: Option<(usize, usize)> =
             self.state.read(cx).pending_uploads.get(&self.conn).copied();
         let is_uploading = upload_progress.is_some();
+        // M22：Disconnected 状态的 conn（拔网 / 远端 shell 退出 / SSH 出错）
+        // Send 按钮也 disabled，避免点击后 silent drop（state.sessions.get
+        // 返回 None send() 内会兜底 noop，但视觉应早早表达"发不出去"）。
+        // 单独的 is_connected 通道与 is_uploading 不共享 Send label —— 复用
+        // 会让 Disconnected 时显示 "上传中 0/0" 这种错乱文案。
+        // `+` 按钮 / TextInput / 缩略图不锁，让用户在断开期间仍能编辑草稿，
+        // 双击 tab 重连后草稿原样保留可发送。
+        let is_connected = matches!(
+            self.state.read(cx).connection_phases.get(&self.conn),
+            Some(ConnectionPhase::Connected)
+        );
 
         // BatchDone / BatchAborted 边沿检测：上一帧 uploading=true & 本帧 false → 结束。
         // - last_aborted_batch 命中 → batch 中途失败（含 30s 超时）：
@@ -580,10 +591,14 @@ impl Render for InputBarView {
                         SharedString::from("发送")
                     })
                     .primary()
-                    // 上传期间发送按钮 disabled：视觉灰化 + 不响应 click。
-                    // send() 内部还有一层 pending_uploads 检查兜底（防 Enter
-                    // / 快捷键绕过按钮 disabled 直接走 send）。
-                    .disabled(is_uploading)
+                    // 上传中 / Disconnected 都 disable：
+                    // - is_uploading：视觉灰化 + 不响应 click。send() 内部还有
+                    //   一层 pending_uploads 检查兜底（防 Enter / 快捷键绕过
+                    //   按钮 disabled 直接走 send）。
+                    // - !is_connected：actor sender 已销，send() 兜底走 noop
+                    //   (state.sessions.get 返 None)；视觉同步表达"发不出去"。
+                    //   label 不改 — disabled 灰已够，"未连接"文字反而干扰。
+                    .disabled(is_uploading || !is_connected)
                     .on_click(cx.listener(|this, _ev: &gpui::MouseDownEvent, window, cx| {
                         // 按钮 click 路径不嵌套（InputBarView listener，
                         // input 是别的 entity，read 是首次借用 OK）
