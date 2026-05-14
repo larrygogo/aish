@@ -58,6 +58,10 @@ pub struct TextInput {
     /// cursor_x 与 viewport bounds 后更新此值，下一帧用新 offset re-render。
     /// 解决长文本 / cursor 移末尾时'后面的字看不到'问题。
     scroll_offset: Pixels,
+    /// M19 vertical scroll：多行 cursor 在 max_lines 视区外时自动滚到可见。
+    /// 0 = content 顶贴容器顶；负数 = content 上移露下方（cursor 在末行场景）。
+    /// 单行 / 内容 ≤ max_lines 时永远 0。
+    scroll_offset_y: Pixels,
     /// drag select 当前鼠标 x（mouse_move 时更新）。drag-to-edge auto-scroll
     /// timer 比对 viewport 边界用，鼠标接近边沿时主动扩 cursor + 滚动。
     drag_target_x: Option<Pixels>,
@@ -106,6 +110,7 @@ impl TextInput {
             on_blur: None,
             last_focused: false,
             scroll_offset: px(0.0),
+            scroll_offset_y: px(0.0),
             drag_target_x: None,
             viewport_bounds: None,
             drag_task: None,
@@ -262,7 +267,18 @@ impl TextInput {
         viewport: Bounds<Pixels>,
         cx: &mut Context<Self>,
     ) {
-        // 计算 displayed cursor byte（mask 模式 cursor 是源串 byte 要转）
+        // 多行：走 vertical scroll 分支 + 重置水平 scroll（word-wrap 已经覆盖
+        // 长行，没有水平 scroll 需求）
+        if self.multiline {
+            self.update_scroll_y_to_cursor(viewport, cx);
+            if self.scroll_offset != px(0.0) {
+                self.scroll_offset = px(0.0);
+                cx.notify();
+            }
+            return;
+        }
+
+        // 单行水平 scroll（原算法）
         let displayed_text: String = if let Some(m) = self.mask_char {
             self.text.chars().map(|_| m).collect()
         } else {
@@ -301,6 +317,57 @@ impl TextInput {
         }
         if new_offset != self.scroll_offset {
             self.scroll_offset = new_offset;
+            cx.notify();
+        }
+    }
+
+    /// M19 vertical scroll：multiline 下 cursor 在 max_lines 视区外时自动
+    /// scroll 到可见。算法：算 cursor 所在 visual_line，比对当前 scroll
+    /// offset_y 看是否要 scroll up/down。content ≤ max_lines 时重置 0。
+    fn update_scroll_y_to_cursor(&mut self, viewport: Bounds<Pixels>, cx: &mut Context<Self>) {
+        let line_h = px(20.0); // 与 render 内 line_h 一致
+        let vls = compute_visual_lines(&self.text, viewport.size.width, px(12.0));
+        let n_lines = vls.len();
+        let max_lines = self.max_lines;
+
+        // content 不溢出：scroll 必为 0
+        if n_lines <= max_lines {
+            if self.scroll_offset_y != px(0.0) {
+                self.scroll_offset_y = px(0.0);
+                cx.notify();
+            }
+            return;
+        }
+
+        let (cursor_vl, _) = byte_to_visual_pos(self.cursor, &vls);
+        let scroll = self.scroll_offset_y;
+        // cursor 在 viewport 内坐标系的 top（content 顶 = 0）。
+        // GPUI Pixels 只能 Pixels * f32（scalar），不能 Pixels * Pixels。
+        let cursor_top_in_content = line_h * cursor_vl as f32;
+        let cursor_top_in_view = cursor_top_in_content + scroll;
+        let viewport_h = line_h * max_lines as f32;
+        let margin = px(0.0); // 不留 margin —— cursor 行边缘也算可见
+
+        let mut new_scroll = scroll;
+        if cursor_top_in_view < margin {
+            // cursor 在视区上方 → 让 cursor 顶贴 viewport 顶
+            new_scroll = -cursor_top_in_content;
+        } else if cursor_top_in_view + line_h > viewport_h - margin {
+            // cursor 在视区下方 → 让 cursor 底贴 viewport 底
+            new_scroll = viewport_h - cursor_top_in_content - line_h;
+        }
+        // clamp：scroll_offset_y ≤ 0（content 顶不能下移到 viewport 内空出顶部）
+        if new_scroll > px(0.0) {
+            new_scroll = px(0.0);
+        }
+        // clamp 下界：content 末行不能比 viewport 底还高（防过滚）
+        let content_h = line_h * n_lines as f32;
+        let min_scroll = viewport_h - content_h;
+        if new_scroll < min_scroll {
+            new_scroll = min_scroll;
+        }
+        if new_scroll != self.scroll_offset_y {
+            self.scroll_offset_y = new_scroll;
             cx.notify();
         }
     }
@@ -1442,7 +1509,15 @@ impl Render for TextInput {
                 })
                 .collect();
 
-            div().flex().flex_col().children(rows).into_any_element()
+            // content 用 mt(scroll_offset_y) 上移让 cursor 行可见。
+            // scroll_offset_y ≤ 0；container.overflow_hidden 裁掉上方 / 下方
+            // 不该看到的部分。
+            div()
+                .flex()
+                .flex_col()
+                .mt(self.scroll_offset_y)
+                .children(rows)
+                .into_any_element()
         } else {
             let weak_left = weak_view.clone();
             let sel_left = displayed_selection.clone();
