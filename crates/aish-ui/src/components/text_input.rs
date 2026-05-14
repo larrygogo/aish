@@ -1720,7 +1720,8 @@ impl Render for TextInput {
                 .map(|b| b.size.width)
                 .unwrap_or(px(400.0));
             let vls_for_h = compute_visual_lines(&self.text, container_w, font_size_sm);
-            let visible_lines = vls_for_h.len().clamp(1, self.max_lines);
+            let n_lines = vls_for_h.len();
+            let visible_lines = n_lines.clamp(1, self.max_lines);
             let outer_h = line_h * visible_lines as f32 + py * 2.0;
             container = container
                 .flex()
@@ -1728,6 +1729,58 @@ impl Render for TextInput {
                 .h(outer_h)
                 .py(py)
                 .overflow_hidden();
+
+            // M21 T4：vertical scrollbar overlay。仅 content 超出 max_lines 时画。
+            // 算法：thumb_h ∝ viewport_h / content_h（最小 20px 防过短）；
+            //       thumb_top ∝ -scroll_offset_y / max_scroll。
+            // overlay 用 absolute 不挤压 text_row 横向空间，container.relative()
+            // 已具备。thumb 不可拖（M21 仅可视，drag thumb 留 backlog），
+            // mouse_down stop_propagation 防冒泡到 cursor 定位。
+            if n_lines > self.max_lines {
+                let viewport_h = line_h * self.max_lines as f32;
+                let content_h = line_h * n_lines as f32;
+                // Pixels .0 是 pub(crate)，外部转 f32 走 f32::from。
+                let viewport_h_f = f32::from(viewport_h);
+                let content_h_f = f32::from(content_h);
+                let line_h_f = f32::from(line_h);
+                let thumb_h_f32 = (viewport_h_f * viewport_h_f / content_h_f).max(20.0);
+                let thumb_h = px(thumb_h_f32);
+                let max_scroll_f32 = (n_lines - self.max_lines) as f32 * line_h_f;
+                let scroll_ratio = if max_scroll_f32 > 0.0 {
+                    (-f32::from(self.scroll_offset_y) / max_scroll_f32).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                let thumb_top = px((viewport_h_f - thumb_h_f32) * scroll_ratio);
+                let muted = t.colors.muted_foreground;
+                container = container.child(
+                    div()
+                        .absolute()
+                        .right(px(2.0))
+                        .top(py) // 与 text_row first 行起点对齐
+                        .h(viewport_h)
+                        .w(px(6.0))
+                        .child(
+                            div()
+                                .id("text-input-scrollbar-thumb")
+                                .absolute()
+                                .top(thumb_top)
+                                .left(px(0.0))
+                                .w(px(6.0))
+                                .h(thumb_h)
+                                .rounded(px(3.0))
+                                .bg(muted)
+                                .opacity(0.5)
+                                .hover(|s| s.opacity(0.9))
+                                .on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener(|_this, _ev: &MouseDownEvent, _w, cx| {
+                                        cx.stop_propagation();
+                                    }),
+                                ),
+                        ),
+                );
+            }
         } else {
             container = container
                 .flex()
