@@ -202,6 +202,12 @@ impl InputBarView {
             // - 缩略图依次消失（render 时按 done 数 skip 前 N 张）
             // - 文字内容直到完整上传完成才清空，给用户"上传中"的可见反馈
             // - 任一图片失败仍保留 input bar 状态用于 retry（M19 stage 2）
+            //
+            // 立即设 pending_uploads(0, total) 标记进入上传状态 —— actor 端
+            // 第一张 BatchProgress 在第一张完成后才到（可能数秒），不立即
+            // 设的话 send 按钮 / 缩略图 / loading label 在第一张完成前都看
+            // 不出"在上传"。
+            let total = image_data.len();
             self.bridge.spawn(async move {
                 let _ = sender
                     .send(SessionCommand::UploadBatch {
@@ -210,7 +216,10 @@ impl InputBarView {
                     })
                     .await;
             });
-            cx.notify();
+            self.state.update(cx, |s, cx| {
+                s.pending_uploads.insert(conn, (0, total));
+                cx.notify();
+            });
         }
     }
 }
