@@ -851,10 +851,8 @@ pub(crate) fn byte_offset_at_x(
 // < 1 char，可接受。完全准确需 GPUI text_system shape，render-time 太贵。
 
 /// 多行视觉行（wrap 后单元）。一个 logical line（按 \n 切）可包含 ≥ 1 个
-/// visual line（按 container_width wrap 后）。T2 占位 + 单测；T3 render
-/// multiline 路径起用 → 启用前 #[allow(dead_code)] 抑制 unused 警告。
+/// visual line（按 container_width wrap 后）。T3 起 render multiline 路径用。
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(dead_code)]
 pub(crate) struct VisualLine {
     /// 第几个 logical line（按 \n 编号，0-based）
     pub logical_line: usize,
@@ -865,7 +863,6 @@ pub(crate) struct VisualLine {
 }
 
 /// char 宽估算。ASCII / Latin / Cyrillic / Greek 半角；CJK / emoji 全角。
-#[allow(dead_code)] // T3 render multiline 路径用
 fn approx_char_width(c: char, font_size: Pixels) -> Pixels {
     let cp = c as u32;
     let scale = if cp < 0x80 || (0x80..=0x4FF).contains(&cp) {
@@ -880,7 +877,6 @@ fn approx_char_width(c: char, font_size: Pixels) -> Pixels {
 
 /// 是否在该 char 后可以 word break。仅识别常见 ASCII 标点 / 空白；
 /// CJK char 之间天然可断（这里不识别，wrap algo 会 fallback char-level）。
-#[allow(dead_code)] // T3 render multiline 路径用
 fn is_break_after(c: char) -> bool {
     matches!(c, ' ' | '\t' | '/' | ',' | ';' | ':' | '|')
 }
@@ -890,7 +886,6 @@ fn is_break_after(c: char) -> bool {
 ///
 /// 算法 O(n) 一次扫描，wrap 时回退到 last_break 或当前 byte（char-level
 /// 强制断）。
-#[allow(dead_code)] // T3 render multiline 路径用
 pub(crate) fn compute_visual_lines(
     text: &str,
     container_width: Pixels,
@@ -1192,6 +1187,71 @@ impl Render for TextInput {
                 .child(cursor_div)
                 .child(div().child(self.placeholder.clone()))
                 .into_any_element()
+        } else if self.multiline {
+            // M19 T3: 多行路径。算 visual_lines + 按行画 inline-glyph row。
+            // cursor 落在某 visual line 的某 col，该行 inline 流中插 cursor_div。
+            //
+            // viewport 宽：用 self.viewport_bounds（canvas prepaint 上一帧写入）。
+            // 首帧没值时 fallback 400px —— 下一帧 viewport_bounds 已就位自动 wrap。
+            // 这与 single-line scroll_offset 同 trade-off：上一帧 bounds 驱动本帧渲染。
+            let container_w = self
+                .viewport_bounds
+                .map(|b| b.size.width)
+                .unwrap_or(px(400.0));
+            let visual_lines = compute_visual_lines(&displayed_text, container_w, font_size_sm);
+            let displayed_cursor_byte = displayed_cursor;
+            let weak_glyph = weak_view.clone();
+            let sel_for_glyph = displayed_selection.clone();
+            let show_cursor_local = show_cursor;
+            let ring_local = ring;
+
+            let rows: Vec<gpui::AnyElement> = visual_lines
+                .iter()
+                .map(|vl| {
+                    // 此 visual line 的 text 段（vl.byte_start..vl.byte_end）。
+                    let line_text = displayed_text[vl.byte_start..vl.byte_end].to_string();
+
+                    let mut row = div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .text_size(font_size_sm)
+                        .text_color(foreground);
+
+                    // 逐 char 画 glyph_div；cursor 落 byte == 当前 char byte 时
+                    // 在 char **之前**插入 cursor_div。行末 cursor 由 for 后处理。
+                    let mut b = vl.byte_start;
+                    for ch in line_text.chars() {
+                        if b == displayed_cursor_byte && show_cursor_local {
+                            row = row
+                                .child(div().w(px(1.0)).h(px(14.0)).bg(ring_local).self_center());
+                        } else if b == displayed_cursor_byte {
+                            // cursor blink 不可见时仍占位防止文字跳动
+                            row = row.child(div().w(px(1.0)).h(px(14.0)).self_center());
+                        }
+                        row = row.child(Self::glyph_div(
+                            b,
+                            ch,
+                            weak_glyph.clone(),
+                            sel_for_glyph.clone(),
+                            accent,
+                        ));
+                        b += ch.len_utf8();
+                    }
+                    // 行末 cursor（cursor 在 byte_end 位置 + cursor 在该行而非下一行 wrap）
+                    if b == displayed_cursor_byte {
+                        let cd = if show_cursor_local {
+                            div().w(px(1.0)).h(px(14.0)).bg(ring_local).self_center()
+                        } else {
+                            div().w(px(1.0)).h(px(14.0)).self_center()
+                        };
+                        row = row.child(cd);
+                    }
+                    row.into_any_element()
+                })
+                .collect();
+
+            div().flex().flex_col().children(rows).into_any_element()
         } else {
             let weak_left = weak_view.clone();
             let sel_left = displayed_selection.clone();
@@ -1222,23 +1282,42 @@ impl Render for TextInput {
                 .into_any_element()
         };
 
-        let mut container = div()
-            .relative()
-            .flex()
-            .flex_row()
-            .items_center()
-            // overflow_hidden 让超长 text_row（含负 margin-left 滚动）被裁切，
-            // 不溢出到父容器外（之前 borderless 模式下长 title 会画到相邻 tab）。
-            .overflow_hidden()
-            .cursor_text();
+        let mut container = div().relative().cursor_text();
+        if self.multiline {
+            // M19 T3: 多行容器 flex_col + min_h/max_h 自适应。content ≤ max_lines
+            // 时容器按 content 增高；超出后 max_h clamp 内部 overflow_hidden 裁切
+            // （vertical scroll handle 后续 T5 加，目前 cursor 在屏外靠 mouse
+            // 滚轮 / 键盘 nav 触发 update_scroll_to_cursor 兜底）。
+            let line_h = px(20.0); // ≈ font_size 14 + 6 vertical padding
+            container = container
+                .flex()
+                .flex_col()
+                .min_h(line_h)
+                .max_h(line_h * self.max_lines as f32)
+                .overflow_hidden();
+        } else {
+            container = container
+                .flex()
+                .flex_row()
+                .items_center()
+                // overflow_hidden 让超长 text_row（含负 margin-left 滚动）被裁切，
+                // 不溢出到父容器外（之前 borderless 模式下长 title 会画到相邻 tab）。
+                .overflow_hidden();
+        }
         if !self.borderless {
             container = container
-                .h(px(28.0))
                 .px(px(8.0))
                 .rounded(t.radius.sm)
                 .bg(t.colors.input)
                 .border_1()
                 .border_color(border_color);
+            if !self.multiline {
+                // 单行固定 h；多行高度由 min_h/max_h 控制（无固定 h）
+                container = container.h(px(28.0));
+            } else {
+                // 多行内部需要垂直 padding，避免首末行紧贴 border
+                container = container.py(px(4.0));
+            }
         }
         // 借用 GPUI fluent chain：把 container 后续 listener 链接回去
         container
@@ -1946,8 +2025,7 @@ mod tests {
     // 之前 byte_offset_at_x tests 已 `use gpui::{point, px, size, ...}`，
     // 这里只需补 M19 自家的 super:: items（gpui::px 在同 mod 内已可见）。
     use super::{
-        approx_char_width, byte_to_visual_pos, compute_visual_lines, visual_pos_to_byte,
-        VisualLine,
+        approx_char_width, byte_to_visual_pos, compute_visual_lines, visual_pos_to_byte, VisualLine,
     };
 
     /// 大容器宽度，用于"不会 wrap"的测试场景
