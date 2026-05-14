@@ -455,10 +455,15 @@ impl Render for HostFormModal {
                         .text_color(colors.muted_foreground)
                         .child("Enter 确认 · Esc 取消"),
                 )
-                .child(buttons_row(primary_label, true, cx))
+                // delete confirm dialog 的 primary 是 Delete，不受实时校验影响
+                .child(buttons_row(primary_label, true, false, cx))
                 .into_any_element()
         } else {
             let err = err_opt.flatten();
+            // Save 按钮 disabled 联动实时校验：host/port 任一有 inline error
+            // 时禁用，避免用户带着错误 submit。空字段不算 error（validator 空 OK），
+            // 进入 save() 时由 draft.into_config 报"必填"，所以空白态保持可点 Save。
+            let save_disabled = self.host_error.is_some() || self.port_error.is_some();
             div()
                 .flex()
                 .flex_col()
@@ -492,7 +497,7 @@ impl Render for HostFormModal {
                             .child(e),
                     )
                 })
-                .child(buttons_row(primary_label, is_edit, cx))
+                .child(buttons_row(primary_label, is_edit, save_disabled, cx))
                 .into_any_element()
         };
 
@@ -583,6 +588,7 @@ fn keyfile_row(
 fn buttons_row(
     primary_label: &'static str,
     show_delete: bool,
+    save_disabled: bool,
     cx: &mut Context<HostFormModal>,
 ) -> impl IntoElement {
     let spacing_px_2 = {
@@ -617,6 +623,7 @@ fn buttons_row(
         Button::new("host-save")
             .label(primary_label)
             .primary()
+            .disabled(save_disabled)
             .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
                 this.save(cx);
             })),
