@@ -459,11 +459,19 @@ impl Render for RootView {
             // global，theme 切换时 refresh_windows 让所有 view re-render 拿新值）
             .bg(colors.background)
             .child(self.sidebar_nav.clone())
-            // 主区 flex_1 必须 min_w(0)，否则 main_body 内任何超长子（如 tab_bar
-            // 内的 tab items 总宽 > viewport - sidebar）会撑大 flex item（min_w
-            // 默认 auto = 内容宽度，拒绝 shrink），导致 sidebar 被挤出窗口、
-            // tab_bar overflow_x_scroll 失效（容器宽 = 内容宽 = "没溢出"）。
-            .child(div().flex_1().min_w(px(0.0)).child(main_body));
+            // 主区 flex_1 必须 min_w(0) + min_h(0)，否则 main_body 内任何
+            // 超长子（如 tab_bar 内的 tab items 总宽 > viewport - sidebar，
+            // 或 home cards 总高 > viewport）会撑大 flex item（min_w/min_h
+            // 默认 auto = 内容宽/高，拒绝 shrink），导致 sidebar 被挤出窗口、
+            // tab_bar overflow_x_scroll 失效（容器宽 = 内容宽 = "没溢出"），
+            // home 滚动也失效（容器高 = 内容高 → scroll_max = 0）。
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .min_h(px(0.0))
+                    .child(main_body),
+            );
 
         // ───── 自绘 titlebar（40px strip，与 tab bar 同高）─────
         // appears_transparent=true 后系统不画 titlebar，必须自己提供拖拽区 + 窗口
@@ -591,12 +599,17 @@ impl Render for RootView {
             ));
 
         // 把 titlebar 放在 root 顶部，main 在下面
+        //
+        // 关键：main wrapper 必须 min_h(0) —— flex_col 内 flex_1 item 默认
+        // min-height: auto，children 撑大时 item 跟着撑大不 shrink，让下游
+        // home/settings 的 scroll 容器拿到的 bounds.height 也跟着膨胀，
+        // 失去 scroll_max 计算依据。CSS 经典三栏布局必加 min-height: 0。
         let root_with_titlebar = div()
             .flex()
             .flex_col()
             .size_full()
             .child(titlebar)
-            .child(div().flex_1().child(main));
+            .child(div().flex_1().min_h(px(0.0)).child(main));
 
         let mut root = div().relative().size_full().child(root_with_titlebar);
 
