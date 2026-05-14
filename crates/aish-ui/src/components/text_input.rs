@@ -1554,27 +1554,32 @@ impl Render for TextInput {
         // 中间留大空白。w_full 让 input 撑满有效宽度，符合标准 input 体感。
         let mut container = div().relative().w_full().cursor_text();
         if self.multiline {
-            // M19 T3 + scroll polish: 多行容器**固定高度** = min(n_lines, max_lines)
-            // * line_h，min_h(28) 兜底让 1 行不低于单行模式。
-            // 原 min_h/max_h + children flex 撑大方案在 mt(scroll_offset_y)
-            // 负 margin 时让 outer height = content_h + scroll → 抖动。固定
-            // .h() + min_h 脱离 children-pushes-parent 链路，↑↓ scroll 时
-            // 容器高度稳定。
+            // M19 T3 + scroll polish: 多行容器**固定高度** = inner content +
+            // py*2 (border-box 模型)。原方案因 mt(scroll_offset_y) 负 margin
+            // 让 outer = content + scroll 抖动 → 固定 .h() 脱离 children-pushes-
+            // parent 链路。
+            //
+            // outer = line_h * visible_lines + py * 2:
+            //   1 行 = 20 + 8 = 28 (与单行 .h(28) 一致)
+            //   2 行 = 48
+            //   6 行 = 128
             //
             // viewport 宽度用 self.viewport_bounds（上一帧 canvas prepaint 写入）。
             // 首帧 fallback 400px，下一帧自然 correct。
             let line_h = px(20.0); // 每行视觉高度 ≈ font_size 14 + 行距 6
+            let py = px(4.0); // 上下 padding，让 first/last 行不贴 border
             let container_w = self
                 .viewport_bounds
                 .map(|b| b.size.width)
                 .unwrap_or(px(400.0));
             let vls_for_h = compute_visual_lines(&self.text, container_w, font_size_sm);
             let visible_lines = vls_for_h.len().clamp(1, self.max_lines);
+            let outer_h = line_h * visible_lines as f32 + py * 2.0;
             container = container
                 .flex()
                 .flex_col()
-                .min_h(px(28.0)) // 1 行最小 outer 高度（与单行 .h(28) 一致）
-                .h(line_h * visible_lines as f32)
+                .h(outer_h)
+                .py(py)
                 .overflow_hidden();
         } else {
             container = container
@@ -1593,13 +1598,11 @@ impl Render for TextInput {
                 .border_1()
                 .border_color(border_color);
             if !self.multiline {
-                // 单行固定 h
+                // 单行固定 h(28)，py 包含在 h 内部（items_center 自然居中）
                 container = container.h(px(28.0));
             }
-            // 多行：高度由前面的 .min_h(28) + .h(line_h * visible_lines) 决定
-            // outer，不加 .py（避免 outer 比 .h 多 8px 让 1 行变 36px 看着过高，
-            // 且 .py 跟 .min_h 叠加时实际 outer = max(min_h, h) + py 难预测）。
-            // 1 行 outer = 28，跟单行模式视觉一致；多行每行 line_h(20)。
+            // 多行：高度 + py 已在前面 if self.multiline 分支统一控制
+            // （outer = line_h * visible_lines + py*2），不在此再加 py。
         }
         // 借用 GPUI fluent chain：把 container 后续 listener 链接回去
         container
