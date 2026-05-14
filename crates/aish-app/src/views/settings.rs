@@ -9,8 +9,9 @@
 //! title），section 间 gap_4 间距；行内统一 px_4 / py_3 内边距；shortcut
 //! 表格化 grid 风格（左列固定 200px）。
 //!
-//! 注：keyboard shortcuts 当前仍是**文档级**展示（无实际键盘绑定代码），
-//! Ctrl+1/2/3 路由到 sidebar tab 等留 backlog。
+//! Ctrl+1/2/3 由 RootView 全局 on_key_down 路由 — 真实键盘绑定生效。
+//! Ctrl+W / Ctrl+T / Ctrl+Tab / Ctrl+Shift+V 在 terminal_view focused 时生效
+//! （tab 操作 + 终端粘贴）。
 
 use aish_ui::theme::{ColorTokens, FontSize, ThemeKind};
 use aish_ui::{theme, Card, Switch, Theme};
@@ -167,8 +168,8 @@ impl Render for SettingsView {
             )));
 
         // ───── Keyboard Shortcuts ─────
-        // 当前仅文档级展示（实际键盘路由 backlog）。Inbox 删除后顺序：
-        // Ctrl+1=Home / Ctrl+2=Terminal / Ctrl+3=Settings。
+        // Ctrl+1=Home / Ctrl+2=Terminal / Ctrl+3=Settings 由 RootView 全局
+        // 接管；Ctrl+W / Ctrl+T / Ctrl+Tab 走 terminal_view focused 路径。
         let shortcuts_card = Card::new("settings-shortcuts")
             .outlined()
             .header(section_header("Keyboard Shortcuts", colors, fs))

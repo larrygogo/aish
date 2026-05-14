@@ -353,6 +353,10 @@ struct RootView {
     session_picker: Entity<crate::views::SessionPickerView>,
     input_bar: Entity<crate::views::InputBarView>,
     toast_manager: Entity<aish_ui::ToastManager>,
+    /// 全局 key handler 用 focus_handle 让 root 在 focus dispatch path 上，
+    /// 接 Ctrl+1/2/3 切 sidebar tab。不主动 .focus()，子 view（terminal /
+    /// input_bar / settings）仍能 focus 处理自己的键。
+    focus_handle: gpui::FocusHandle,
 }
 
 impl RootView {
@@ -398,7 +402,30 @@ impl RootView {
             session_picker,
             input_bar,
             toast_manager,
+            focus_handle: cx.focus_handle(),
         }
+    }
+
+    /// Ctrl+1/2/3 切 sidebar tab。Ctrl+W / Ctrl+T / Ctrl+Tab 仍只在 terminal_view
+    /// focused 时生效（涉及当前 tab 操作，Home/Settings 模式无意义）。
+    fn handle_global_key(&mut self, ev: &gpui::KeyDownEvent, cx: &mut Context<Self>) {
+        let key = ev.keystroke.key.as_str();
+        let m = &ev.keystroke.modifiers;
+        if !m.control || m.shift || m.alt {
+            return;
+        }
+        let target = match key {
+            "1" => SidebarTab::Home,
+            "2" => SidebarTab::Terminal,
+            "3" => SidebarTab::Settings,
+            _ => return,
+        };
+        self.state.update(cx, |s, cx| {
+            if s.sidebar != target {
+                s.sidebar = target;
+                cx.notify();
+            }
+        });
     }
 }
 
@@ -611,7 +638,17 @@ impl Render for RootView {
             .child(titlebar)
             .child(div().flex_1().min_h(px(0.0)).child(main));
 
-        let mut root = div().relative().size_full().child(root_with_titlebar);
+        let mut root = div()
+            .relative()
+            .size_full()
+            // track_focus 让 RootView 在 focus dispatch path 末端有占位，
+            // 子 view 处理完不消费 key 后 bubble 到这里接 Ctrl+1/2/3 全局切
+            // sidebar。不主动 .focus() — 不窃取子 view 焦点。
+            .track_focus(&self.focus_handle)
+            .on_key_down(cx.listener(|this, ev: &gpui::KeyDownEvent, _w, cx| {
+                this.handle_global_key(ev, cx);
+            }))
+            .child(root_with_titlebar);
 
         // session_picker 不在 root 而在 terminal_area 内（见 main_body Terminal
         // 分支）—— 让 backdrop 仅遮 terminal viewport，不挡 sidebar / titlebar /
