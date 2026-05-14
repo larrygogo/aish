@@ -1,9 +1,16 @@
-//! 默认 dark 主题。
+//! 默认 dark 主题 — M24 Warp/Linear 风重塑。
 //!
-//! 色板：黑底 CRT 终端风。background / card / popover / secondary / muted /
-//! border / input 全用中性黑灰阶（去 Tokyo Night 蓝调），primary / accent /
-//! ring 走 logo 终端绿系（primary_active 直接用 logo 原色 #00ff41 作为按下
-//! 高光）。destructive / success / warning 保留鲜艳警示色作对比。
+//! 设计语言：准黑白 + 单 indigo accent。中性 neutral 灰阶 8 档 ramp 表达
+//! elevation，accent #5E6AD2 (Linear indigo) 仅在 CTA / focus / 关键交互。
+//! 状态色（success/warning/destructive）desaturate 一档，避免 Tokyo Night
+//! 风高饱和与 minimal 灰阶冲突。
+//!
+//! 与 M11/M15/M17 旧版（终端绿 + Tokyo Night 红粉）相比：
+//! - primary: #00CC33 → #5E6AD2（Matrix 绿换 Linear 紫）
+//! - accent:  #2F6E3E → #2D3047（暗绿换深紫灰）
+//! - destructive: #F7768E → #E5484D（粉红换真红）
+//! - bg/card/popover: #050505/#0D0D0D/#161616 → #08090A/#101113/#191B1F
+//!   （加 hue 偏冷，与 indigo accent 协调）
 
 use super::tokens::{hex, ColorTokens, FontSize, Radius, Spacing, Theme, ThemeKind};
 
@@ -12,56 +19,53 @@ impl Theme {
         Self {
             kind: ThemeKind::Dark,
             colors: ColorTokens {
-                // 黑底 + 中性灰阶（去蓝调）
-                background: hex(0x050505),
-                foreground: hex(0xe0e0e0),
-                card: hex(0x0d0d0d),
-                card_foreground: hex(0xe0e0e0),
-                popover: hex(0x161616),
-                popover_foreground: hex(0xe0e0e0),
-                // primary 走 logo 终端绿
-                primary: hex(0x00cc33),
-                primary_foreground: hex(0x050505), // 绿底深字，对比清晰
-                // secondary / muted 中性灰
-                secondary: hex(0x1f1f1f),
-                secondary_foreground: hex(0xbfbfbf),
-                muted: hex(0x1f1f1f),
-                muted_foreground: hex(0x808080),
-                // accent 暗中绿，作为容器 hover bg（s~40% l~31%，避免大面积 fill 反客为主）
-                accent: hex(0x2f6e3e),
-                accent_foreground: hex(0xe0e0e0), // 暗绿底配浅白文字
-                // destructive 保留 Tokyo Night 红粉（警示色与绿成对比）
-                destructive: hex(0xf7768e),
-                destructive_foreground: hex(0x050505),
-                // border / input 中性深灰。input 略亮于 background（#050505），
-                // 让输入框"凸出"而非凹陷（之前 #0a0a0a 比 background 还深，
-                // 视觉像"洞"，与用户对 input 的直觉相反）
-                border: hex(0x1f1f1f),
-                input: hex(0x0d0d0d),
-                // focus ring 比 primary 亮一档（与 primary_hover 同 #00e63a），让
-                // focused button 与 idle button 视觉明显区分（之前 ring=primary 完全
-                // 同色 → focus 时按钮看着和未 focus 一样，外圈 ring 也分不清）
-                ring: hex(0x00e63a),
-                success: hex(0x9ece6a),
-                warning: hex(0xe0af68),
-                // M15 阶梯（lightness 单调递增 idle→hover→active）
-                // primary 绿色系：#00cc33 → #00e63a → #00ff41（logo 原色）
-                primary_hover: hex(0x00e63a),
-                primary_active: hex(0x00ff41),
-                // secondary 中性灰阶梯（active 与 hover 拉开档差，按下反馈更清晰；
-                // 旧 #333333 与 hover #2a2a2a 仅 9 亮度差用户感知不到）
-                secondary_hover: hex(0x2a2a2a),
-                secondary_active: hex(0x404040),
-                // destructive 保留 Tokyo Night 阶梯
-                destructive_hover: hex(0xff8aa1),
-                destructive_active: hex(0xff9cb5),
-                // M17：accent 按下反馈，比 accent 更深（与 M15 方向相反）
-                // accent 暗绿系：#2f6e3e → #1f4a2c
-                accent_active: hex(0x1f4a2c),
-                // M18：Ghost button active 用，比 secondary_active 再亮一档
-                // 灰阶序列：secondary #1a1a1a → hover #2a2a2a → active #404040
-                //        → strongest #525252
-                secondary_strongest: hex(0x525252),
+                // ── Neutral L0-L7（dark）────────────────────────────────
+                // L0 bg 最底 / L1 card / L2 popover / L4 secondary / L5 hover
+                // / L6 active / L7 border = L4
+                background: hex(0x08090a),
+                foreground: hex(0xf4f5f8), // 高对比白（dev tool 惯例）
+                card: hex(0x101113),
+                card_foreground: hex(0xf4f5f8),
+                popover: hex(0x191b1f),
+                popover_foreground: hex(0xf4f5f8),
+                // ── Primary = Linear Indigo ─────────────────────────────
+                primary: hex(0x5e6ad2),
+                primary_foreground: hex(0xffffff),
+                // ── Secondary / Muted 中性灰 ────────────────────────────
+                secondary: hex(0x26282d),
+                secondary_foreground: hex(0xc8cacf),
+                muted: hex(0x26282d),
+                muted_foreground: hex(0x8b8d97), // 冷调中灰
+                // ── Accent 容器 hover bg — 深紫灰，与 primary 同 hue 但
+                // 极低饱和，避免大面积 fill 抢主信息 ────────────────────
+                accent: hex(0x2d3047),
+                accent_foreground: hex(0xf4f5f8),
+                // ── Destructive 真红（替代 Tokyo Night 粉红）────────────
+                destructive: hex(0xe5484d),
+                destructive_foreground: hex(0xffffff),
+                // ── Border / Input — border = L7 = L4 同色 ──────────────
+                // input bg 与 card 同 (L1)，比 background 略亮"凸出"感
+                border: hex(0x26282d),
+                input: hex(0x101113),
+                // focus ring = primary（accent 系），caller 加 alpha 实现 glow
+                ring: hex(0x5e6ad2),
+                // 状态色 desaturate 一档
+                success: hex(0x4fbb72),
+                warning: hex(0xe8a658),
+                // ── Variant 阶梯（M15 lightness 单调）──────────────────
+                // primary indigo 阶梯：base → hover (提亮) → active (再提亮)
+                primary_hover: hex(0x7079db),
+                primary_active: hex(0x8189e0),
+                // secondary 灰阶（L4 base → L5 hover → L6 active）
+                secondary_hover: hex(0x2e3036),
+                secondary_active: hex(0x3a3d44),
+                // destructive 阶梯：真红 → 偏亮红 → 浅红
+                destructive_hover: hex(0xed5e63),
+                destructive_active: hex(0xf27479),
+                // accent_active 比 accent 更深（容器按下"沉下去"，M17 方向）
+                accent_active: hex(0x1f2236),
+                // M18 Ghost button 按下反馈，比 secondary_active 再亮一档
+                secondary_strongest: hex(0x4a4d55),
             },
             radius: Radius::default(),
             spacing: Spacing::default(),
@@ -75,31 +79,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn dark_primary_is_green_ish() {
+    fn dark_primary_is_indigo() {
         let t = Theme::dark();
-        // hue 绿色 ≈ 0.25..0.45（logo CRT 终端绿系）
-        assert!(t.colors.primary.h > 0.25 && t.colors.primary.h < 0.45);
+        // Linear indigo #5E6AD2 归一化 hue ≈ 0.66（蓝紫方向，介于纯蓝 0.67 和紫 0.75）
+        // 容差宽一点防 hex→hsla 转换浮点误差
+        assert!(
+            t.colors.primary.h > 0.60 && t.colors.primary.h < 0.72,
+            "primary hue {} 不在 indigo 范围",
+            t.colors.primary.h
+        );
     }
 
     #[test]
-    fn dark_destructive_is_red_ish() {
+    fn dark_destructive_is_red() {
         let t = Theme::dark();
-        // Tokyo Night destructive = 0xf7768e，归一化 hue ≈ 0.963（红-粉方向）
-        // hue < 0.05 覆盖正红，hue > 0.95 覆盖红-粉
+        // #E5484D 是真红，hue ≈ 0 或 ≈ 1（红色环绕 0/1 边界）
+        // 旧 Tokyo Night #F7768E 偏粉，hue ≈ 0.96 也满足；新 #E5484D hue ≈ 0.00
         assert!(t.colors.destructive.h < 0.05 || t.colors.destructive.h > 0.95);
     }
 
     #[test]
     fn dark_background_is_very_dark() {
         let t = Theme::dark();
-        assert!(t.colors.background.l < 0.15);
+        // #08090A 极低亮度
+        assert!(t.colors.background.l < 0.05);
     }
 
     #[test]
-    fn dark_background_is_neutral_no_hue() {
+    fn dark_background_is_low_saturation() {
         let t = Theme::dark();
-        // #050505 是中性灰阶，saturation 应该极低（远离原 Tokyo Night #1a1b26 的蓝调）
-        assert!(t.colors.background.s < 0.05);
+        // M24 允许偏冷一档（#08090A 有微弱 cool hue），但 saturation 仍极低
+        assert!(t.colors.background.s < 0.15);
     }
 
     #[test]
