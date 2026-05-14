@@ -72,6 +72,11 @@ pub fn os_avatar_for(os_kind: &str) -> Option<OsAvatar> {
             icon: IconName::DistroRedhat,
             bg: 0xee0000,
         }),
+        // macOS：苹果 logo + Apple Space Gray (#1d1d1f) 背景
+        "macos" | "darwin" => Some(OsAvatar::Svg {
+            icon: IconName::DistroMacos,
+            bg: 0x1d1d1f,
+        }),
         "rocky" => Some(OsAvatar::Letter {
             letter: 'R',
             bg: 0x10b981,

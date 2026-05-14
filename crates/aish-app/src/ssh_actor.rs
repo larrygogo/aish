@@ -477,6 +477,26 @@ fn parse_os_release(stdout: &[u8]) -> Option<String> {
     None
 }
 
+/// 解析 `uname -s` 输出，把内核名归一到 avatar 识别得到的 key：
+/// - Darwin → "macos"
+/// - Linux → "linux"（os-release 已失败说明是少见 distro，UI 走通用 linux）
+/// - FreeBSD / OpenBSD / NetBSD → "freebsd" / "openbsd" / "netbsd"
+///
+/// 其余按 lowercase 原样返回（识别不到 avatar 时 UI 仍 fallback 字母 avatar）。
+fn parse_uname(stdout: &[u8]) -> Option<String> {
+    let s = std::str::from_utf8(stdout).ok()?.trim();
+    if s.is_empty() {
+        return None;
+    }
+    let k = s.to_ascii_lowercase();
+    let normalized = match k.as_str() {
+        "darwin" => "macos",
+        "linux" => "linux",
+        other => other,
+    };
+    Some(normalized.to_string())
+}
+
 async fn os_detect_task(
     conn: ConnectionId,
     host_id: aish_types::HostId,
@@ -484,11 +504,19 @@ async fn os_detect_task(
     event_tx: mpsc::Sender<SshEvent>,
 ) {
     // /etc/os-release 是 systemd 标准（Ubuntu/Debian/CentOS/Fedora/Arch/Alpine 等都有）。
-    // macOS 没该文件，cat 会 fail，os_kind = None，UI 走 fallback 首字母 avatar。
+    // macOS / FreeBSD / 老 Unix 没该文件 → fallback `uname -s`：
+    // Darwin → "macos"，Linux 无 os-release → "linux"，FreeBSD → "freebsd" 等。
     let result = client.exec_command("cat /etc/os-release 2>/dev/null").await;
     let os_kind = match result {
         Ok(r) if r.exit_code == 0 => parse_os_release(&r.stdout),
         _ => None,
+    };
+    let os_kind = match os_kind {
+        Some(k) => Some(k),
+        None => match client.exec_command("uname -s").await {
+            Ok(r) if r.exit_code == 0 => parse_uname(&r.stdout),
+            _ => None,
+        },
     };
     let _ = event_tx
         .send(SshEvent::OsDetected {
@@ -703,6 +731,32 @@ mod tests {
         // ID_LIKE 不应该被误匹配（必须严格前缀 "ID="）
         let s = b"ID_LIKE=debian\nID=ubuntu\n";
         assert_eq!(parse_os_release(s).as_deref(), Some("ubuntu"));
+    }
+
+    #[test]
+    fn parse_uname_darwin_returns_macos() {
+        // macOS `uname -s` 输出 "Darwin\n"，归一化到 "macos"
+        assert_eq!(parse_uname(b"Darwin\n").as_deref(), Some("macos"));
+        assert_eq!(parse_uname(b"darwin\n").as_deref(), Some("macos"));
+    }
+
+    #[test]
+    fn parse_uname_linux_passthrough() {
+        // Linux 内核但 os-release 失败的少见情况 — 走 generic "linux"
+        assert_eq!(parse_uname(b"Linux\n").as_deref(), Some("linux"));
+    }
+
+    #[test]
+    fn parse_uname_other_lowercase_passthrough() {
+        // FreeBSD / OpenBSD / NetBSD 等其他 Unix — lowercase 原样
+        assert_eq!(parse_uname(b"FreeBSD\n").as_deref(), Some("freebsd"));
+        assert_eq!(parse_uname(b"OpenBSD\n").as_deref(), Some("openbsd"));
+    }
+
+    #[test]
+    fn parse_uname_empty_returns_none() {
+        assert_eq!(parse_uname(b""), None);
+        assert_eq!(parse_uname(b"\n"), None);
     }
 
     #[tokio::test]

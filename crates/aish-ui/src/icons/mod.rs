@@ -43,6 +43,7 @@ pub enum IconName {
     DistroCentos,
     DistroFedora,
     DistroRedhat,
+    DistroMacos,
 }
 
 impl IconName {
@@ -74,6 +75,7 @@ impl IconName {
         IconName::DistroCentos,
         IconName::DistroFedora,
         IconName::DistroRedhat,
+        IconName::DistroMacos,
     ];
 
     /// AssetSource 加载用的 path（对应 assets/icons/ 内文件名）。
@@ -104,6 +106,7 @@ impl IconName {
             IconName::DistroCentos => "icons/distros/centos.svg",
             IconName::DistroFedora => "icons/distros/fedora.svg",
             IconName::DistroRedhat => "icons/distros/redhat.svg",
+            IconName::DistroMacos => "icons/distros/macos.svg",
         }
     }
 
@@ -146,6 +149,9 @@ impl IconName {
             }
             IconName::DistroRedhat => {
                 include_bytes!("../../assets/icons/distros/redhat.svg")
+            }
+            IconName::DistroMacos => {
+                include_bytes!("../../assets/icons/distros/macos.svg")
             }
         }
     }
