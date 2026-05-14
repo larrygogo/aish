@@ -56,6 +56,10 @@ impl InputBarView {
                 }
             });
         });
+        // observe input entity：input mouse_down 获焦 / typed 时 cx.notify
+        // input → 链路传到 InputBar re-render，读最新 is_focused 决定 card
+        // border 颜色（textarea-like focus 反馈）。
+        cx.observe(&input, |_this, _input, cx| cx.notify()).detach();
         Self {
             state,
             bridge,
@@ -200,8 +204,16 @@ impl InputBarView {
 }
 
 impl Render for InputBarView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
+        // input focused 时 card border 改 ring 色（textarea-like 焦点反馈）。
+        // borderless 模式下 input 自身没视觉 focus indicator，靠 card 给。
+        let input_focused = self.input.read(cx).is_focused(window);
+        let card_border_color = if input_focused {
+            t.colors.ring
+        } else {
+            t.colors.border
+        };
 
         // 当前 conn 的批量上传进度（BatchProgress 更新 / BatchDone 清除）。
         // Some((done, total)) 时显示进度行 + 发送按钮 disabled。
@@ -346,7 +358,8 @@ impl Render for InputBarView {
 
         // InputBar 整体改 chat-card 风：rounded + border + bg(card)。
         // input 自身 borderless，视觉框由 outer card 提供；缩略图 / 进度 / +
-        // / input / Send 全在一个 card 内，统一组件感。
+        // / input / Send 全在一个 card 内，统一组件感。focused 时 border
+        // 改 ring 色作为 textarea-like focus 反馈。
         div()
             .flex_col()
             .mx(px(8.0))
@@ -354,7 +367,7 @@ impl Render for InputBarView {
             .mt(px(4.0))
             .rounded(t.radius.md)
             .border_1()
-            .border_color(t.colors.border)
+            .border_color(card_border_color)
             .bg(t.colors.card)
             .children(progress_row)
             .children(images_row)

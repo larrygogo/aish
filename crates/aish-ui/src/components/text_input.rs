@@ -235,6 +235,13 @@ impl TextInput {
         self.focus_handle.focus(window, cx);
     }
 
+    /// 查询当前是否 focused。InputBar 等 caller 用来决定外层 card 是否
+    /// 画 focus ring（borderless 模式下 input 自身没 focus 反馈，caller
+    /// 透过此查询给整体 card 加 active border 实现 textarea-like focus 状态）。
+    pub fn is_focused(&self, window: &Window) -> bool {
+        self.focus_handle.is_focused(window)
+    }
+
     // -------- blink helpers --------
 
     /// 重置 blink 相位（按键 / 鼠标后让 cursor 立即可见）。
