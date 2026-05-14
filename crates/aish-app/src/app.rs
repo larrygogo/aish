@@ -563,9 +563,16 @@ impl Render for RootView {
 
         // ───── 自绘 titlebar（40px strip，与 tab bar 同高）─────
         // appears_transparent=true 后系统不画 titlebar，必须自己提供拖拽区 + 窗口
-        // 控件。布局：左 logo+标题 / 中拖拽区 / 右 minimize+maximize+close。
-        // 整个 titlebar bg=card（与 tab bar 同色无缝衔接），36 改 40 与 tab bar
-        // 齐高避免"上窄下宽"。
+        // 控件。整个 titlebar bg=card（与 tab bar 同色无缝衔接），36 改 40 与
+        // tab bar 齐高避免"上窄下宽"。
+        //
+        // 平台差异：
+        // - macOS：系统仍把 traffic-light（close/min/max）画在左上 ~80px，
+        //   自绘内容必须让位；右侧不再画一套自绘按钮（与系统重复）。
+        //   布局：[80px 系统占位][拖拽区 + 居中 logo+aish]。
+        // - Windows/Linux：系统不提供任何窗口控件，全部自绘。
+        //   布局：[左 logo+aish][中拖拽][右 min/max/close]。
+        //
         // logo + 标题：aish 真品牌 logo + "aish" 文字。
         // 注意：GPUI 的 svg() 元素是 **monochrome 模式** —— 整个 SVG 用 text_color
         // 染色覆盖原 fill，无法显示多色 logo。aish 品牌 logo 是蓝+黑双色 + 装饰
@@ -573,33 +580,63 @@ impl Render for RootView {
         // assets/icons/aish-128.png 是项目品牌图标的 128×128 PNG（多色 raster），
         // 通过 AppAssets 的 path="aish-icon.png" 暴露给 GPUI img() Embedded
         // resource 路径。22px 显示时 GPUI 会自动缩放。
-        let titlebar_left = div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap(px(8.0))
-            .px(px(12.0))
-            .child(gpui::img("aish-icon.png").w(px(22.0)).h(px(22.0)))
-            .child(
-                div()
-                    .text_size(px(13.0))
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                    .text_color(colors.foreground)
-                    .child("aish"),
-            );
+        let is_macos = cfg!(target_os = "macos");
 
         // 中部拖拽区：
         // - Windows：window_control_area(Drag) 让 WM_NCHITTEST 返回 HTCAPTION，
         //   OS 接管拖拽 + Aero snap（拖到屏幕边缘自动 1/2 屏；之前自绘 mouse_down
         //   走 start_window_move 触发的拖拽不走 NC 路径，没有 Aero snap）
         // - macOS / Linux：fall-through 到 mouse_down，调 start_window_move
+        // - macOS 上把 logo+aish 文字塞进拖拽区并居中，避开左上红绿灯
         let titlebar_drag_area = div()
             .flex_1()
             .h_full()
+            .flex()
+            .flex_row()
+            .items_center()
+            .when(is_macos, |d| {
+                d.justify_center().gap(px(8.0)).child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(px(8.0))
+                        .child(gpui::img("aish-icon.png").w(px(22.0)).h(px(22.0)))
+                        .child(
+                            div()
+                                .text_size(px(13.0))
+                                .font_weight(gpui::FontWeight::SEMIBOLD)
+                                .text_color(colors.foreground)
+                                .child("aish"),
+                        ),
+                )
+            })
             .window_control_area(WindowControlArea::Drag)
             .on_mouse_down(gpui::MouseButton::Left, |_ev, window, _cx| {
                 window.start_window_move()
             });
+
+        // 左侧区域：
+        // - macOS：80px 空占位，让出系统 traffic-light
+        // - 其它：放 logo + "aish" 文字
+        let titlebar_left = if is_macos {
+            div().w(px(80.0)).h_full()
+        } else {
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(8.0))
+                .px(px(12.0))
+                .child(gpui::img("aish-icon.png").w(px(22.0)).h(px(22.0)))
+                .child(
+                    div()
+                        .text_size(px(13.0))
+                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                        .text_color(colors.foreground)
+                        .child("aish"),
+                )
+        };
 
         // 窗口控件按钮（minimize / maximize / close）：
         // - area 参数 → window_control_area(area)：Windows 上让 WM_NCHITTEST
@@ -640,6 +677,8 @@ impl Render for RootView {
                 .child(glyph)
         }
 
+        // macOS 右侧不再画自绘 min/max/close —— 系统已在左上提供 traffic-light，
+        // 重复一套会视觉冲突 + 与 native 应用习惯不符。
         let titlebar = div()
             .flex()
             .flex_row()
@@ -651,40 +690,43 @@ impl Render for RootView {
             .border_color(colors.border)
             .child(titlebar_left)
             .child(titlebar_drag_area)
-            .child(titlebar_btn(
-                "tb-min",
-                "\u{2014}", // em dash
-                colors.muted_foreground,
-                colors.secondary_hover,
-                colors.foreground,
-                WindowControlArea::Min,
-                |window, _cx| window.minimize_window(),
-            ))
-            .child(titlebar_btn(
-                "tb-max",
-                "\u{25A2}", // white square with rounded corners
-                colors.muted_foreground,
-                colors.secondary_hover,
-                colors.foreground,
-                WindowControlArea::Max,
-                |window, _cx| window.zoom_window(),
-            ))
-            .child(titlebar_btn(
-                "tb-close",
-                "\u{2715}", // multiplication x
-                colors.muted_foreground,
-                // close 按钮 hover 用 Windows 11 风真红（#e81123），与系统标题栏
-                // close 按钮颜色一致 + 与 minimize/maximize 走 muted hover 形成强
-                // 警示对比。原 destructive token (#f7768e Tokyo Night) 偏粉淡，
-                // 在 muted 深底上不够"危险"，用户感知偏白。
-                gpui::rgb(0xe81123).into(),
-                // hover_fg 强制白色 — destructive_foreground 是 0x050505 黑色
-                // (dark) / 0xfafafa 白色 (light)，dark 下黑 X on 红底对比够；但
-                // hardcoded 白色保证 dark/light 一致 + 与 Windows close 风一致
-                gpui::rgb(0xffffff).into(),
-                WindowControlArea::Close,
-                |window, _cx| window.remove_window(),
-            ));
+            .when(!is_macos, |d| {
+                d.child(titlebar_btn(
+                    "tb-min",
+                    "\u{2014}", // em dash
+                    colors.muted_foreground,
+                    colors.secondary_hover,
+                    colors.foreground,
+                    WindowControlArea::Min,
+                    |window, _cx| window.minimize_window(),
+                ))
+                .child(titlebar_btn(
+                    "tb-max",
+                    "\u{25A2}", // white square with rounded corners
+                    colors.muted_foreground,
+                    colors.secondary_hover,
+                    colors.foreground,
+                    WindowControlArea::Max,
+                    |window, _cx| window.zoom_window(),
+                ))
+                .child(titlebar_btn(
+                    "tb-close",
+                    "\u{2715}", // multiplication x
+                    colors.muted_foreground,
+                    // close 按钮 hover 用 Windows 11 风真红（#e81123），与系统标题
+                    // 栏 close 按钮颜色一致 + 与 minimize/maximize 走 muted hover
+                    // 形成强警示对比。原 destructive token (#f7768e Tokyo Night)
+                    // 偏粉淡，在 muted 深底上不够"危险"，用户感知偏白。
+                    gpui::rgb(0xe81123).into(),
+                    // hover_fg 强制白色 — destructive_foreground 是 0x050505 黑色
+                    // (dark) / 0xfafafa 白色 (light)，dark 下黑 X on 红底对比够；
+                    // 但 hardcoded 白色保证 dark/light 一致 + 与 Windows close 风
+                    // 一致
+                    gpui::rgb(0xffffff).into(),
+                    WindowControlArea::Close,
+                    |window, _cx| window.remove_window(),
+                ))
+            });
 
         // 把 titlebar 放在 root 顶部，main 在下面
         //
