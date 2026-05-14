@@ -98,6 +98,13 @@ pub struct TextInput {
     /// 清掉，重新设。T1 占位，T4 cursor_up/down_visual 实施时启用。
     #[allow(dead_code)]
     preferred_col: Option<usize>,
+    /// M21 T2：cursor 变化后到下一次 prepaint 之间应 update_scroll_to_cursor。
+    /// 默认 true（首次 prepaint 跑一次让初始 cursor 可见）；reset_blink 内 set
+    /// true 覆盖所有 cursor 写路径；update_scroll_to_cursor 跑完 set false。
+    ///
+    /// 关键：wheel 路径**不**调 reset_blink → dirty 保持 false → 不会下一帧把
+    /// scroll 拉回 cursor 位置（textarea 标准：wheel 滚走 cursor 也保持滚位）。
+    cursor_dirty_for_scroll: bool,
 }
 
 impl TextInput {
@@ -130,6 +137,7 @@ impl TextInput {
             multiline: false,
             max_lines: 6,
             preferred_col: None,
+            cursor_dirty_for_scroll: true,
         };
         this.start_blink_timer(cx);
         this
@@ -264,8 +272,14 @@ impl TextInput {
     // -------- blink helpers --------
 
     /// 重置 blink 相位（按键 / 鼠标后让 cursor 立即可见）。
+    ///
+    /// 顺带 set cursor_dirty_for_scroll = true：所有 cursor 变化点都跟着调
+    /// reset_blink，所以集中在这里 set dirty 等于覆盖全部写路径。wheel 等
+    /// 不动 cursor 的路径不调 reset_blink → 保持 dirty=false → 下一帧
+    /// update_scroll_to_cursor 跳过 → 不会拉回滚位。
     fn reset_blink(&mut self) {
         self.blink_epoch = Instant::now();
+        self.cursor_dirty_for_scroll = true;
     }
 
     /// 根据相位判断 cursor 是否应该可见（render 用）。
@@ -293,6 +307,13 @@ impl TextInput {
         viewport: Bounds<Pixels>,
         cx: &mut Context<Self>,
     ) {
+        // M21 T2：cursor 没动过 → 不重算 scroll（避免 wheel 滚位被下一帧拉回）。
+        // dirty 由 reset_blink 在 cursor 变化路径 set true，本方法跑完 set false。
+        if !self.cursor_dirty_for_scroll {
+            return;
+        }
+        self.cursor_dirty_for_scroll = false;
+
         // 多行：走 vertical scroll 分支 + 重置水平 scroll（word-wrap 已经覆盖
         // 长行，没有水平 scroll 需求）
         if self.multiline {
@@ -2756,6 +2777,67 @@ mod tests {
             px(20.0),
         );
         assert_eq!(res, None);
+    }
+
+    /// M21 T2 pure-fn 模拟：cursor_dirty_for_scroll flag 转换。
+    /// reset_blink 在所有 cursor 变化点被调用 → set dirty=true；
+    /// update_scroll_to_cursor 入口跑完 set dirty=false；
+    /// wheel 不调 reset_blink → dirty 保持 false 防止 wheel 滚位被拉回。
+    struct CursorDirtyState {
+        dirty: bool,
+    }
+    impl CursorDirtyState {
+        fn new() -> Self {
+            Self { dirty: true } // 首次 prepaint 需要跑一次
+        }
+        fn reset_blink(&mut self) {
+            self.dirty = true;
+        }
+        fn update_scroll_to_cursor(&mut self) -> bool {
+            // 返回 true 表示真正跑了 update
+            if !self.dirty {
+                return false;
+            }
+            self.dirty = false;
+            true
+        }
+        fn wheel(&mut self) {
+            // wheel 不动 cursor，不调 reset_blink，不动 dirty
+        }
+    }
+
+    #[test]
+    fn cursor_dirty_initial_true_first_prepaint_runs_update() {
+        let mut s = CursorDirtyState::new();
+        assert!(s.update_scroll_to_cursor());
+        assert!(!s.dirty);
+    }
+
+    #[test]
+    fn cursor_dirty_set_on_keyboard_nav() {
+        let mut s = CursorDirtyState::new();
+        s.update_scroll_to_cursor(); // 清掉初始 dirty
+        assert!(!s.dirty);
+        s.reset_blink(); // 模拟键盘 cursor 移动
+        assert!(s.dirty);
+    }
+
+    #[test]
+    fn cursor_dirty_cleared_after_scroll_update() {
+        let mut s = CursorDirtyState::new();
+        s.update_scroll_to_cursor();
+        assert!(!s.dirty);
+        // 再跑一次 update 返回 false（无 work）
+        assert!(!s.update_scroll_to_cursor());
+    }
+
+    #[test]
+    fn wheel_does_not_set_cursor_dirty() {
+        let mut s = CursorDirtyState::new();
+        s.update_scroll_to_cursor(); // 清掉初始 dirty
+        s.wheel();
+        // wheel 不应让下一次 update_scroll_to_cursor 跑（防止拉回 cursor）
+        assert!(!s.update_scroll_to_cursor());
     }
 
     #[test]
