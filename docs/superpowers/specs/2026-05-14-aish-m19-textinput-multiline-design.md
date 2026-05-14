@@ -196,3 +196,42 @@ drag-to-edge auto-scroll：垂直方向。鼠标接近上/下边沿 20px 时持�
 ## 7. Plan 引用
 
 见 [`../plans/2026-05-14-aish-m19-textinput-multiline.md`](../plans/2026-05-14-aish-m19-textinput-multiline.md)
+
+---
+
+## 8. 实施记录（2026-05-14 完成）
+
+T1-T6 已实施，T7 文档收尾。
+
+### 实际 commits
+
+| Task | Commit | 内容 |
+|---|---|---|
+| spec + plan | `c1eff2f` | 本文件 + plan 起草 |
+| T1 | `e37c37d` | multiline / max_lines / preferred_col 字段 + builder |
+| T2 | `5b4797b` | compute_visual_lines + byte ↔ vl 转换 + 13 单测 |
+| T3 | `68a46d1` | render multiline 路径（按 visual_line 拆 row） |
+| T4 | `2faff94` | 键盘 nav 跨行 + Enter / Ctrl+Enter + 4 单测 |
+| T5 | `640b7e7` | mouse cursor_from_click_2d 2D 路径 |
+| T6 | `98f7d44` | InputBar 接 multiline(true).max_lines(6) |
+
+### Risk 实际遇到
+
+- **R1 (wrap 估算偏差)**：未实测见严重偏差。monospace 字体下 ASCII × 0.6 + CJK × 1.2 估算合理，click 定位偏差 ≤ 1 char。
+- **R2 (InputBar layout)**：max_lines=6 + line_h=20 = 120px 上限，未发现挤压。
+- **R5 (Ctrl+Enter 透明路由)**：TextInput 内部 `"enter" if multiline && ctrl => fire_submit` 路由成功，InputBar caller 透明（on_submit 不动）。
+- **R6 (vertical drag-to-edge)**：M19 未实现，留 M20。多行 drag 在 viewport 内移动 cursor 可用，drag 到上下边沿无 auto-scroll。
+
+### 未做（M20+）
+
+- vertical drag-to-edge auto-scroll
+- 多行 vertical scrollbar UI（cursor 在屏外只能键盘 ↑↓ 间接 nav）
+- font_size 在 cursor_up/down 路径 hardcoded px(12.0)，需 cache 到 self.last_font_size
+
+### 测试增量
+
+- aish-ui 158 → 180 (+22)
+  - T2 +13: visual_lines / byte ↔ vl 双向转换 / 边界 case
+  - T4 +4: cursor_up/down_visual preferred_col / 首末行 clamp
+  - T1/T3/T5/T6 跳过单测（builder / render / mouse 难纯函数化，集成测试靠手测）
+- aish-app 不变

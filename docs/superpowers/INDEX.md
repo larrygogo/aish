@@ -10,13 +10,54 @@
 
 ## 当前状态
 
-- **活跃分支**：main（2026-05-13 完成 M17-polish 一轮 35 commits 连续迭代，已 push origin/main）
-- **下一里程碑**：M18 候选 — Button/IconButton Ghost variant 接 accent_active（M17 留的，兑现 M15 D-2 回退）/ ContextMenu（Popover + 右键）/ DropdownMenu 键盘导航 / Light theme 实施（含 M15/M17 共 7 个占位 token）/ Dialog Tab focus trap / TextInput "眼睛"切换 mask / TextInput shift+click 扩展 selection / TextInput 多行 / Disabled 状态视觉精细化
-- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **143** + aish-app 101 + 其他 crate) 全过
+- **活跃分支**：main（2026-05-14 完成 M18 + M19，待 push origin/main）
+- **下一里程碑**：M20 候选 — TextInput 多行 vertical drag-to-edge auto-scroll（M19 T5b 留）/ TextInput 多行 vertical scrollbar UI / Settings 实质内容（build info / open config dir / GitHub link）/ collapse-orphan-conn（关 tab 保 actor，Home 加 active sessions 区块）
+- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **180** + aish-app 126 + 其他 crate) 全过
 
 ---
 
 ## Milestones（按时间倒序）
+
+### M19 — TextInput 多行 + word-wrap + auto-grow（2026-05-14）— ✅ 已完成
+- spec：[`specs/2026-05-14-aish-m19-textinput-multiline-design.md`](specs/2026-05-14-aish-m19-textinput-multiline-design.md)
+- plan：[`plans/2026-05-14-aish-m19-textinput-multiline.md`](plans/2026-05-14-aish-m19-textinput-multiline.md)
+- 范围：把 `aish_ui::TextInput` 从单行扩展到多行：
+  - `.multiline(true)` + `.max_lines(n)` builder（默认 false，单行行为完全不变）
+  - Enter 插 `\n` / Ctrl+Enter 触发 on_submit（VS Code / Claude Desktop 风），TextInput 内部 Ctrl+Enter 路由 fire_submit，caller 透明
+  - auto-grow：min_h(line_h) + max_h(line_h * max_lines)，超出 overflow_hidden 裁切
+  - word-wrap：按 char 估算宽度（ASCII × 0.6 / CJK × 1.2）+ word-boundary 优先 + 单 word 超宽强制 char-level 断
+  - cursor 保持 byte offset，加 byte ↔ (vl_idx, col) 双向 helper
+  - 键盘 ↑/↓ 跨 visual line（preferred_col 保 col 记忆，连续 ↑↓ 经短行回长行仍在原 col）
+  - Home/End 多行下走当前 visual line 行首 / 行末
+  - mouse click + drag select 跨行（cursor_from_click_2d 用 bounds_map 的 y 反推 vl_idx 再 x 找 byte）
+  - InputBar 接入：placeholder 改 'Enter 换行，Ctrl+Enter 发送'
+- 关键 commits：
+  - `c1eff2f` — spec + plan
+  - `e37c37d` — T1 字段 + builder API
+  - `5b4797b` — T2 compute_visual_lines + byte ↔ vl 转换 + 13 单测
+  - `68a46d1` — T3 render multiline 路径（按 visual_line 拆 row + cursor inline）
+  - `2faff94` — T4 键盘 nav 跨行 + Enter / Ctrl+Enter 多行语义 + 4 单测
+  - `640b7e7` — T5 mouse 跨行 click + drag select 用 2D 路径
+  - `98f7d44` — T6 InputBar 接 multiline
+- 测试：aish-ui 158 → **180**（+22：visual_lines / 双向转换 / cursor_up/down_visual / approx_char_width）
+- 已知边界 / 留 M20+：
+  - vertical drag-to-edge auto-scroll（多行 drag 到上下边沿持续滚）—— 单行水平版本 OK，多行垂直版本留 M20
+  - 多行 vertical scrollbar UI 未画（超出 max_lines 内容内部 overflow_hidden 裁切，cursor 在屏外靠键盘 ↑↓ 自动 nav 间接定位）
+  - font_size 取值 keyboard nav 路径 hardcoded px(12.0)（与 theme.font_size.sm 默认对齐）；改主题字号需同步 —— 后续 cache 到 self 字段优化
+  - word-wrap 估算偏差最多 1 char（monospace + CJK 2x 经验值）；T2 单测断言 wrap 阈值，未发现实际 click 定位失准
+
+### M18 — UI 体验全面铺开（2026-05-14）— ✅ 已完成
+- 性质：不走 spec/plan 的用户反馈驱动 polish pass，跨 13 commits 8 个主题。
+- 主题 1：mouse-on-detect + session-picker-meta + tab-reorder-keyboard / drag 全套（`a9b4448` `a89f5e3` `3c03f9d` `299f05a` `2b250a5`）
+- 主题 2：Ctrl+W 关 tab + Ctrl+T 新 tab + Ctrl+Tab 循环切（`b76965c` `79d4770`）
+- 主题 3：toast 位置 + 样式 + zero-size 修复（`a22fd56` `1457b89` `874cb71`）
+- 主题 4：tab / host card 右键菜单（ContextMenu 组件 + DropdownMenu 键盘导航）（`72db6d9` `24ba4eb` `dbe15e0`）
+- 主题 5：HostForm 实时校验 + Save 按钮 disabled 联动 + 眼睛切换 mask + shift+click 扩选（`daa7dff` `5b25c43` `6714af1` `af83916`）
+- 主题 6：Dialog Tab focus trap + SessionPicker ↑/↓/Enter 键盘导航（`b3d284d` `51c16f1` `d63c0dd`）
+- 主题 7：Disabled 视觉精细化（cursor not-allowed + opacity 0.6）（`c10c3fc`）
+- 主题 8：Light theme 落地（21 ColorTokens + dark/light 阶梯反向 + 终端 palette + 选区色 + 持久化 toggle）（`4cf341f` `7099d5b` `5fed112`）
+- 测试：aish-ui 143 → **158**（+15 多个 polish + Light palette 阶梯断言）；aish-app 119 → **126**（+7 session-picker / tabs / state helpers）
+- 关键 token 沉淀：secondary_strongest（Ghost active）+ light palette 反向阶梯断言模式（dark hover>active>strongest 阶梯递增 / light 递减）
 
 ### M17-polish — UI / TextInput / 终端 / SSH 连续迭代（2026-05-12 ~ 2026-05-13）— ✅ 已完成
 - 性质：不走 spec/plan 的用户反馈驱动 polish pass。35 commits 跨 9 个主题，每条独立 commit，本节做汇总索引便于回看。
