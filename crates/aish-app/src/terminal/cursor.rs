@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use gpui::{fill, outline, point, size, App, BorderStyle, Bounds, Hsla, Window};
 
-use super::colors::DEFAULT_FOREGROUND;
+use super::colors::default_foreground_for;
 use super::grid_renderer::{GridLayout, GridSnapshot};
 
 /// 闪烁周期（前 300ms 显示，后 300ms 不显示）。
@@ -42,11 +42,13 @@ pub fn paint_cursor(
     cursor_state: &CursorState,
     layout: &GridLayout,
     window: &mut Window,
-    _cx: &mut App,
+    cx: &mut App,
 ) {
     if !cursor_state.is_visible_now() {
         return;
     }
+    let theme_kind = aish_ui::theme(cx).kind;
+    let default_fg = default_foreground_for(theme_kind);
 
     let cursor_point = snapshot.cursor_point;
     // alacritty cursor.point 是活动屏幕坐标（0..screen_lines-1）；用户滚到历史时
@@ -61,11 +63,11 @@ pub fn paint_cursor(
 
     if cursor_state.focused {
         // 实心方块：用终端默认前景色
-        let cursor_color: Hsla = gpui::rgb(DEFAULT_FOREGROUND).into();
+        let cursor_color: Hsla = gpui::rgb(default_fg).into();
         window.paint_quad(fill(bounds, cursor_color));
     } else {
         // 空心描边：用前景色，确保在深色背景下可见
-        let cursor_color: Hsla = gpui::rgb(DEFAULT_FOREGROUND).into();
+        let cursor_color: Hsla = gpui::rgb(default_fg).into();
         window.paint_quad(outline(bounds, cursor_color, BorderStyle::default()));
     }
 }

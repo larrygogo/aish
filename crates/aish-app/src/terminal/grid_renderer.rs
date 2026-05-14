@@ -108,6 +108,9 @@ pub fn paint_grid(snapshot: &GridSnapshot, layout: &GridLayout, window: &mut Win
     let font_size = gpui::px(terminal_font::FONT_SIZE);
     let line_height = layout.cell_height;
     let cell_width = layout.cell_width;
+    // 当前 theme kind —— 决定 ANSI palette / fg / bg fallback。每帧从 global
+    // 取，theme 切换 → cx.refresh_windows → 下帧重 paint 自动用新 palette。
+    let theme_kind = aish_ui::theme(cx).kind;
     // alacritty 的 line index 是绝对坐标（看历史时为负数，viewport 顶 = -display_offset）。
     // 加上 display_offset 把 line 映射回 0..screen_lines 的 viewport 行号。
     let offset = snapshot.display_offset as i32;
@@ -130,7 +133,7 @@ pub fn paint_grid(snapshot: &GridSnapshot, layout: &GridLayout, window: &mut Win
             alacritty_terminal::vte::ansi::Color::Named(NamedColor::Background)
         );
         if has_custom_bg {
-            let bg_color: Hsla = colors::to_gpui(bg, false);
+            let bg_color: Hsla = colors::to_gpui(bg, false, theme_kind);
             window.paint_quad(fill(bounds, bg_color));
         }
 
@@ -188,7 +191,7 @@ pub fn paint_grid(snapshot: &GridSnapshot, layout: &GridLayout, window: &mut Win
         } else {
             indexed.cell.fg
         };
-        let fg: Hsla = colors::to_gpui(raw_fg, true);
+        let fg: Hsla = colors::to_gpui(raw_fg, true, theme_kind);
         let col = indexed.point.column.0 as i32;
 
         let cell_style = TextRun {

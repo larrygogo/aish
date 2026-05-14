@@ -1060,10 +1060,12 @@ impl Render for TerminalView {
             }))
             .flex_1()
             .h_full()
-            // 纯黑背景（与 app 顶层 root 的 rgb(0x000000) 一致；之前 0x1d1f21 是
-            // alacritty 默认深灰，与 sidebar / titlebar 的 card 灰 + body 黑形成
-            // 三档灰阶层次。终端区改纯黑后与 root 同色无割裂感。
-            .bg(rgb(0x000000))
+            // 终端区 bg：dark 用纯黑 / light 用纯白（colors::default_background_for）。
+            // 跟着 theme kind 走，与 ANSI palette default bg fallback 完全一致 ——
+            // 当远端文字用 NamedColor::Background 时 paint_grid 取到相同 hex。
+            .bg(rgb(crate::terminal::colors::default_background_for(
+                aish_ui::theme(cx).kind,
+            )))
             .child(
                 canvas(
                     move |bounds: Bounds<Pixels>, window, cx| {

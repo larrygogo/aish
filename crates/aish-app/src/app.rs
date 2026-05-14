@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use gpui::{
-    div, prelude::*, px, rgb, size, App, Bounds, Context, Entity, SharedString, TitlebarOptions,
-    Window, WindowBounds, WindowControlArea, WindowOptions,
+    div, prelude::*, px, size, App, Bounds, Context, Entity, SharedString, TitlebarOptions, Window,
+    WindowBounds, WindowControlArea, WindowOptions,
 };
 use gpui_platform::application;
 
@@ -421,7 +421,9 @@ impl Render for RootView {
             .flex()
             .flex_row()
             .size_full()
-            .bg(rgb(0x000000))
+            // root bg 跟随 theme：dark=#050505 / light=#fafafa（colors.background
+            // global，theme 切换时 refresh_windows 让所有 view re-render 拿新值）
+            .bg(colors.background)
             .child(self.sidebar_nav.clone())
             // 主区 flex_1 必须 min_w(0)，否则 main_body 内任何超长子（如 tab_bar
             // 内的 tab items 总宽 > viewport - sidebar）会撑大 flex item（min_w
