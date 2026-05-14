@@ -1550,16 +1550,26 @@ impl Render for TextInput {
 
         let mut container = div().relative().cursor_text();
         if self.multiline {
-            // M19 T3: 多行容器 flex_col + min_h/max_h 自适应。content ≤ max_lines
-            // 时容器按 content 增高；超出后 max_h clamp 内部 overflow_hidden 裁切
-            // （vertical scroll handle 后续 T5 加，目前 cursor 在屏外靠 mouse
-            // 滚轮 / 键盘 nav 触发 update_scroll_to_cursor 兜底）。
+            // M19 T3 + scroll polish: 多行容器**固定高度** = min(n_lines, max_lines)
+            // * line_h。content 行数 ≤ max_lines 时容器跟 content 增高；超出
+            // 后 max_lines 固定。原 min_h/max_h + children flex 撑大方案在
+            // mt(scroll_offset_y) 负 margin 时让 outer height = content_h +
+            // scroll → 抖动。固定 .h() 脱离 children-pushes-parent 链路，
+            // ↑↓ scroll 时容器高度稳定。
+            //
+            // viewport 宽度用 self.viewport_bounds（上一帧 canvas prepaint 写入）。
+            // 首帧 fallback 400px，下一帧自然 correct。
             let line_h = px(20.0); // ≈ font_size 14 + 6 vertical padding
+            let container_w = self
+                .viewport_bounds
+                .map(|b| b.size.width)
+                .unwrap_or(px(400.0));
+            let vls_for_h = compute_visual_lines(&self.text, container_w, font_size_sm);
+            let visible_lines = vls_for_h.len().clamp(1, self.max_lines);
             container = container
                 .flex()
                 .flex_col()
-                .min_h(line_h)
-                .max_h(line_h * self.max_lines as f32)
+                .h(line_h * visible_lines as f32)
                 .overflow_hidden();
         } else {
             container = container
