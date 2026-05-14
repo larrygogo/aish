@@ -19,6 +19,10 @@ pub struct HomeView {
     state: Entity<AppState>,
     bridge: Arc<Bridge>,
     tx: tokio::sync::mpsc::Sender<SshEvent>,
+    /// host 卡片右键菜单。content 每帧由 render 根据 menu_host_id 重设。
+    context_menu: Entity<aish_ui::ContextMenu>,
+    /// 当前右键菜单针对的 host id。`None` = 菜单关闭。
+    menu_host_id: Option<HostId>,
 }
 
 impl HomeView {
@@ -29,7 +33,57 @@ impl HomeView {
         cx: &mut Context<Self>,
     ) -> Self {
         cx.observe(&state, |_, _, cx| cx.notify()).detach();
-        Self { state, bridge, tx }
+        let context_menu = cx.new(aish_ui::ContextMenu::new);
+        let weak_close = cx.weak_entity();
+        context_menu.update(cx, move |m, _cx| {
+            m.on_close(move |_w, cx| {
+                if let Some(this) = weak_close.upgrade() {
+                    this.update(cx, |this, _cx| {
+                        this.menu_host_id = None;
+                    });
+                }
+            });
+        });
+        Self {
+            state,
+            bridge,
+            tx,
+            context_menu,
+            menu_host_id: None,
+        }
+    }
+
+    /// 复制 SSH 命令到剪贴板（如 `ssh -p 22 user@host`）。
+    fn copy_ssh_command(&self, host_id: HostId, cx: &mut Context<Self>) {
+        let cfg = self
+            .state
+            .read(cx)
+            .hosts
+            .iter()
+            .find(|h| h.id == host_id)
+            .cloned();
+        if let Some(cfg) = cfg {
+            // port 22 省略 -p（标准默认）；非 22 才显式 -p
+            let cmd = if cfg.port == 22 {
+                format!("ssh {}@{}", cfg.user, cfg.host)
+            } else {
+                format!("ssh -p {} {}@{}", cfg.port, cfg.user, cfg.host)
+            };
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(cmd.clone()));
+            aish_ui::toast_success(cx, format!("已复制：{}", cmd));
+        }
+    }
+
+    /// 右键菜单 select 路由。idx 对应 build_context_menu 内 MenuItem 顺序。
+    fn handle_menu_select(&mut self, host_id: HostId, idx: usize, cx: &mut Context<Self>) {
+        match idx {
+            0 => self.handle_edit_click(host_id, cx),
+            1 => self.copy_ssh_command(host_id, cx),
+            2 => self.handle_delete_click(host_id, cx),
+            _ => {}
+        }
+        self.context_menu.update(cx, |m, cx| m.close(cx));
+        self.menu_host_id = None;
     }
 
     fn handle_add_click(&mut self, cx: &mut Context<Self>) {
@@ -150,6 +204,26 @@ impl HomeView {
 
 impl Render for HomeView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // 每帧重设 context menu content（AnyElement take 消耗，必须重设）
+        if let Some(host_id) = self.menu_host_id {
+            let weak = cx.weak_entity();
+            let menu = aish_ui::DropdownMenu::new("host-context-menu")
+                .items(vec![
+                    aish_ui::MenuItem::new("编辑").icon(aish_ui::IconName::Pencil),
+                    aish_ui::MenuItem::new("复制 SSH 命令"),
+                    aish_ui::MenuItem::new("删除").icon(aish_ui::IconName::Trash),
+                ])
+                .min_width(gpui::px(200.0))
+                .on_select(move |idx, _w, cx| {
+                    let idx = *idx;
+                    if let Some(this) = weak.upgrade() {
+                        this.update(cx, |this, cx| this.handle_menu_select(host_id, idx, cx));
+                    }
+                });
+            self.context_menu.update(cx, |m, _cx| {
+                m.content(menu);
+            });
+        }
         let app = self.state.read(cx);
         let theme = aish_ui::theme(cx);
         let colors = theme.colors;
@@ -474,11 +548,26 @@ impl Render for HomeView {
                     .child(chevron);
 
                 // ───── 整张卡片 - 用 aish_ui::Card ─────
-                aish_ui::Card::new(gpui::SharedString::from(format!("host-card-{}", id)))
-                    .body(body_row)
-                    .on_click(cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
-                        this.handle_card_click(id, cx);
-                    }))
+                // 外包 stateful wrapper div 加 right-click → context menu。
+                // Card 自己已 stateful，wrapper id 与 Card id 不同避免冲突。
+                let card =
+                    aish_ui::Card::new(gpui::SharedString::from(format!("host-card-{}", id)))
+                        .body(body_row)
+                        .on_click(cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
+                            this.handle_card_click(id, cx);
+                        }));
+                div()
+                    .id(gpui::SharedString::from(format!("host-card-wrap-{}", id)))
+                    .on_mouse_down(
+                        gpui::MouseButton::Right,
+                        cx.listener(move |this, ev: &MouseDownEvent, _w, cx| {
+                            this.menu_host_id = Some(id);
+                            let pos = ev.position;
+                            this.context_menu.update(cx, |m, cx| m.open_at(pos, cx));
+                            cx.notify();
+                        }),
+                    )
+                    .child(card)
                     .into_any_element()
             })
             .collect();
@@ -520,5 +609,9 @@ impl Render for HomeView {
                     .children(cards)
                     .children(empty_hint),
             )
+            // ContextMenu entity 永远挂在 view tree（无论 open 与否）。
+            // open=false 时 render 返回空 div 不占空间；open=true 时 absolute
+            // 覆盖全屏 backdrop + anchored 菜单。
+            .child(self.context_menu.clone())
     }
 }
