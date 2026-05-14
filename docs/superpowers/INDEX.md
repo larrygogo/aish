@@ -10,13 +10,32 @@
 
 ## 当前状态
 
-- **活跃分支**：main（2026-05-14 完成 M18 / M19 / M20 / M21，待 push origin/main）
-- **下一里程碑**：M22 候选 — Settings 实质内容（build info / open config dir / GitHub link） / collapse-orphan-conn（关 tab 保 actor，Home 加 active sessions 区块） / scrollbar thumb 可拖（M21 backlog）
-- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **195** + aish-app 126 + 其他 crate) 全过
+- **活跃分支**：feat/inputbar-per-conn-20260514-zj（2026-05-15 完成 M22，待合 main）
+- **下一里程碑**：M23 候选 — collapse-orphan-conn（关 tab 保 actor，Home 加 active sessions 区块） / scrollbar thumb 可拖（M21 backlog） / Settings 实质内容补全
+- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **204** + aish-app **144** + 其他 crate) 全过 — 总 468
 
 ---
 
 ## Milestones（按时间倒序）
+
+### M22 — InputBar per-connection draft 隔离（2026-05-15）— ✅ 已完成
+- spec：[`specs/2026-05-15-aish-m22-inputbar-per-connection-design.md`](specs/2026-05-15-aish-m22-inputbar-per-connection-design.md)
+- plan：[`plans/2026-05-15-aish-m22-inputbar-per-connection.md`](plans/2026-05-15-aish-m22-inputbar-per-connection.md)
+- 范围：把 `InputBarView` 从 RootView 单例改成 per-ConnectionId 实例
+  - InputBarView 加 `conn: ConnectionId` 字段，构造签名加 conn 参数；5 处 `state.current_connection()` 改 `self.conn`（is_uploading / send / spinner timer / render upload_progress / render BatchAborted 边沿）
+  - send() 删 `current_connection() → None` 兜底分支（per-conn entity 必有 conn）
+  - RootView.input_bar 改 `input_bars: HashMap<ConnectionId, Entity<InputBarView>>`，render 内 lazy create；现有 observe(state) 回调加 `retain_alive_entities` 同步清掉 stale entity（drop chain 自动释放 spinner / drag polling timer + TextInput 子 entity）
+  - Default tab（current_connection() == None）不挂 InputBar
+  - Disconnected 状态保留 InputBar + Send 按钮 disabled（新 is_connected 通道，TextInput / `+` 按钮 / 缩略图保留可编辑让用户写草稿等重连）
+  - 抽 `retain_alive_entities<K, V>` 自由函数 + 4 个单测
+- 关键 commits：
+  - `403adb9` — T1 InputBarView 接 conn + RootView HashMap 化
+  - `c15b8e7` — T2 Disconnected 时 Send 按钮 disabled
+  - `b0dd3fc` — T3 retain_alive_entities helper + 4 个单测
+- 测试：aish-app 140 → **144**（+4：retain_alive_entities helper 全 case）
+- 已知边界：
+  - 多 conn 并存时 2N 个 spinner / drag polling timer 并存；每 timer 仅读 self.conn 互不干扰，CPU 微不足道
+  - reopen_connection 复用同 ConnectionId 时草稿自动保留 —— feature，与"Disconnected 时草稿不丢"用户预期一致
 
 ### M21 — TextInput 多行 vertical drag-to-edge + scrollbar（2026-05-14）— ✅ 已完成
 - spec：[`specs/2026-05-14-aish-m21-textinput-vscroll-design.md`](specs/2026-05-14-aish-m21-textinput-vscroll-design.md)
