@@ -33,9 +33,9 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use gpui::{
-    div, prelude::*, px, AnyElement, App, DispatchPhase, ElementId, Hsla, IntoElement, MouseButton,
-    MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, ScrollDelta, ScrollHandle,
-    ScrollWheelEvent, Window,
+    div, prelude::*, px, AnyElement, App, ElementId, Hsla, IntoElement, MouseButton,
+    MouseDownEvent, MouseMoveEvent, Pixels, Point, ScrollDelta, ScrollHandle, ScrollWheelEvent,
+    Window,
 };
 
 use crate::theme::theme;
@@ -290,16 +290,6 @@ impl RenderOnce for ScrollPage {
             )
         });
 
-        // 拖拽 mouse_up 兜底：用户 drag 拖出 thumb 外才松开 — element 内的
-        // on_mouse_up 不触发，得在 window-level 注册全局兜底。
-        let drag_release_fallback = self.scrollbar.as_ref().and_then(|sb| {
-            if sb.dragging.get() {
-                Some((sb.dragging.clone(), sb.scroll.clone()))
-            } else {
-                None
-            }
-        });
-
         // scroll 容器构建。
         // scroll_div 永远在 outer wrapper (.flex_col) 内作 flex_1 + min_h(0)：
         // outer wrapper 高度由 caller 控（flex_1 模式则在 caller 父 strict
@@ -352,50 +342,11 @@ impl RenderOnce for ScrollPage {
             wrapper.size_full()
         };
 
-        // drag mouse_move + mouse_up 全局 listener：让用户拖到 thumb 外或者
-        // 拖出窗口边再松开时也能清 drag。在 prepaint callback 内通过 window
-        // 注册（与 TextInput drag select 同模式）。
-        wrapper = wrapper.child(scroll_div).children(scrollbar_overlay);
-        if let Some((dragging, scroll)) = drag_release_fallback {
-            let dragging_move = dragging.clone();
-            let scroll_move = scroll.clone();
-            let dragging_up = dragging;
-            wrapper = wrapper.child(gpui::canvas(
-                move |_bounds, window, _cx| {
-                    // mouse_move 全局：drag 中按当前鼠标 y 更新 offset
-                    let dragging = dragging_move.clone();
-                    let scroll = scroll_move.clone();
-                    window.on_mouse_event(
-                        move |ev: &MouseMoveEvent,
-                              phase: DispatchPhase,
-                              _window: &mut Window,
-                              cx: &mut App| {
-                            if phase != DispatchPhase::Bubble || !dragging.get() {
-                                return;
-                            }
-                            if drag_to_offset_y(&scroll, ev.position.y) {
-                                cx.refresh_windows();
-                            }
-                        },
-                    );
-                    // mouse_up 全局：任何位置松开都清 drag
-                    let dragging = dragging_up.clone();
-                    window.on_mouse_event(
-                        move |_ev: &MouseUpEvent,
-                              phase: DispatchPhase,
-                              _window: &mut Window,
-                              _cx: &mut App| {
-                            if phase != DispatchPhase::Bubble {
-                                return;
-                            }
-                            dragging.set(false);
-                        },
-                    );
-                },
-                |_bounds, _request, _window, _cx| {},
-            ));
-        }
-        wrapper
+        // 仅 thumb element-local mouse handlers — 用户拖出 thumb 外松开时
+        // dragging flag 可能卡 true，下次 mouse_down on thumb 会 reset。
+        // global window-level mouse_up listener 兜底版本被回退（疑似导致
+        // STATUS_STACK_BUFFER_OVERRUN crash，待后续 dig）。
+        wrapper.child(scroll_div).children(scrollbar_overlay)
     }
 }
 
