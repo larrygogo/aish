@@ -760,6 +760,15 @@ impl Render for RootView {
             root = root.child(self.host_form.clone());
         }
 
+        // Context menus 在 root 顶层 mount —— tab_bar / home 自己 mount 时
+        // paint 顺序在下游 view（terminal_view / session_picker）之前，会被
+        // absolute backdrop / popup 盖掉。提到 root 顶层（与 toast / host_form
+        // 同层）让 z-order 最高。open=false 时 menu render 返回空 div 不占
+        // 空间，永驻 mount 无成本。
+        root = root
+            .child(self.tab_bar.read(cx).context_menu_entity())
+            .child(self.home.read(cx).context_menu_entity());
+
         // Toast 总是叠在最顶层
         root = root.child(self.toast_manager.clone());
 

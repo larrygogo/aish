@@ -84,6 +84,9 @@ pub struct TabBarView {
     rename_input: Entity<TextInput>,
     /// tab 右键菜单 entity。long-lived 复用，菜单内容每帧根据 menu_tab_id
     /// 重设（DropdownMenu 含 closure 捕获 tab_id）。
+    /// tab 右键菜单 entity。RootView 在 root 顶层 mount 这个 entity 让
+    /// menu / backdrop 浮在 terminal / session_picker 之上 — tab_bar 自己
+    /// mount 时 paint 顺序在下游 view 之前，会被盖掉。
     context_menu: Entity<ContextMenu>,
     /// 当前右键菜单针对的 tab id。`None` = 菜单关闭 / 不渲染 content。
     /// 设置 / 清除时通过 ContextMenu.on_close 同步。
@@ -850,10 +853,15 @@ impl Render for TabBarView {
             )
             .when(show_right, |d| d.child(arrow_right))
             .child(plus_btn)
-            // context menu entity 永远挂在 view tree（无论 open 与否）。
-            // open=false 时 render 返回空 div；open=true 时 absolute 覆盖全屏
-            // 渲染 backdrop + anchored 浮层。挂在 tab_bar 末尾让浮层 z-order
-            // 在 tab_bar 之上但不影响 tab_bar 布局（absolute 不占空间）。
-            .child(self.context_menu.clone())
+        // context_menu entity 不在这 mount —— RootView 在 root 顶层 mount
+        // 让 absolute backdrop / anchored 浮层盖在 terminal / session_picker
+        // 之上（tab_bar 在下游 view 之前 paint，自己 mount 会被盖）。
+    }
+}
+
+impl TabBarView {
+    /// 暴露 context_menu entity 让 RootView 在 root 顶层 mount。
+    pub fn context_menu_entity(&self) -> Entity<ContextMenu> {
+        self.context_menu.clone()
     }
 }

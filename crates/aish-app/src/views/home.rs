@@ -22,6 +22,8 @@ pub struct HomeView {
     bridge: Arc<Bridge>,
     tx: tokio::sync::mpsc::Sender<SshEvent>,
     /// host 卡片右键菜单。content 每帧由 render 根据 menu_host_id 重设。
+    /// host 卡片右键菜单 entity。RootView root 顶层 mount，避免被
+    /// 下游 view 盖（与 tab_bar 同模式）。
     context_menu: Entity<aish_ui::ContextMenu>,
     /// 当前右键菜单针对的 host id。`None` = 菜单关闭。
     menu_host_id: Option<HostId>,
@@ -674,6 +676,14 @@ impl Render for HomeView {
                             .children(empty_hint),
                     ),
             )
-            .child(self.context_menu.clone())
+        // context_menu 不在此 mount — RootView 在 root 顶层 mount 让浮层
+        // 不被下游 view（如 modal / session_picker）盖（与 tab_bar 同模式）。
+    }
+}
+
+impl HomeView {
+    /// 暴露 context_menu entity 让 RootView 在 root 顶层 mount。
+    pub fn context_menu_entity(&self) -> Entity<aish_ui::ContextMenu> {
+        self.context_menu.clone()
     }
 }
