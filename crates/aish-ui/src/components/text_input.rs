@@ -12,7 +12,7 @@ use arboard::Clipboard;
 use gpui::{
     canvas, div, prelude::*, px, App, Bounds, Context, DispatchPhase, FocusHandle, Focusable,
     InputHandler, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels,
-    SharedString, UTF16Selection, Window,
+    ScrollDelta, ScrollWheelEvent, SharedString, UTF16Selection, Window,
 };
 
 use crate::theme::theme;
@@ -494,6 +494,53 @@ impl TextInput {
             cx.notify();
         }
         true
+    }
+
+    /// M21 T3：多行 input wheel 滚 viewport（不动 cursor / selection）。
+    ///
+    /// 单行不处理（return 让 GPUI 默认 / 父容器消化）。多行 + 内容超 max_lines
+    /// 时接管：把 wheel delta 转 Pixels，叠加到 scroll_offset_y，clamp 到
+    /// [-max_scroll, 0]。
+    ///
+    /// 关键 R1 缓解：不调 reset_blink → cursor_dirty_for_scroll 保持原状，
+    /// update_scroll_to_cursor 下一帧不会 set dirty 后拉回 cursor。
+    fn handle_wheel(&mut self, ev: &ScrollWheelEvent, cx: &mut Context<Self>) {
+        if !self.multiline {
+            return;
+        }
+        let viewport_w = self
+            .viewport_bounds
+            .map(|b| b.size.width)
+            .unwrap_or(px(400.0));
+        let line_h = px(20.0);
+        let vls = compute_visual_lines(&self.text, viewport_w, px(12.0));
+        let n_lines = vls.len();
+        if n_lines <= self.max_lines {
+            return;
+        }
+        let max_scroll = line_h * (n_lines - self.max_lines) as f32; // 正 Pixels
+
+        // GPUI delta：Pixels = 触控板像素，Lines = 鼠标轮单位（× line_h 转 Pixels）
+        let dy = match ev.delta {
+            ScrollDelta::Pixels(p) => p.y,
+            ScrollDelta::Lines(l) => line_h * l.y,
+        };
+        if dy == px(0.0) {
+            return;
+        }
+
+        // scroll_offset_y ≤ 0；delta.y > 0 = wheel 向上 = 看上方 = offset 趋 0
+        let mut new_offset = self.scroll_offset_y + dy;
+        if new_offset > px(0.0) {
+            new_offset = px(0.0);
+        }
+        if new_offset < -max_scroll {
+            new_offset = -max_scroll;
+        }
+        if new_offset != self.scroll_offset_y {
+            self.scroll_offset_y = new_offset;
+            cx.notify();
+        }
     }
 
     /// 启动 drag auto-scroll task：30ms 周期调 step_drag_auto_scroll。
@@ -1710,6 +1757,11 @@ impl Render for TextInput {
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 this.handle_key(event, window, cx);
             }))
+            // M21 T3：多行 wheel 滚 viewport（不动 cursor）。单行 handle_wheel
+            // 内部 early return，让父容器 / GPUI 默认接管 wheel。
+            .on_scroll_wheel(cx.listener(|this, ev: &ScrollWheelEvent, _w, cx| {
+                this.handle_wheel(ev, cx);
+            }))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, ev: &MouseDownEvent, window, cx| {
@@ -2804,6 +2856,74 @@ mod tests {
         fn wheel(&mut self) {
             // wheel 不动 cursor，不调 reset_blink，不动 dirty
         }
+    }
+
+    /// M21 T3 pure-fn 模拟：handle_wheel scroll_offset_y 调整。
+    /// 算法：new = (scroll + dy).clamp(-max_scroll, 0)。
+    /// 单行模式或内容 ≤ max_lines 时不接（返回 None 表示无变化）。
+    fn simulate_wheel(
+        multiline: bool,
+        scroll: gpui::Pixels,
+        dy: gpui::Pixels,
+        n_lines: usize,
+        max_lines: usize,
+        line_h: gpui::Pixels,
+    ) -> Option<gpui::Pixels> {
+        if !multiline {
+            return None;
+        }
+        if n_lines <= max_lines {
+            return None;
+        }
+        let max_scroll = line_h * (n_lines - max_lines) as f32;
+        let mut new_offset = scroll + dy;
+        if new_offset > px(0.0) {
+            new_offset = px(0.0);
+        }
+        if new_offset < -max_scroll {
+            new_offset = -max_scroll;
+        }
+        if new_offset == scroll {
+            None
+        } else {
+            Some(new_offset)
+        }
+    }
+
+    #[test]
+    fn wheel_in_multiline_scrolls_offset_y() {
+        // 10 行内容 max_lines=6, 当前 scroll=-40 (= -2 行), wheel down dy=-20
+        // → new = -60 (clamped 内, max_scroll = 80)
+        let res = simulate_wheel(true, px(-40.0), px(-20.0), 10, 6, px(20.0));
+        assert_eq!(res, Some(px(-60.0)));
+    }
+
+    #[test]
+    fn wheel_clamps_to_zero_upper() {
+        // scroll=0, wheel up dy=+20 → clamp 到 0（不能 > 0）
+        let res = simulate_wheel(true, px(0.0), px(20.0), 10, 6, px(20.0));
+        assert_eq!(res, None); // 无变化 = 已在 clamp 边界
+    }
+
+    #[test]
+    fn wheel_clamps_to_max_scroll_lower() {
+        // max_scroll = (10-6) * 20 = 80, scroll=-80, wheel down dy=-20
+        // → clamp 到 -80（已在最下）
+        let res = simulate_wheel(true, px(-80.0), px(-20.0), 10, 6, px(20.0));
+        assert_eq!(res, None);
+    }
+
+    #[test]
+    fn wheel_in_singleline_no_op() {
+        let res = simulate_wheel(false, px(0.0), px(-20.0), 10, 6, px(20.0));
+        assert_eq!(res, None);
+    }
+
+    #[test]
+    fn wheel_in_short_multiline_no_op() {
+        // 内容 4 行 ≤ max_lines=6 → 不接 wheel
+        let res = simulate_wheel(true, px(0.0), px(-20.0), 4, 6, px(20.0));
+        assert_eq!(res, None);
     }
 
     #[test]
