@@ -5,6 +5,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use aish_ui::{theme, TextInput};
 use gpui::{
@@ -29,7 +30,14 @@ pub struct InputBarView {
     /// 边沿检测：上一帧 true 且本帧 false → BatchDone 完成 → 清 images + input。
     /// 避免 send 瞬间立即清掉造成"看着已发送但实际还在上传"误导。
     last_uploading: bool,
+    /// Braille spinner 当前帧（0..10）。上传中每 80ms +1 mod 10，render 内取
+    /// SPINNER_FRAMES[phase] 拼到 Send 按钮 label 给 loading 动画反馈。
+    spinner_phase: u8,
 }
+
+/// CLI 标准 Braille spinner 10 帧（与 npm `ora` / `cli-spinners` 的 `dots`
+/// preset 一致）。80ms / frame = 12.5 fps。
+const SPINNER_FRAMES: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 impl InputBarView {
     pub fn new(state: Entity<AppState>, bridge: Arc<Bridge>, cx: &mut Context<Self>) -> Self {
@@ -64,12 +72,40 @@ impl InputBarView {
         // input → 链路传到 InputBar re-render，读最新 is_focused 决定 card
         // border 颜色（textarea-like focus 反馈）。
         cx.observe(&input, |_this, _input, cx| cx.notify()).detach();
+
+        // Braille spinner timer：80ms / frame 推进 spinner_phase 0..10。
+        // 仅 is_uploading 时 cx.notify 触发 re-render（空闲时不 notify
+        // 避免空转重渲），phase 仍递增让恢复上传时从下一帧无缝继续。
+        cx.spawn(async move |this, cx| loop {
+            cx.background_executor()
+                .timer(Duration::from_millis(80))
+                .await;
+            let cont = this
+                .update(cx, |this, cx| {
+                    this.spinner_phase = (this.spinner_phase + 1) % SPINNER_FRAMES.len() as u8;
+                    let uploading = this
+                        .state
+                        .read(cx)
+                        .current_connection()
+                        .is_some_and(|c| this.state.read(cx).pending_uploads.contains_key(&c));
+                    if uploading {
+                        cx.notify();
+                    }
+                    true
+                })
+                .unwrap_or(false);
+            if !cont {
+                break;
+            }
+        })
+        .detach();
         Self {
             state,
             bridge,
             images: Vec::new(),
             input,
             last_uploading: false,
+            spinner_phase: 0,
         }
     }
 
@@ -377,9 +413,10 @@ impl Render for InputBarView {
             .child(div().flex_1().child(self.input.clone()))
             .child(
                 aish_ui::Button::new("input-bar-send")
-                    // 上传中显示 "上传中 X/Y..."；空闲态 "发送"
+                    // 上传中：Braille spinner + "上传中 X/Y"；空闲态 "发送"
                     .label(if let Some((d, n)) = upload_progress {
-                        SharedString::from(format!("上传中 {}/{}", d, n))
+                        let spinner = SPINNER_FRAMES[self.spinner_phase as usize];
+                        SharedString::from(format!("{} 上传中 {}/{}", spinner, d, n))
                     } else {
                         SharedString::from("发送")
                     })
