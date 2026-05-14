@@ -61,6 +61,7 @@ impl InputBarView {
         let input = cx.new(TextInput::new);
         let weak_self = cx.weak_entity();
         let weak_for_paste = cx.weak_entity();
+        let weak_for_files = cx.weak_entity();
         input.update(cx, |i, _cx| {
             i.placeholder("输入文字（Enter 换行，Ctrl+Enter 发送）")
                 .multiline(true)
@@ -89,6 +90,16 @@ impl InputBarView {
                 } else {
                     false
                 }
+            });
+            // Ctrl+V 剪贴板含 file 路径（用户从文件管理器 Ctrl+C 图片场景）：
+            // 走 add_image_paths 同 + 按钮 / drag-drop 队列。**总是 return true**
+            // 即便 filter 全过滤掉也不让 text paste 把路径字符串当文字插进 input
+            // （用户期望是入队图片，不是 paste 文件路径文本）。
+            i.on_paste_files(move |paths, _window, cx| {
+                if let Some(this) = weak_for_files.upgrade() {
+                    this.update(cx, |this, cx| this.add_image_paths(paths, cx));
+                }
+                true
             });
         });
         // observe input entity：input mouse_down 获焦 / typed 时 cx.notify
