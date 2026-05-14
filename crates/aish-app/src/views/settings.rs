@@ -16,11 +16,16 @@ use aish_ui::theme::{ColorTokens, FontSize, ThemeKind};
 use aish_ui::{theme, Card, Switch, Theme};
 use gpui::{div, prelude::*, px, AnyElement, Context, IntoElement, SharedString, Window};
 
-pub struct SettingsView {}
+pub struct SettingsView {
+    /// scrollbar 状态 — ScrollPage 接管 wheel / scrollbar / 拖拽。
+    scrollbar: aish_ui::ScrollbarHandle,
+}
 
 impl SettingsView {
     pub fn new() -> Self {
-        Self {}
+        Self {
+            scrollbar: aish_ui::ScrollbarHandle::new(),
+        }
     }
 }
 
@@ -204,19 +209,31 @@ impl Render for SettingsView {
             );
 
         // ───── 整页布局 ─────
-        aish_ui::ScrollPage::new("settings-scroll")
+        // ScrollPage.scrollbar + flex_1 触发 thumb 可见 + 可拖；caller 父
+        // 必须 flex_col（这里 size_full + flex_col 包一下）。bg 在外 flex_col
+        // 上设了，ScrollPage 自己不带 bg 避免 scrollbar overlay 不在 viewport
+        // 内显示时露 background 不一致。
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
             .bg(colors.background)
-            .px(gpui::px(32.0))
-            .py(gpui::px(24.0))
-            .child(page_title)
             .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_4()
-                    .child(appearance_card)
-                    .child(shortcuts_card)
-                    .child(about_card),
+                aish_ui::ScrollPage::new("settings-scroll")
+                    .scrollbar(&self.scrollbar)
+                    .flex_1()
+                    .px(gpui::px(32.0))
+                    .py(gpui::px(24.0))
+                    .child(page_title)
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_4()
+                            .child(appearance_card)
+                            .child(shortcuts_card)
+                            .child(about_card),
+                    ),
             )
     }
 }
