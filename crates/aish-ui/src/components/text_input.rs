@@ -638,11 +638,15 @@ impl TextInput {
         let vls = self.current_visual_lines();
         let (vl_idx, col) = byte_to_visual_pos(self.cursor, &vls);
         let pref_col = self.preferred_col.unwrap_or(col);
-        if vl_idx == 0 {
-            self.cursor = 0;
+        let raw = if vl_idx == 0 {
+            0
         } else {
-            self.cursor = visual_pos_to_byte(vl_idx - 1, pref_col, &vls);
-        }
+            visual_pos_to_byte(vl_idx - 1, pref_col, &vls)
+        };
+        // pref_col 是 byte 差，目标行若有 CJK char 可能落 char 中间；
+        // 强制 floor 到最近 char boundary 防 backspace / cursor_left 等
+        // 后续操作 text[..cursor] slice 越界 panic。
+        self.cursor = floor_char_boundary(&self.text, raw);
         self.preferred_col = Some(pref_col);
         self.reset_blink();
     }
@@ -654,11 +658,12 @@ impl TextInput {
         let vls = self.current_visual_lines();
         let (vl_idx, col) = byte_to_visual_pos(self.cursor, &vls);
         let pref_col = self.preferred_col.unwrap_or(col);
-        if vl_idx + 1 >= vls.len() {
-            self.cursor = self.text.len();
+        let raw = if vl_idx + 1 >= vls.len() {
+            self.text.len()
         } else {
-            self.cursor = visual_pos_to_byte(vl_idx + 1, pref_col, &vls);
-        }
+            visual_pos_to_byte(vl_idx + 1, pref_col, &vls)
+        };
+        self.cursor = floor_char_boundary(&self.text, raw);
         self.preferred_col = Some(pref_col);
         self.reset_blink();
     }
@@ -1147,9 +1152,27 @@ pub(crate) fn byte_to_visual_pos(byte: usize, vls: &[VisualLine]) -> (usize, usi
     (vls.len() - 1, last.byte_end - last.byte_start)
 }
 
+/// 把任意 byte offset 向下取整到最近的 UTF-8 char boundary。
+/// `cursor_up_visual` / `cursor_down_visual` 用 byte 差作 col 单位，跨行后
+/// 可能落到 CJK char 字节中间，后续 text[..cursor] slice 直接 panic。
+/// 此 helper 防御性 floor 到 boundary。stable Rust 没 floor_char_boundary
+/// 公开 API，手写线性 fallback（短文本下 O(n) 可接受）。
+pub(crate) fn floor_char_boundary(text: &str, byte: usize) -> usize {
+    let byte = byte.min(text.len());
+    if text.is_char_boundary(byte) {
+        return byte;
+    }
+    // 向下找 boundary（最多回退 3 byte，UTF-8 最长 4 byte）
+    (0..byte)
+        .rev()
+        .find(|b| text.is_char_boundary(*b))
+        .unwrap_or(0)
+}
+
 /// (vl_idx, col) → byte。col 单位与 byte_to_visual_pos 反向一致（byte 差）。
 /// col > line_len 时 clamp 到行末（cursor_up/down 时 preferred_col 超目标行
-/// 长度的场景）。
+/// 长度的场景）。**注意**：返回值可能不在 char boundary（col 是 byte 差，
+/// 目标行 CJK 时可能切中）；调用方需用 `floor_char_boundary` 防御。
 pub(crate) fn visual_pos_to_byte(vl_idx: usize, col: usize, vls: &[VisualLine]) -> usize {
     let Some(vl) = vls.get(vl_idx) else {
         return vls.last().map(|v| v.byte_end).unwrap_or(0);
@@ -2189,7 +2212,8 @@ mod tests {
     // 之前 byte_offset_at_x tests 已 `use gpui::{point, px, size, ...}`，
     // 这里只需补 M19 自家的 super:: items（gpui::px 在同 mod 内已可见）。
     use super::{
-        approx_char_width, byte_to_visual_pos, compute_visual_lines, visual_pos_to_byte, VisualLine,
+        approx_char_width, byte_to_visual_pos, compute_visual_lines, floor_char_boundary,
+        visual_pos_to_byte, VisualLine,
     };
 
     /// 大容器宽度，用于"不会 wrap"的测试场景
@@ -2424,5 +2448,52 @@ mod tests {
         // long line col=3 → byte 3
         assert_eq!(b, 3);
         assert_eq!(pref, 3);
+    }
+
+    #[test]
+    fn floor_char_boundary_ascii_identity() {
+        // ASCII 全 boundary，任何 byte 都不动
+        assert_eq!(floor_char_boundary("hello", 3), 3);
+        assert_eq!(floor_char_boundary("hello", 0), 0);
+        assert_eq!(floor_char_boundary("hello", 5), 5);
+    }
+
+    #[test]
+    fn floor_char_boundary_cjk_floors_to_char_start() {
+        // "中" 是 3-byte UTF-8 (E4 B8 AD)，byte 1 / 2 都在中间
+        let text = "中文";
+        assert_eq!(floor_char_boundary(text, 0), 0); // boundary
+        assert_eq!(floor_char_boundary(text, 1), 0); // 中间 → 回 0
+        assert_eq!(floor_char_boundary(text, 2), 0);
+        assert_eq!(floor_char_boundary(text, 3), 3); // 第 2 char boundary
+        assert_eq!(floor_char_boundary(text, 5), 3); // 中间 → 回 3
+        assert_eq!(floor_char_boundary(text, 6), 6); // text 末
+    }
+
+    #[test]
+    fn floor_char_boundary_clamps_over_len() {
+        // byte > text.len() → 先 clamp 到 len，再 floor
+        assert_eq!(floor_char_boundary("hello", 100), 5);
+        assert_eq!(floor_char_boundary("中文", 100), 6);
+    }
+
+    #[test]
+    fn cursor_down_into_cjk_falls_to_char_boundary() {
+        // 跨行 ↓ 落 CJK char 中间应被 clamp 到 char start，防 panic
+        // text: "abcdefgh\n中文" — 第 1 行 8 ASCII，第 2 行 2 CJK chars (6 byte)
+        // cursor 在第 1 行 col=4 ("abcd|efgh")，↓ pref_col=4
+        // 第 2 行 byte_start = 9（"\n" 在 byte 8）
+        // visual_pos_to_byte(1, 4, vls) = 9 + 4 = 13。但 byte 13 在 "中" (9..12)
+        // 之后、"文" (12..15) 中间（byte 13 是 "文" 第 2 byte）
+        // floor_char_boundary 应把 13 floor 到 12（"文" 起始）
+        let text = "abcdefgh\n中文";
+        let (b, _pref) = move_cursor_vl(text, 4, None, 1);
+        // raw = 13，floor 应回到 12（"文" 起 byte）
+        let floored = floor_char_boundary(text, b);
+        assert!(
+            text.is_char_boundary(floored),
+            "cursor after down must be char boundary, got byte {}",
+            floored
+        );
     }
 }
