@@ -565,8 +565,15 @@ impl Render for RootView {
                 "tb-close",
                 "\u{2715}", // multiplication x
                 colors.muted_foreground,
-                colors.destructive,
-                colors.destructive_foreground,
+                // close 按钮 hover 用 Windows 11 风真红（#e81123），与系统标题栏
+                // close 按钮颜色一致 + 与 minimize/maximize 走 muted hover 形成强
+                // 警示对比。原 destructive token (#f7768e Tokyo Night) 偏粉淡，
+                // 在 muted 深底上不够"危险"，用户感知偏白。
+                gpui::rgb(0xe81123).into(),
+                // hover_fg 强制白色 — destructive_foreground 是 0x050505 黑色
+                // (dark) / 0xfafafa 白色 (light)，dark 下黑 X on 红底对比够；但
+                // hardcoded 白色保证 dark/light 一致 + 与 Windows close 风一致
+                gpui::rgb(0xffffff).into(),
                 WindowControlArea::Close,
                 |window, _cx| window.remove_window(),
             ));
