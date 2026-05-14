@@ -206,6 +206,8 @@ impl Render for Popover {
                             .rounded(radius_md)
                             .border_1()
                             .border_color(border_color)
+                            // M24 elevation-2 — popover / dropdown 中层浮起
+                            .shadow(crate::theme::elevation_2(t.kind))
                             .on_mouse_down(MouseButton::Left, |_ev, _w, cx| {
                                 // 阻止冒泡到 backdrop 关闭
                                 cx.stop_propagation();

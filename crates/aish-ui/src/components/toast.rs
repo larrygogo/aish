@@ -7,10 +7,7 @@
 
 use std::time::{Duration, Instant};
 
-use gpui::{
-    div, hsla, point, prelude::*, px, App, BoxShadow, Context, Entity, IntoElement, Render,
-    SharedString, Window,
-};
+use gpui::{div, prelude::*, px, App, Context, Entity, IntoElement, Render, SharedString, Window};
 
 use crate::icons::{icon, IconName};
 use crate::theme::theme;
@@ -178,14 +175,8 @@ fn render_toast(
         .bg(t.colors.popover)
         .border_1()
         .border_color(border_color)
-        // shadow：black 40% alpha，向下偏移 4px + 12px blur，浮起感
-        // 不带 spread，让 shadow 紧贴卡片轮廓不发散
-        .shadow(vec![BoxShadow {
-            color: hsla(0.0, 0.0, 0.0, 0.4),
-            offset: point(px(0.0), px(4.0)),
-            blur_radius: px(12.0),
-            spread_radius: px(0.0),
-        }])
+        // M24 elevation-3：modal/toast 最高悬浮层，dark alpha 0.65 / light 0.22
+        .shadow(crate::theme::elevation_3(t.kind))
         .flex()
         .flex_row()
         .items_start() // icon 与文字第一行顶部对齐（长文字换行时仍对齐）

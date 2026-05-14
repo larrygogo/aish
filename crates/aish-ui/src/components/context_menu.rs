@@ -186,6 +186,8 @@ impl Render for ContextMenu {
                             .rounded(radius_md)
                             .border_1()
                             .border_color(border_color)
+                            // M24 elevation-2 — context menu 中层浮起
+                            .shadow(crate::theme::elevation_2(t.kind))
                             // 阻止冒泡到 backdrop 关闭：用户点 menu item 应该是
                             // 触发 item callback，不该被 backdrop 抢先关 menu
                             .on_mouse_down(MouseButton::Left, |_ev, _w, cx| {

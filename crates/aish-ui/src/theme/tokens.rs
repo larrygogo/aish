@@ -1,7 +1,7 @@
 //! Theme token 定义。颜色、圆角、间距、字号四类。
 //! 命名参考 shadcn/ui，HSLA 内部存储。
 
-use gpui::{px, Hsla, Pixels, Rgba};
+use gpui::{hsla, point, px, BoxShadow, Hsla, Pixels, Rgba};
 
 #[derive(Clone, Copy)]
 pub struct ColorTokens {
@@ -122,6 +122,55 @@ pub struct Theme {
 }
 
 impl gpui::Global for Theme {}
+
+/// M24 elevation system — 3 档 subtle shadow（Warp/Linear 风）。
+/// alpha 极低，让 elevation 通过分层暗示而非高对比阴影。dark theme
+/// 黑底上 shadow 不易显，alpha 翻倍；light theme 反之。
+///
+/// 用法：
+/// ```ignore
+/// .shadow(elevation_2(theme(cx).kind))
+/// ```
+pub fn elevation_1(kind: ThemeKind) -> Vec<BoxShadow> {
+    let alpha = match kind {
+        ThemeKind::Dark => 0.16,
+        ThemeKind::Light => 0.08,
+    };
+    vec![BoxShadow {
+        color: hsla(0.0, 0.0, 0.0, alpha),
+        offset: point(px(0.0), px(1.0)),
+        blur_radius: px(2.0),
+        spread_radius: px(0.0),
+    }]
+}
+
+/// elevation-2 — popover / dropdown 用。
+pub fn elevation_2(kind: ThemeKind) -> Vec<BoxShadow> {
+    let alpha = match kind {
+        ThemeKind::Dark => 0.50,
+        ThemeKind::Light => 0.15,
+    };
+    vec![BoxShadow {
+        color: hsla(0.0, 0.0, 0.0, alpha),
+        offset: point(px(0.0), px(4.0)),
+        blur_radius: px(12.0),
+        spread_radius: px(0.0),
+    }]
+}
+
+/// elevation-3 — modal / toast 用，最高层悬浮。
+pub fn elevation_3(kind: ThemeKind) -> Vec<BoxShadow> {
+    let alpha = match kind {
+        ThemeKind::Dark => 0.65,
+        ThemeKind::Light => 0.22,
+    };
+    vec![BoxShadow {
+        color: hsla(0.0, 0.0, 0.0, alpha),
+        offset: point(px(0.0), px(8.0)),
+        blur_radius: px(24.0),
+        spread_radius: px(0.0),
+    }]
+}
 
 /// 把 0xRRGGBB hex 转 Hsla。
 pub(crate) fn hex(rgb: u32) -> Hsla {

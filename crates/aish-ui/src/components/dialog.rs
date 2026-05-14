@@ -204,6 +204,8 @@ impl Render for Dialog {
                     .rounded(t.radius.lg)
                     .border_1()
                     .border_color(t.colors.border)
+                    // M24 elevation-3 — modal 顶层悬浮
+                    .shadow(crate::theme::elevation_3(t.kind))
                     .flex()
                     .flex_col()
                     // 阻止冒泡到 backdrop（GPUI mouse 事件是冒泡的，子元素 mouse_down
