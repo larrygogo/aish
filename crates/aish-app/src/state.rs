@@ -99,6 +99,20 @@ pub enum SshEvent {
         conn: ConnectionId,
         text: String,
     },
+    /// 批量上传中途失败（含 SFTP 错误 / 单张超时 30s）。actor 一旦遇错立即
+    /// break 不再发后续 BatchProgress / BatchDone，改发本事件。
+    /// - `succeeded`：失败前已成功的张数（path 已逐张 append 到 PTY）
+    /// - `total`：本批原始张数
+    /// - `reason`：失败原因（toast 展示）
+    ///
+    /// InputBar 收到后 drain 前 succeeded 张缩略图（已传成功的视觉移除），
+    /// 保留剩余 images + text 供用户点 "发送" retry。
+    BatchAborted {
+        conn: ConnectionId,
+        succeeded: usize,
+        total: usize,
+        reason: String,
+    },
     /// 远端 shell 通过 OSC 0/1/2 escape sequence 设置 tab 标题
     /// （bash/zsh 默认 PS1 hook 会 emit `ESC ]0;user@host: cwd\BEL` 等）。
     /// alacritty Term 的 Event::Title 通过自定义 EventListener 转发至此。
@@ -441,6 +455,11 @@ pub struct AppState {
     /// input_bar 据此显示"上传中 (done/total)"提示 + disable "发送"按钮防止
     /// 重复发送；`BatchDone` 事件清掉。
     pub pending_uploads: HashMap<ConnectionId, (usize, usize)>,
+    /// 最近一次 batch 异常 abort 后留给 InputBar 的 retry 提示：
+    /// (succeeded, total)。BatchAborted handler 写入，InputBar 在 last_uploading
+    /// 边沿 true→false 时 read 决定是 drain 前 succeeded 张 + 保留剩余 + text，
+    /// 还是走常规 cleanup；read 后 InputBar 调 `consume_last_aborted_batch` 清掉。
+    pub last_aborted_batch: HashMap<ConnectionId, (usize, usize)>,
     /// 每连接生命周期阶段。register_session 设 Connecting，SshEvent::Connected
     /// 转 Connected，Disconnected/Error 转 Disconnected{reason}。terminal_view
     /// 根据本字段渲染 loading / reconnect overlay。
@@ -506,6 +525,7 @@ impl AppState {
             host_pty_dimensions: HashMap::new(),
             tmux_state: HashMap::new(),
             pending_uploads: HashMap::new(),
+            last_aborted_batch: HashMap::new(),
             connection_phases: HashMap::new(),
             event_tx: None,
         }
@@ -747,6 +767,7 @@ impl AppState {
         self.tmux_state.remove(&id);
         self.connection_phases.remove(&id);
         self.pending_uploads.remove(&id);
+        self.last_aborted_batch.remove(&id);
         let ids_to_close: Vec<TabId> = self
             .tabs
             .iter()

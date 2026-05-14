@@ -283,37 +283,73 @@ pub(crate) async fn connection_task(
                             .unwrap_or_default()
                             .as_millis();
                         let total = images.len();
+                        // 单张 SFTP 上传超时阈值（30s）。任一张失败 / 超时立即
+                        // abort 整批：发 BatchAborted 让 InputBar drain 已成功的
+                        // 前 N 张，保留剩余 + 用户文字供 retry（用户期望明确）。
+                        const PER_IMAGE_TIMEOUT: std::time::Duration =
+                            std::time::Duration::from_secs(30);
+                        let mut succeeded: usize = 0;
+                        let mut aborted_reason: Option<String> = None;
                         for (i, (bytes, ext)) in images.iter().enumerate() {
                             let remote_path = format!("/tmp/aish-clip-{}-{}.{}", ts, i, ext);
-                            match session_for_batch.sftp_upload(&remote_path, bytes).await {
-                                Ok(()) => {
+                            let upload =
+                                session_for_batch.sftp_upload(&remote_path, bytes);
+                            match tokio::time::timeout(PER_IMAGE_TIMEOUT, upload).await {
+                                Ok(Ok(())) => {
+                                    succeeded += 1;
                                     let _ = tx_for_batch
                                         .send(SshEvent::ImageUploaded {
                                             conn,
                                             path: remote_path,
                                         })
                                         .await;
-                                }
-                                Err(e) => {
                                     let _ = tx_for_batch
-                                        .send(SshEvent::ImageUploadFailed {
+                                        .send(SshEvent::BatchProgress {
                                             conn,
-                                            msg: e.to_string(),
+                                            done: succeeded,
+                                            total,
                                         })
                                         .await;
                                 }
+                                Ok(Err(e)) => {
+                                    let msg = e.to_string();
+                                    let _ = tx_for_batch
+                                        .send(SshEvent::ImageUploadFailed {
+                                            conn,
+                                            msg: msg.clone(),
+                                        })
+                                        .await;
+                                    aborted_reason = Some(msg);
+                                    break;
+                                }
+                                Err(_) => {
+                                    let msg = format!("上传超时（>{}s）", PER_IMAGE_TIMEOUT.as_secs());
+                                    let _ = tx_for_batch
+                                        .send(SshEvent::ImageUploadFailed {
+                                            conn,
+                                            msg: msg.clone(),
+                                        })
+                                        .await;
+                                    aborted_reason = Some(msg);
+                                    break;
+                                }
                             }
+                            let _ = i; // 仅用于循环 index
+                        }
+                        if let Some(reason) = aborted_reason {
                             let _ = tx_for_batch
-                                .send(SshEvent::BatchProgress {
+                                .send(SshEvent::BatchAborted {
                                     conn,
-                                    done: i + 1,
+                                    succeeded,
                                     total,
+                                    reason,
                                 })
                                 .await;
+                        } else {
+                            let _ = tx_for_batch
+                                .send(SshEvent::BatchDone { conn, text })
+                                .await;
                         }
-                        let _ = tx_for_batch
-                            .send(SshEvent::BatchDone { conn, text })
-                            .await;
                     });
                 }
                 Some(SessionCommand::Disconnect) | None => {

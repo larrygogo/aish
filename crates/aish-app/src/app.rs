@@ -265,6 +265,28 @@ pub fn run() {
                             }
                             cx.notify();
                         }
+                        SshEvent::BatchAborted { conn, succeeded, total, reason } => {
+                            // 批量上传中途失败（含 30s 超时）：清进度并写
+                            // last_aborted_batch 给 InputBar 在 last_uploading 边沿
+                            // 决定 drain 前 succeeded 张已成功的、保留剩余 + text
+                            // 供用户 retry。text 不附加到 PTY（用户没发完整批次）。
+                            state.pending_uploads.remove(&conn);
+                            state.last_aborted_batch.insert(conn, (succeeded, total));
+                            let label = state
+                                .connections
+                                .get(&conn)
+                                .map(|c| c.label.clone())
+                                .unwrap_or_else(|| "未知连接".to_string());
+                            tracing::warn!(?conn, label = %label, succeeded, total, reason = %reason, "batch aborted");
+                            aish_ui::toast_error(
+                                cx,
+                                format!(
+                                    "{}: 上传失败（{}/{}）— {}，请重试",
+                                    label, succeeded, total, reason
+                                ),
+                            );
+                            cx.notify();
+                        }
                         SshEvent::TitleChanged { conn, title } => {
                             // 远端 OSC 0/1/2 title 通过 TitleListener 推上来。
                             // helper 内部判断 title_locked，locked 时静默忽略

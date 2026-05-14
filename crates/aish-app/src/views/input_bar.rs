@@ -286,12 +286,30 @@ impl Render for InputBarView {
             .and_then(|c| self.state.read(cx).pending_uploads.get(&c).copied());
         let is_uploading = upload_progress.is_some();
 
-        // BatchDone 边沿检测：上一帧 uploading=true & 本帧 false → 完成。
-        // 清 images vec + defer clear input（render 内不能直接 mut input，
-        // spawn async task 在下一 tick 调 input.clear）。
+        // BatchDone / BatchAborted 边沿检测：上一帧 uploading=true & 本帧 false → 结束。
+        // - last_aborted_batch 命中 → batch 中途失败（含 30s 超时）：
+        //   drain 前 succeeded 张（已成功 path 已 append PTY），保留剩余 images
+        //   + 用户文字供 retry。消费 last_aborted_batch entry。
+        // - 否则正常完成：清 images + defer clear input（render 内不能直接 mut input）。
         if self.last_uploading && !is_uploading {
-            self.images.clear();
-            self.defer_clear_input(cx);
+            let cur_conn = self.state.read(cx).current_connection();
+            let aborted =
+                cur_conn.and_then(|c| self.state.read(cx).last_aborted_batch.get(&c).copied());
+            if let Some((succeeded, _total)) = aborted {
+                // 失败 retry 路径：移除前 N 张已传成功的缩略图，保留剩余 + text
+                let drain_n = succeeded.min(self.images.len());
+                if drain_n > 0 {
+                    self.images.drain(0..drain_n);
+                }
+                if let Some(conn) = cur_conn {
+                    self.state.update(cx, |s, _| {
+                        s.last_aborted_batch.remove(&conn);
+                    });
+                }
+            } else {
+                self.images.clear();
+                self.defer_clear_input(cx);
+            }
         }
         self.last_uploading = is_uploading;
 
