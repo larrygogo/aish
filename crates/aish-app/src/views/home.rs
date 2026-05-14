@@ -641,8 +641,11 @@ impl Render for HomeView {
             .text_size(font_size.xs)
             .child("HOSTS");
 
-        // root：size_full 提供视口，子级 scroll 容器内部纵向溢出时 overflow_y_scroll
-        // 可滚。ContextMenu 必须在 scroll 容器**外**（root 直接 child）— 否则
+        // root：size_full 提供视口。scroll 容器**不能**是 flex 容器 —— flex
+        // children 默认 flex-shrink: 1，当 children 总高超出 container 时会被
+        // 压扁而不是触发 scroll（与 settings.rs 同 trade-off：scroll div 走
+        // block layout，children 自然纵向流）。
+        // ContextMenu 必须在 scroll 容器**外**（root 直接 child）— 否则
         // absolute 定位的 backdrop / 菜单会被 scroll viewport 裁切。
         div()
             .relative()
@@ -653,8 +656,6 @@ impl Render for HomeView {
                     .id("home-scroll")
                     .size_full()
                     .overflow_y_scroll()
-                    .flex()
-                    .flex_col()
                     .child(header)
                     .children(active_section)
                     .child(
