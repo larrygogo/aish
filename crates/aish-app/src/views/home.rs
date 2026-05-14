@@ -8,8 +8,7 @@ use std::time::SystemTime;
 
 use aish_types::{ConnectionId, HostId};
 use gpui::{
-    div, prelude::*, px, rgb, Context, Entity, KeyDownEvent, MouseButton, MouseDownEvent,
-    ScrollHandle, Window,
+    div, prelude::*, px, rgb, Context, Entity, KeyDownEvent, MouseButton, MouseDownEvent, Window,
 };
 
 use crate::bridge::Bridge;
@@ -28,10 +27,10 @@ pub struct HomeView {
     menu_host_id: Option<HostId>,
     /// 键盘导航当前选中菜单项索引。打开时重置 0，↑/↓ 调，Enter 触发。
     menu_active_idx: usize,
-    /// hosts 列表纵向滚动 handle —— GPUI 内置 overflow_y_scroll wheel
-    /// handler 在 RootView 多层 flex 嵌套下不触发，改 ScrollHandle +
-    /// 手写 wheel handler 显式 set_offset 强制滚动可用。
-    scroll_handle: ScrollHandle,
+    /// hosts 列表纵向滚动 + 可拖拽 thumb 状态。aish_ui::ScrollbarHandle 内
+    /// 含 ScrollHandle + drag flag，ScrollPage builder 一句接管所有 wheel /
+    /// scrollbar / 拖拽行为。
+    scrollbar: aish_ui::ScrollbarHandle,
 }
 
 /// host 右键菜单 item 数量（编辑 / 复制 / 删除）。与 render 内 items() 匹配。
@@ -70,7 +69,7 @@ impl HomeView {
             context_menu,
             menu_host_id: None,
             menu_active_idx: 0,
-            scroll_handle: ScrollHandle::new(),
+            scrollbar: aish_ui::ScrollbarHandle::new(),
         }
     }
 
@@ -659,7 +658,7 @@ impl Render for HomeView {
             .bg(colors.background)
             .child(
                 aish_ui::ScrollPage::new("home-scroll")
-                    .scroll_handle(&self.scroll_handle)
+                    .scrollbar(&self.scrollbar)
                     .flex_1()
                     .child(header)
                     .children(active_section)

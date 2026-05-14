@@ -32,7 +32,7 @@ pub use icon_button::{IconButton, IconButtonSize};
 pub use menu_item::MenuItem;
 pub use nav_item::{NavItem, NavItemOrientation};
 pub use popover::{Popover, PopoverPlacement};
-pub use scroll_page::ScrollPage;
+pub use scroll_page::{ScrollPage, ScrollbarHandle};
 pub use select::Select;
 pub use separator::{Orientation, Separator};
 pub use switch::Switch;
