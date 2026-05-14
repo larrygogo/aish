@@ -580,12 +580,18 @@ impl Render for HomeView {
                                     .text_size(font_size.sm)
                                     .child(host_text),
                             )
-                            .children(last_conn_str.map(|s| {
+                            // 始终渲染一行让所有 host 卡片高度一致 —— 未连接过时
+                            // 显示"未连接"占位，避免新卡片比已连接卡片矮一行的视觉
+                            // 跳变。muted_fg 同色弱化，不抢主信息。
+                            .child(
                                 div()
                                     .text_color(colors.muted_foreground)
                                     .text_size(px(11.0))
-                                    .child(format!("上次连接 {}", s))
-                            })),
+                                    .child(match last_conn_str {
+                                        Some(s) => format!("上次连接 {}", s),
+                                        None => "未连接".to_string(),
+                                    }),
+                            ),
                     )
                     .child(actions)
                     .child(chevron);
@@ -635,27 +641,38 @@ impl Render for HomeView {
             .text_size(font_size.xs)
             .child("HOSTS");
 
+        // root：size_full 提供视口，子级 scroll 容器内部纵向溢出时 overflow_y_scroll
+        // 可滚。ContextMenu 必须在 scroll 容器**外**（root 直接 child）— 否则
+        // absolute 定位的 backdrop / 菜单会被 scroll viewport 裁切。
         div()
+            .relative()
             .size_full()
             .bg(colors.background)
-            .flex()
-            .flex_col()
-            .child(header)
-            .children(active_section)
             .child(
                 div()
-                    .px_8()
-                    .pb_6()
+                    .id("home-scroll")
+                    .size_full()
+                    .overflow_y_scroll()
                     .flex()
                     .flex_col()
-                    .gap_3()
-                    .child(hosts_section_label)
-                    .children(cards)
-                    .children(empty_hint),
+                    .child(header)
+                    .children(active_section)
+                    .child(
+                        div()
+                            .px_8()
+                            .pb_6()
+                            .flex()
+                            .flex_col()
+                            .gap_3()
+                            .child(hosts_section_label)
+                            .children(cards)
+                            .children(empty_hint),
+                    ),
             )
             // ContextMenu entity 永远挂在 view tree（无论 open 与否）。
             // open=false 时 render 返回空 div 不占空间；open=true 时 absolute
-            // 覆盖全屏 backdrop + anchored 菜单。
+            // 覆盖全屏 backdrop + anchored 菜单。挂在 scroll 容器外保证不被
+            // overflow_y_scroll 裁掉。
             .child(self.context_menu.clone())
     }
 }
