@@ -302,11 +302,12 @@ impl Render for InputBarView {
         let text_row = div()
             .flex()
             .flex_row()
-            // 不写死 .h(40)！multiline input min_h=20 max_h=120，row 自然高度
-            // 跟 input 走。+ 按钮 / Send 按钮通过 items_end 贴 row 底部
-            // （多行时按钮在底，与最末输入行 baseline 视觉对齐；单行时
-            // 按钮高度 ≈ input 高，也基本对齐）。
-            .items_end()
+            // input 高度跟 visible_lines 走（1~6 行 = 28~128px），按钮高度
+            // 固定（+ 24 / Send 28）。items_end 在单行时让按钮顶超出 input
+            // 顶（按钮比 input 高 ≥4px），视觉错位；改 items_center 让按钮
+            // 中线 = input 中线 —— 单行时所有 child 齐中，多行时按钮浮在
+            // input 垂直中点（与 input 末行不齐但视觉重心稳定）。
+            .items_center()
             .gap(px(6.0))
             .px(px(8.0))
             .py(px(6.0))
