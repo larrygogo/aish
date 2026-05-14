@@ -15,6 +15,25 @@ use crate::state::{
     AppState, DisconnectReason, SessionCommand, SidebarTab, SshErrorKind, SshEvent,
 };
 
+/// 把 per-conn entity HashMap 与"哪些 key 还 alive"做同步：drop 已 stale
+/// 的 entry（HashMap 调用 retain；V 被销毁，Entity 之类的就会顺着 Drop
+/// chain 把内部 timer / observe 等也清掉）。
+///
+/// 提出来便于 unit test：本身就是 std `HashMap::retain` 的薄包装 + 注释，
+/// 没什么逻辑，但 caller 现场写 retain 时容易把谓词写反（"哪些保留" vs
+/// "哪些丢弃"），名字明确为 `retain_alive_entities` 避免反向歧义。
+///
+/// 当前唯一 caller：RootView observe(state) 回调里同步 `input_bars`
+/// 与 `state.connections`（M22 per-conn InputBar 改造）。
+pub(crate) fn retain_alive_entities<K, V>(
+    map: &mut HashMap<K, V>,
+    mut is_alive: impl FnMut(&K) -> bool,
+) where
+    K: Eq + std::hash::Hash,
+{
+    map.retain(|k, _| is_alive(k));
+}
+
 /// AssetSource 链：先尝试 aish-ui 的 IconName 体系，再尝试 aish-app 自己的
 /// 本地资源（titlebar logo / 应用 icon 等）。GPUI Application::with_assets
 /// 只接一个 source，用此 wrapper 合并两套 namespace。
@@ -380,8 +399,9 @@ impl RootView {
         // 通常 < 10；feed_bytes 高频 notify 也无所谓，无 alloc。
         cx.observe(&state, |this, state, cx| {
             let alive_state = state.read(cx);
-            this.input_bars
-                .retain(|conn, _| alive_state.connections.contains_key(conn));
+            retain_alive_entities(&mut this.input_bars, |conn| {
+                alive_state.connections.contains_key(conn)
+            });
             cx.notify();
         })
         .detach();
@@ -702,5 +722,46 @@ impl Render for RootView {
         root = root.child(self.toast_manager.clone());
 
         root
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn retain_alive_entities_keeps_all_when_all_alive() {
+        let mut map: HashMap<u32, &'static str> = HashMap::from([(1, "a"), (2, "b"), (3, "c")]);
+        retain_alive_entities(&mut map, |_| true);
+        assert_eq!(map.len(), 3);
+    }
+
+    #[test]
+    fn retain_alive_entities_drops_all_when_none_alive() {
+        let mut map: HashMap<u32, &'static str> = HashMap::from([(1, "a"), (2, "b")]);
+        retain_alive_entities(&mut map, |_| false);
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn retain_alive_entities_drops_only_stale() {
+        let mut map: HashMap<u32, &'static str> =
+            HashMap::from([(1, "a"), (2, "b"), (3, "c"), (4, "d")]);
+        // alive = 偶数
+        retain_alive_entities(&mut map, |k| k % 2 == 0);
+        assert_eq!(map.len(), 2);
+        assert_eq!(map.get(&2), Some(&"b"));
+        assert_eq!(map.get(&4), Some(&"d"));
+        assert!(!map.contains_key(&1));
+        assert!(!map.contains_key(&3));
+    }
+
+    #[test]
+    fn retain_alive_entities_handles_empty_map() {
+        let mut map: HashMap<u32, &'static str> = HashMap::new();
+        retain_alive_entities(&mut map, |_| true);
+        assert!(map.is_empty());
+        retain_alive_entities(&mut map, |_| false);
+        assert!(map.is_empty());
     }
 }
