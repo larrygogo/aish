@@ -23,6 +23,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let icons_dir = PathBuf::from(&out_dir).join("icons");
     std::fs::create_dir_all(&icons_dir)?;
 
+    // git info 注入 — Settings About 卡片显示。失败 fallback "unknown"
+    // （CI / 用户机 build 没 git 仓库时优雅降级）。HEAD 变化时重 build。
+    inject_git_env();
+    println!("cargo:rerun-if-changed=.git/HEAD");
+    println!("cargo:rerun-if-changed=.git/refs/heads");
+
     // ── 1. 解析 SVG ──────────────────────────────────────────────
     let svg_data = std::fs::read_to_string(&svg_path)?;
     let opt = resvg::usvg::Options::default();
@@ -58,6 +64,45 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+/// 跑 git 命令注入 AISH_GIT_HASH + AISH_BUILD_DATE 环境变量。
+/// 失败时 set "unknown" 让 env! 不爆 + Settings 显示 "unknown" 不崩。
+fn inject_git_env() {
+    use std::process::Command;
+    let hash = Command::new("git")
+        .args(["rev-parse", "--short", "HEAD"])
+        .output()
+        .ok()
+        .and_then(|o| {
+            if o.status.success() {
+                String::from_utf8(o.stdout)
+                    .ok()
+                    .map(|s| s.trim().to_string())
+            } else {
+                None
+            }
+        })
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "unknown".to_string());
+    // 最近 commit 日期（%cd %as 都行；--date=short 走 YYYY-MM-DD）
+    let date = Command::new("git")
+        .args(["log", "-1", "--format=%cd", "--date=short"])
+        .output()
+        .ok()
+        .and_then(|o| {
+            if o.status.success() {
+                String::from_utf8(o.stdout)
+                    .ok()
+                    .map(|s| s.trim().to_string())
+            } else {
+                None
+            }
+        })
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "unknown".to_string());
+    println!("cargo:rustc-env=AISH_GIT_HASH={hash}");
+    println!("cargo:rustc-env=AISH_BUILD_DATE={date}");
 }
 
 fn render_png(

@@ -30,6 +30,15 @@ pub fn app_state_path() -> Option<PathBuf> {
     Some(p)
 }
 
+/// 配置目录（不含具体文件）— Settings "打开配置目录" 按钮 reveal_path 用。
+/// 同 dirs::config_dir() + APP_DIR_NAME 路径，对应 hosts.json / app_state.toml
+/// 所在目录。
+pub fn config_dir() -> Option<PathBuf> {
+    let mut p = dirs::config_dir()?;
+    p.push(APP_DIR_NAME);
+    Some(p)
+}
+
 pub fn load_app_state_from(path: &Path) -> AppStateFile {
     match fs::read_to_string(path) {
         Ok(s) => match toml::from_str(&s) {

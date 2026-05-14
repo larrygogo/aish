@@ -117,6 +117,14 @@ fn control_row(
 impl Render for SettingsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let version = env!("CARGO_PKG_VERSION");
+        // build.rs 注入；git 不可用时 fallback "unknown"。
+        let git_hash = env!("AISH_GIT_HASH");
+        let build_date = env!("AISH_BUILD_DATE");
+        let version_str = if git_hash == "unknown" {
+            format!("aish v{}", version)
+        } else {
+            format!("aish v{} ({})", version, git_hash)
+        };
         let t = theme(cx);
         let colors = t.colors;
         let fs = t.font_size;
@@ -185,7 +193,40 @@ impl Render for SettingsView {
                     .child(two_column_row("Ctrl+3", "Settings", colors, fs)),
             );
 
-        // ───── About（合并原 APP INFO + ABOUT）─────
+        // ───── About（版本信息 + 实际可点交互按钮）─────
+        // 按钮走 outline variant，与卡片视觉一致；handler 内调 cx.open_url /
+        // cx.reveal_path 触发 OS 默认浏览器 / 文件管理器，跨平台一致。
+        let actions_row = div()
+            .pt_2()
+            .flex()
+            .flex_row()
+            .gap_2()
+            .child(
+                aish_ui::Button::new("settings-open-config-dir")
+                    .label("打开配置目录")
+                    .secondary()
+                    .on_click(cx.listener(|_this, _ev: &gpui::MouseDownEvent, _w, cx| {
+                        match crate::app_state_file::config_dir() {
+                            Some(dir) => {
+                                // dir 不存在时 reveal_path 部分平台会报错，先确保存在
+                                let _ = std::fs::create_dir_all(&dir);
+                                cx.reveal_path(&dir);
+                            }
+                            None => {
+                                aish_ui::toast_error(cx, "无法定位配置目录");
+                            }
+                        }
+                    })),
+            )
+            .child(
+                aish_ui::Button::new("settings-open-github")
+                    .label("查看 GitHub")
+                    .secondary()
+                    .on_click(cx.listener(|_this, _ev: &gpui::MouseDownEvent, _w, cx| {
+                        cx.open_url("https://github.com/larrygogo/aish");
+                    })),
+            );
+
         let about_card = Card::new("settings-about")
             .outlined()
             .header(section_header("About", colors, fs))
@@ -193,20 +234,16 @@ impl Render for SettingsView {
                 div()
                     .flex()
                     .flex_col()
-                    .child(two_column_row(
-                        "Version",
-                        &format!("aish v{}", version),
-                        colors,
-                        fs,
-                    ))
-                    .child(two_column_row("Build date", "2026-05-08", colors, fs))
+                    .child(two_column_row("Version", &version_str, colors, fs))
+                    .child(two_column_row("Build date", build_date, colors, fs))
                     .child(two_column_row(
                         "Repository",
                         "github.com/larrygogo/aish",
                         colors,
                         fs,
                     ))
-                    .child(two_column_row("License", "MIT", colors, fs)),
+                    .child(two_column_row("License", "MIT", colors, fs))
+                    .child(actions_row),
             );
 
         // ───── 整页布局 ─────
