@@ -318,14 +318,10 @@ impl Render for InputBarView {
         let text_row = div()
             .flex()
             .flex_row()
-            // input 高度跟 visible_lines 走（1~6 行 = 28~128px），按钮高度
-            // 固定（+ 24 / Send 28）。items_center 让按钮中线 = input 中线
-            // 单行时所有 child 齐中，多行时按钮浮在 input 垂直中点。
-            //
-            // gap / padding 调舒适些：
-            // - gap(10): 按钮 ↔ input 之间距离明显，不挤
-            // - px(12)/py(8): card 内边距给"chat box"呼吸感（vs px(8)/py(6) 偏挤）
-            .items_center()
+            // items_end 让按钮始终贴 row 底部（chat-app 标准，与 input 末行
+            // baseline 对齐）。多行时按钮跟 input 最后一行齐底，单行时跟唯一
+            // 一行齐底（input min_h=28 跟 Send 按钮等高，+ 24 略矮贴底）。
+            .items_end()
             .gap(px(10.0))
             .px(px(12.0))
             .py(px(8.0))
