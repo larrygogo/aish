@@ -86,7 +86,8 @@ impl RenderOnce for DropdownMenu {
 
             let mut row = div()
                 .relative()
-                .h(gpui::px(28.0))
+                // M25 加密度：行高 28 → 26（Linear/Warp 紧凑列表风）
+                .h(gpui::px(26.0))
                 .px(t.spacing.px_3)
                 .flex()
                 .flex_row()

@@ -97,14 +97,16 @@ impl RenderOnce for NavItem {
         el = match orientation {
             NavItemOrientation::Vertical => el
                 .w_full()
-                .py(px(14.0))
+                // M24/M25 加密度：py 14 → 12（sidebar nav 紧凑一档，Linear/Warp 风）
+                .py(px(12.0))
                 .flex()
                 .flex_col()
                 .items_center()
                 .justify_center()
                 .gap(px(4.0)),
             NavItemOrientation::Horizontal => el
-                .h(px(36.0))
+                // M25 加密度：h 36 → 32
+                .h(px(32.0))
                 .px(t.spacing.px_3)
                 .flex()
                 .flex_row()

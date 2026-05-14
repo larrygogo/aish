@@ -55,13 +55,8 @@ impl gpui::Render for TabDragPreview {
             .overflow_hidden()
             .whitespace_nowrap()
             .text_ellipsis()
-            // shadow 让拖影"浮起"，与 drop target 区分
-            .shadow(vec![gpui::BoxShadow {
-                color: gpui::hsla(0.0, 0.0, 0.0, 0.4),
-                offset: point(px(0.0), px(4.0)),
-                blur_radius: px(12.0),
-                spread_radius: px(0.0),
-            }])
+            // M24 elevation-2 — 拖影浮起感，与 drop target 区分
+            .shadow(aish_ui::elevation_2(t.kind))
             .child(self.title.clone())
     }
 }
