@@ -21,6 +21,10 @@ type SubmitHandler = Rc<dyn Fn(&str, &mut Window, &mut App) + 'static>;
 type ChangeHandler = Rc<dyn Fn(&str, &mut Window, &mut App) + 'static>;
 type CancelHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
 type BlurHandler = Rc<dyn Fn(&str, &mut Window, &mut App) + 'static>;
+/// Ctrl+V 时剪贴板含 RGBA 图片的回调：caller 拿到 (width, height, rgba_bytes)
+/// 自己决定编码 / 写文件 / 入队 / 上传。callback 返回 true = 已消费图片，
+/// TextInput 跳过 text paste 路径；返回 false = caller 不处理，仍走 text paste。
+type PasteImageHandler = Rc<dyn Fn(u32, u32, Vec<u8>, &mut Window, &mut App) -> bool + 'static>;
 
 const BLINK_PERIOD_MS: u64 = 600;
 
@@ -98,6 +102,10 @@ pub struct TextInput {
     /// 清掉，重新设。T1 占位，T4 cursor_up/down_visual 实施时启用。
     #[allow(dead_code)]
     preferred_col: Option<usize>,
+    /// Ctrl+V 剪贴板含图片时的 caller 回调。设了之后 paste 走"先试图片，
+    /// 不行再走 text"的顺序：arboard.get_image() Ok → 调 handler；handler
+    /// 返回 true 跳过 text paste。caller 通常用来把图片入队 / 上传等。
+    on_paste_image: Option<PasteImageHandler>,
     /// M21 T2：cursor 变化后到下一次 prepaint 之间应 update_scroll_to_cursor。
     /// 默认 true（首次 prepaint 跑一次让初始 cursor 可见）；reset_blink 内 set
     /// true 覆盖所有 cursor 写路径；update_scroll_to_cursor 跑完 set false。
@@ -138,6 +146,7 @@ impl TextInput {
             max_lines: 6,
             preferred_col: None,
             cursor_dirty_for_scroll: true,
+            on_paste_image: None,
         };
         this.start_blink_timer(cx);
         this
@@ -227,6 +236,18 @@ impl TextInput {
     /// 失焦回调：input 上一帧 focused 这一帧 unfocused 时触发，传当前 text。
     pub fn on_blur(&mut self, h: impl Fn(&str, &mut Window, &mut App) + 'static) -> &mut Self {
         self.on_blur = Some(Rc::new(h));
+        self
+    }
+
+    /// 设 Ctrl+V 时剪贴板含图片的回调。callback 拿 (width, height, rgba_bytes)
+    /// 自己决定编码/上传/入队；返回 true = 已消费，TextInput 跳过 text paste；
+    /// 返回 false = caller 不处理，仍走 text paste 路径（rgba 也算消费过了的
+    /// 剪贴板，但 arboard 拿 text 仍可能拿到附带的文本，按 caller 意图走）。
+    pub fn on_paste_image(
+        &mut self,
+        h: impl Fn(u32, u32, Vec<u8>, &mut Window, &mut App) -> bool + 'static,
+    ) -> &mut Self {
+        self.on_paste_image = Some(Rc::new(h));
         self
     }
 
@@ -986,6 +1007,34 @@ impl TextInput {
     /// **mask 处理**：与系统密码框一致，masked 状态下仍允许 paste
     /// （浏览器 `<input type=password>` 和 macOS 密码框都允许粘贴，
     /// 只禁 copy/cut 避免泄露已输入内容）。
+    /// Ctrl+V 路径专属：剪贴板内若有图片，调 on_paste_image callback 让
+    /// caller 接管（保存文件 / 入队 / 上传等），返回 true 表示已消费 — 调用方
+    /// 跳过 text paste。caller 没注 callback / 剪贴板无图片 → 返回 false。
+    ///
+    /// arboard.get_image() Windows / Linux X11 / macOS Cocoa 都支持 ImageData
+    /// (width, height, bytes: RGBA8)。失败（如剪贴板存的是文件路径而非图片
+    /// 字节）静默返回 false 走 text paste fallback。
+    fn try_paste_image(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Some(handler) = self.on_paste_image.clone() else {
+            return false;
+        };
+        let mut cb = match Clipboard::new() {
+            Ok(cb) => cb,
+            Err(e) => {
+                tracing::warn!("text_input: clipboard 初始化失败: {}", e);
+                return false;
+            }
+        };
+        let img = match cb.get_image() {
+            Ok(i) => i,
+            Err(_) => return false, // 剪贴板无图片 — 走 text fallback
+        };
+        let w = img.width as u32;
+        let h = img.height as u32;
+        let rgba = img.bytes.into_owned();
+        handler(w, h, rgba, window, cx)
+    }
+
     pub(crate) fn paste(&mut self) -> bool {
         let raw = match Clipboard::new() {
             Ok(mut cb) => match cb.get_text() {
@@ -1136,7 +1185,14 @@ impl TextInput {
                 }
             }
             "v" if event.keystroke.modifiers.control => {
-                if self.paste() {
+                // 先试图片：caller 注了 on_paste_image 且剪贴板有 image →
+                // 调 handler，true 表示已消费，跳过 text paste。
+                // disabled 时（上传中等）TextInput.paste() 不动 text，但
+                // image 路径仍由 caller 决定要不要处理 — 这里 disabled 整体
+                // 跳过更安全。
+                if !self.disabled && self.try_paste_image(window, cx) {
+                    // image 消费成功 — 不动 cursor / text，不 fire_change
+                } else if self.paste() {
                     cx.notify();
                     self.fire_change(window, cx);
                 }
