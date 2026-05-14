@@ -3,14 +3,14 @@
 //! 文字输入部分使用 aish_ui::TextInput（含 cursor blink / selection / IME / 复制粘贴）。
 //! 本 view 负责：图片多选 + 缩略图渲染 + Send 按钮 + UploadBatch 派发。
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use aish_ui::{theme, TextInput};
 use gpui::{
-    div, img, prelude::*, px, rgb, Context, Entity, ImageSource, ObjectFit, PathPromptOptions,
-    SharedString, Window,
+    div, img, prelude::*, px, rgb, Context, Entity, ExternalPaths, ImageSource, ObjectFit,
+    PathPromptOptions, SharedString, Window,
 };
 
 use crate::bridge::Bridge;
@@ -19,6 +19,19 @@ use crate::state::{AppState, SessionCommand};
 struct PendingImage {
     name: String,
     path: PathBuf,
+}
+
+/// 判 path 是否常见图片扩展名（不区分大小写）。drag-drop 场景外部 OS 不限
+/// 文件类型，必须 caller 自己过滤防混入 PDF / txt。SVG 走光栅化失败兜底
+/// (SFTP 上传 / 远端 cat -> 文本)，所以也算"图片"放过。
+fn is_image_path(p: &Path) -> bool {
+    matches!(
+        p.extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .as_deref(),
+        Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "tiff" | "tif" | "ico" | "svg")
+    )
 }
 
 pub struct InputBarView {
@@ -47,6 +60,7 @@ impl InputBarView {
 
         let input = cx.new(TextInput::new);
         let weak_self = cx.weak_entity();
+        let weak_for_paste = cx.weak_entity();
         input.update(cx, |i, _cx| {
             i.placeholder("输入文字（Enter 换行，Ctrl+Enter 发送）")
                 .multiline(true)
@@ -65,6 +79,15 @@ impl InputBarView {
                 let text = text.to_string();
                 if let Some(this) = weak_self.upgrade() {
                     this.update(cx, move |this, cx| this.send(text, window, cx));
+                }
+            });
+            // Ctrl+V 剪贴板含图片时：写临时 PNG + 入 self.images，跳过 text paste。
+            // 文本 / 文件路径仍走 TextInput 默认 text paste（这里不消费）。
+            i.on_paste_image(move |w, h, rgba, _window, cx| {
+                if let Some(this) = weak_for_paste.upgrade() {
+                    this.update(cx, |this, cx| this.add_image_from_rgba(w, h, rgba, cx))
+                } else {
+                    false
                 }
             });
         });
@@ -120,20 +143,83 @@ impl InputBarView {
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             if let Ok(Ok(Some(paths))) = receiver.await {
                 this.update(cx, |this, cx| {
-                    for path in paths {
-                        let name = path
-                            .file_name()
-                            .and_then(|n| n.to_str())
-                            .unwrap_or("image")
-                            .to_string();
-                        this.images.push(PendingImage { name, path });
-                    }
-                    cx.notify();
+                    this.add_image_paths(paths, cx);
                 })
                 .ok();
             }
         })
         .detach();
+    }
+
+    /// 共用 image 入队路径：+ 按钮 prompt / drag-drop / 未来其他入口都走它。
+    /// - 上传中拒绝（防止 batch 进行中混入新图）
+    /// - 过滤非图片扩展名（drop 场景常见混入 PDF / 文本）
+    /// - 给每张图算 file_name 作 PendingImage.name
+    fn add_image_paths(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
+        if self.is_uploading(cx) {
+            return;
+        }
+        let mut added = 0usize;
+        for path in paths {
+            if !is_image_path(&path) {
+                tracing::debug!(path = ?path, "input_bar: 跳过非图片文件");
+                continue;
+            }
+            let name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("image")
+                .to_string();
+            self.images.push(PendingImage { name, path });
+            added += 1;
+        }
+        if added > 0 {
+            cx.notify();
+        }
+    }
+
+    /// Ctrl+V 路径专属：剪贴板拿来的 RGBA 字节 → 编码 PNG → 写临时文件 →
+    /// 入队 self.images。返回 true 表示已消费图片（TextInput 跳过 text paste）。
+    /// 写文件 / 编码 / 上传中失败都返回 false 让 caller 走 text paste 兜底。
+    fn add_image_from_rgba(
+        &mut self,
+        w: u32,
+        h: u32,
+        rgba: Vec<u8>,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.is_uploading(cx) {
+            return false;
+        }
+        let png = match crate::terminal::image::encode_rgba_to_png(w, h, &rgba) {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::warn!("input_bar: 剪贴板图片 PNG 编码失败: {}", e);
+                return false;
+            }
+        };
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let path = std::env::temp_dir().join(format!("aish-paste-{}.png", ts));
+        if let Err(e) = std::fs::write(&path, &png) {
+            tracing::warn!("input_bar: 写临时图片文件失败 {}: {}", path.display(), e);
+            return false;
+        }
+        let name = format!("clipboard-{}.png", ts);
+        self.images.push(PendingImage { name, path });
+        cx.notify();
+        true
+    }
+
+    /// 当前 conn 是否有进行中的批量上传。drop / paste image 时拒绝入队避免
+    /// batch 进行中混入新图。
+    fn is_uploading(&self, cx: &Context<Self>) -> bool {
+        self.state
+            .read(cx)
+            .current_connection()
+            .is_some_and(|c| self.state.read(cx).pending_uploads.contains_key(&c))
     }
 
     fn remove_image(&mut self, index: usize, cx: &mut Context<Self>) {
@@ -475,8 +561,58 @@ impl Render for InputBarView {
             .border_1()
             .border_color(card_border_color)
             .bg(colors.card)
+            // 外部文件 drag-drop：OS 文件管理器 / 浏览器拖图片到 card 区域。
+            // GPUI 把 FileDropEvent 转 internal drag，Submit 时 .on_drop::<T>
+            // 命中（T=ExternalPaths）。过滤图片扩展名后入 self.images，与
+            // + 按钮 prompt 同一队列。上传中 is_uploading 拒绝（add_image_paths
+            // 内兜底）。
+            .on_drop(cx.listener(|this, paths: &ExternalPaths, _window, cx| {
+                this.add_image_paths(paths.paths().to_vec(), cx);
+            }))
             .children(progress_row)
             .children(images_row)
             .child(text_row)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_image_path_accepts_common_raster() {
+        for ext in [
+            "png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "ico", "svg",
+        ] {
+            let p = PathBuf::from(format!("foo.{ext}"));
+            assert!(is_image_path(&p), "{} should be image", ext);
+        }
+    }
+
+    #[test]
+    fn is_image_path_case_insensitive() {
+        assert!(is_image_path(&PathBuf::from("photo.JPG")));
+        assert!(is_image_path(&PathBuf::from("Screenshot.PNG")));
+        assert!(is_image_path(&PathBuf::from("icon.IcO")));
+    }
+
+    #[test]
+    fn is_image_path_rejects_non_image() {
+        assert!(!is_image_path(&PathBuf::from("doc.pdf")));
+        assert!(!is_image_path(&PathBuf::from("readme.txt")));
+        assert!(!is_image_path(&PathBuf::from("archive.zip")));
+        assert!(!is_image_path(&PathBuf::from("video.mp4")));
+    }
+
+    #[test]
+    fn is_image_path_rejects_no_extension() {
+        assert!(!is_image_path(&PathBuf::from("Makefile")));
+        assert!(!is_image_path(&PathBuf::from("noext")));
+    }
+
+    #[test]
+    fn is_image_path_accepts_full_path() {
+        assert!(is_image_path(&PathBuf::from("/tmp/foo/bar.png")));
+        assert!(is_image_path(&PathBuf::from("C:\\Users\\me\\pic.jpg")));
     }
 }
