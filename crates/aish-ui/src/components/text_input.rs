@@ -65,6 +65,11 @@ pub struct TextInput {
     /// drag select 当前鼠标 x（mouse_move 时更新）。drag-to-edge auto-scroll
     /// timer 比对 viewport 边界用，鼠标接近边沿时主动扩 cursor + 滚动。
     drag_target_x: Option<Pixels>,
+    /// M21：drag 当前鼠标 y。multiline 模式下，drag 接近上/下 viewport 边沿
+    /// 时 step_drag_auto_scroll 主动 cursor_up_visual / cursor_down_visual
+    /// 扩一 visual line，update_scroll_to_cursor 自然把 viewport 滚到 cursor。
+    /// 单行模式无效（drag_target_y 始终 None）。
+    drag_target_y: Option<Pixels>,
     /// 上一帧 viewport bounds（canvas prepaint 写入）。drag auto-scroll 用。
     viewport_bounds: Option<Bounds<Pixels>>,
     /// drag 期间的 auto-scroll task。mouse_down 启，mouse_up 时 take() 丢弃
@@ -117,6 +122,7 @@ impl TextInput {
             scroll_offset: px(0.0),
             scroll_offset_y: px(0.0),
             drag_target_x: None,
+            drag_target_y: None,
             viewport_bounds: None,
             drag_task: None,
             show_mask_toggle: false,
@@ -393,38 +399,75 @@ impl TextInput {
     }
 
     /// drag-to-edge auto-scroll 单步：drag 期间 30ms 触发一次。
-    /// 鼠标 x 落在 viewport 左/右边沿 20px 内 → cursor 向对应方向扩一字符，
-    /// 后续 update_scroll_to_cursor 会自然把 scroll_offset 调到让新 cursor 可见。
+    ///
+    /// 单行 / 多行 / horizontal / vertical 边沿都在这里处理：
+    /// - 单行 + drag_target_x 接近左右边沿：cursor 横向扩一字符
+    /// - 多行 + drag_target_y 接近上下边沿：cursor 上/下扩一 visual line
+    ///   （multiline 不接横向 drag-to-edge — word-wrap 已覆盖长行）
+    ///
+    /// 不调 cursor_up_visual / cursor_left 等公开方法 — 那些 clear_selection()
+    /// 会破坏 drag select 的 anchor。这里内联算 cursor，anchor 保持不动。
+    ///
+    /// cursor 变化后 update_scroll_to_cursor（下一帧 prepaint）自然把 scroll
+    /// offset 调到让新 cursor 可见。
     ///
     /// 返回 true = task 应继续；false = 退出 timer。
     fn step_drag_auto_scroll(&mut self, cx: &mut Context<Self>) -> bool {
         if !self.is_dragging {
             return false;
         }
-        let (Some(x), Some(vb)) = (self.drag_target_x, self.viewport_bounds) else {
+        let Some(vb) = self.viewport_bounds else {
             return true;
         };
         let margin = px(20.0);
-        let v_left = vb.origin.x;
-        let v_right = vb.origin.x + vb.size.width;
         let cursor_was = self.cursor;
-        if x > v_right - margin && self.cursor < self.text.len() {
-            // 向右扩 cursor 一字符
-            let next = self.text[self.cursor..]
-                .char_indices()
-                .nth(1)
-                .map(|(i, _)| self.cursor + i)
-                .unwrap_or(self.text.len());
-            self.cursor = next;
-        } else if x < v_left + margin && self.cursor > 0 {
-            // 向左扩 cursor 一字符
-            let prev = self.text[..self.cursor]
-                .char_indices()
-                .last()
-                .map(|(i, _)| i)
-                .unwrap_or(0);
-            self.cursor = prev;
+
+        if self.multiline {
+            // 多行：仅纵向 drag-to-edge（横向 word-wrap 已覆盖）
+            if let Some(y) = self.drag_target_y {
+                let v_top = vb.origin.y;
+                let v_bottom = vb.origin.y + vb.size.height;
+                if y > v_bottom - margin {
+                    let vls = self.current_visual_lines();
+                    let (vl_idx, col) = byte_to_visual_pos(self.cursor, &vls);
+                    let pref_col = self.preferred_col.unwrap_or(col);
+                    if vl_idx + 1 < vls.len() {
+                        let raw = visual_pos_to_byte(vl_idx + 1, pref_col, &vls);
+                        self.cursor = floor_char_boundary(&self.text, raw);
+                        self.preferred_col = Some(pref_col);
+                    }
+                } else if y < v_top + margin {
+                    let vls = self.current_visual_lines();
+                    let (vl_idx, col) = byte_to_visual_pos(self.cursor, &vls);
+                    let pref_col = self.preferred_col.unwrap_or(col);
+                    if vl_idx > 0 {
+                        let raw = visual_pos_to_byte(vl_idx - 1, pref_col, &vls);
+                        self.cursor = floor_char_boundary(&self.text, raw);
+                        self.preferred_col = Some(pref_col);
+                    }
+                }
+            }
+        } else if let Some(x) = self.drag_target_x {
+            // 单行：横向 drag-to-edge
+            let v_left = vb.origin.x;
+            let v_right = vb.origin.x + vb.size.width;
+            if x > v_right - margin && self.cursor < self.text.len() {
+                let next = self.text[self.cursor..]
+                    .char_indices()
+                    .nth(1)
+                    .map(|(i, _)| self.cursor + i)
+                    .unwrap_or(self.text.len());
+                self.cursor = next;
+            } else if x < v_left + margin && self.cursor > 0 {
+                let prev = self.text[..self.cursor]
+                    .char_indices()
+                    .last()
+                    .map(|(i, _)| i)
+                    .unwrap_or(0);
+                self.cursor = prev;
+            }
         }
+
         if self.cursor != cursor_was {
             self.reset_blink();
             cx.notify();
@@ -1663,6 +1706,9 @@ impl Render for TextInput {
                     };
                     this.is_dragging = true; // M16 T3: 开始 drag
                     this.drag_target_x = Some(ev.position.x);
+                    if this.multiline {
+                        this.drag_target_y = Some(ev.position.y);
+                    }
                     // shift+click：扩选模式（保留 anchor，cursor 跳新位置）；
                     // 后续若 drag 也按扩选走，cursor 跟鼠标，anchor 不变。
                     // 无 shift：原 drag select 行为（清旧 anchor，新 anchor=byte）。
@@ -1691,8 +1737,12 @@ impl Render for TextInput {
                 if !this.is_dragging {
                     return;
                 }
-                // 实时更新 drag_target_x 让 auto-scroll timer 拿到最新位置。
+                // 实时更新 drag_target_{x,y} 让 auto-scroll timer 拿到最新位置。
+                // 多行 vertical 边沿用 y，单行 horizontal 边沿用 x。
                 this.drag_target_x = Some(ev.position.x);
+                if this.multiline {
+                    this.drag_target_y = Some(ev.position.y);
+                }
                 let byte = if this.multiline {
                     this.cursor_from_click_2d(ev.position)
                 } else {
@@ -1709,6 +1759,7 @@ impl Render for TextInput {
                 cx.listener(|this, _ev: &MouseUpEvent, _w, cx| {
                     this.is_dragging = false;
                     this.drag_target_x = None;
+                    this.drag_target_y = None;
                     // Take 丢弃 Task，GPUI Task drop 自动 abort timer loop。
                     this.drag_task.take();
                     cx.notify();
@@ -1809,6 +1860,7 @@ impl Render for TextInput {
                                     let _ = weak.update(cx_outer, |this, cx_inner| {
                                         this.is_dragging = false;
                                         this.drag_target_x = None;
+                                        this.drag_target_y = None;
                                         this.drag_task.take();
                                         cx_inner.notify();
                                     });
@@ -2619,6 +2671,100 @@ mod tests {
         // cursor 在 b（byte 2）↓ → 应到 text 末（3）
         let (b, _) = move_cursor_vl(text, 2, None, 1);
         assert_eq!(b, 3);
+    }
+
+    /// M21 T1 pure-fn 模拟：vertical drag-to-edge auto-scroll step。
+    /// 还原 `step_drag_auto_scroll` 多行路径的算法（与 cursor_up/down_visual
+    /// 一致，但不 clear_selection）。返回 (new_cursor, new_pref_col) 或 None
+    /// 表示无 step（边沿未命中 / 已在首/末行）。
+    #[allow(clippy::too_many_arguments)]
+    fn simulate_vertical_drag_step(
+        text: &str,
+        cursor: usize,
+        pref: Option<usize>,
+        multiline: bool,
+        y: gpui::Pixels,
+        v_top: gpui::Pixels,
+        v_bottom: gpui::Pixels,
+        margin: gpui::Pixels,
+    ) -> Option<(usize, usize)> {
+        if !multiline {
+            return None;
+        }
+        let vls = compute_visual_lines(text, wide(), fs());
+        let (vl_idx, col) = byte_to_visual_pos(cursor, &vls);
+        let pref_col = pref.unwrap_or(col);
+        if y > v_bottom - margin {
+            if vl_idx + 1 < vls.len() {
+                let raw = visual_pos_to_byte(vl_idx + 1, pref_col, &vls);
+                return Some((floor_char_boundary(text, raw), pref_col));
+            }
+        } else if y < v_top + margin && vl_idx > 0 {
+            let raw = visual_pos_to_byte(vl_idx - 1, pref_col, &vls);
+            return Some((floor_char_boundary(text, raw), pref_col));
+        }
+        None
+    }
+
+    #[test]
+    fn step_drag_auto_scroll_vertical_down_when_multiline() {
+        // cursor 在 first 行 col 2，drag y 命中下边沿 → cursor 下移到 second 行 col 2
+        let text = "first\nsecond\nthird";
+        let res = simulate_vertical_drag_step(
+            text,
+            2,
+            None,
+            true,
+            px(100.0), // y 紧贴下边沿
+            px(0.0),   // v_top
+            px(105.0), // v_bottom，margin 20 → 阈值 85，y=100 > 85 命中
+            px(20.0),
+        );
+        // second 行 byte_start = 6, col=2 → byte 8
+        assert_eq!(res, Some((8, 2)));
+    }
+
+    #[test]
+    fn step_drag_auto_scroll_vertical_up_when_multiline() {
+        // cursor 在 second 行 col 2 (byte 8)，drag y 命中上边沿 → cursor 上移到 first 行 col 2
+        let text = "first\nsecond\nthird";
+        let res = simulate_vertical_drag_step(
+            text,
+            8,
+            None,
+            true,
+            px(5.0), // y 紧贴上边沿
+            px(0.0), // v_top，margin 20 → 阈值 20，y=5 < 20 命中
+            px(200.0),
+            px(20.0),
+        );
+        // first 行 col 2 → byte 2
+        assert_eq!(res, Some((2, 2)));
+    }
+
+    #[test]
+    fn step_drag_auto_scroll_no_vertical_in_singleline() {
+        // singleline 模式即便 y 命中边沿也不动 cursor（multiline=false）
+        let res = simulate_vertical_drag_step(
+            "abcdef",
+            3,
+            None,
+            false,
+            px(100.0),
+            px(0.0),
+            px(105.0),
+            px(20.0),
+        );
+        assert_eq!(res, None);
+    }
+
+    #[test]
+    fn step_drag_auto_scroll_vertical_at_first_line_no_op() {
+        // cursor 已在首行，drag y 上边沿 → 无 step（不会 wrap 到末行）
+        let text = "first\nsecond";
+        let res =
+            simulate_vertical_drag_step(text, 2, None, true, px(5.0), px(0.0), px(200.0), px(20.0));
+        assert_eq!(res, None);
     }
 
     #[test]
