@@ -838,6 +838,176 @@ pub(crate) fn byte_offset_at_x(
     text_len
 }
 
+// ─────────────────── M19: 多行 word-wrap helpers ───────────────────────
+//
+// 三个 pure fn 服务多行渲染：
+// - compute_visual_lines: text → 按 \n 拆 logical line + 按宽度 wrap 成
+//   visual lines（含每行 byte_start / byte_end）
+// - byte_to_visual_pos: cursor byte → (vl_idx, col_in_visual)
+// - visual_pos_to_byte: (vl_idx, col) → byte（含 mouse click 路径用）
+//
+// char 宽估算（D-4）：ASCII / Latin extended / Cyrillic / Greek ≈ 0.6 *
+// font_size；CJK / emoji / 其他 ≈ 1.2 * font_size。monospace 字体下偏差
+// < 1 char，可接受。完全准确需 GPUI text_system shape，render-time 太贵。
+
+/// 多行视觉行（wrap 后单元）。一个 logical line（按 \n 切）可包含 ≥ 1 个
+/// visual line（按 container_width wrap 后）。T2 占位 + 单测；T3 render
+/// multiline 路径起用 → 启用前 #[allow(dead_code)] 抑制 unused 警告。
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)]
+pub(crate) struct VisualLine {
+    /// 第几个 logical line（按 \n 编号，0-based）
+    pub logical_line: usize,
+    /// 源 text 中此 visual line 起始 byte（inclusive）
+    pub byte_start: usize,
+    /// 结束 byte（exclusive，不含 \n 也不含 wrap 后第一个字符）
+    pub byte_end: usize,
+}
+
+/// char 宽估算。ASCII / Latin / Cyrillic / Greek 半角；CJK / emoji 全角。
+#[allow(dead_code)] // T3 render multiline 路径用
+fn approx_char_width(c: char, font_size: Pixels) -> Pixels {
+    let cp = c as u32;
+    let scale = if cp < 0x80 || (0x80..=0x4FF).contains(&cp) {
+        // ASCII / Latin extended / Greek / Cyrillic / IPA — 半角
+        0.6
+    } else {
+        // CJK / Hangul / 假名 / 全角符号 / emoji / 其他 BMP+ — 全角
+        1.2
+    };
+    font_size * scale
+}
+
+/// 是否在该 char 后可以 word break。仅识别常见 ASCII 标点 / 空白；
+/// CJK char 之间天然可断（这里不识别，wrap algo 会 fallback char-level）。
+#[allow(dead_code)] // T3 render multiline 路径用
+fn is_break_after(c: char) -> bool {
+    matches!(c, ' ' | '\t' | '/' | ',' | ';' | ':' | '|')
+}
+
+/// 按 \n 拆 logical lines + 按 container_width word-wrap 成 visual lines。
+/// 空 text 返回 1 个空 visual line（让 cursor 有家可待）。
+///
+/// 算法 O(n) 一次扫描，wrap 时回退到 last_break 或当前 byte（char-level
+/// 强制断）。
+#[allow(dead_code)] // T3 render multiline 路径用
+pub(crate) fn compute_visual_lines(
+    text: &str,
+    container_width: Pixels,
+    font_size: Pixels,
+) -> Vec<VisualLine> {
+    let mut result = Vec::new();
+    let bytes = text.as_bytes();
+    let n = text.len();
+
+    let mut logical_line_idx = 0usize;
+    let mut visual_line_start = 0usize;
+    let mut cur_width: Pixels = px(0.0);
+    let mut last_break: Option<usize> = None;
+
+    let mut i = 0usize;
+    while i < n {
+        // safe: i 是 UTF-8 boundary（要么 0，要么前一步是 + len_utf8）
+        let c = match text[i..].chars().next() {
+            Some(c) => c,
+            None => break,
+        };
+        let clen = c.len_utf8();
+
+        if c == '\n' {
+            // logical line break
+            result.push(VisualLine {
+                logical_line: logical_line_idx,
+                byte_start: visual_line_start,
+                byte_end: i,
+            });
+            visual_line_start = i + clen;
+            logical_line_idx += 1;
+            cur_width = px(0.0);
+            last_break = None;
+            i += clen;
+            continue;
+        }
+
+        let cw = approx_char_width(c, font_size);
+        // 该 char 加上后会超宽 → wrap（但 visual_line_start == i 时不 wrap，
+        // 单 char 也得放下避免死循环）
+        if cur_width + cw > container_width && i > visual_line_start {
+            let break_at = last_break
+                .filter(|b| *b > visual_line_start && *b <= i)
+                .unwrap_or(i); // char-level fallback
+            result.push(VisualLine {
+                logical_line: logical_line_idx,
+                byte_start: visual_line_start,
+                byte_end: break_at,
+            });
+            visual_line_start = break_at;
+            cur_width = px(0.0);
+            last_break = None;
+            i = break_at;
+            continue;
+        }
+
+        cur_width += cw;
+        if is_break_after(c) {
+            last_break = Some(i + clen);
+        }
+        i += clen;
+    }
+
+    // 末尾一行（即便空 text 也 push 一个让 cursor 有家）
+    result.push(VisualLine {
+        logical_line: logical_line_idx,
+        byte_start: visual_line_start,
+        byte_end: n,
+    });
+
+    // 防御：bytes 用上以消 unused warning + 后续若需 fast path 用
+    let _ = bytes;
+    result
+}
+
+/// byte offset → (vl_idx, col)。col 单位是 **byte 差**（vl.byte_start 起算），
+/// 不是 char count —— 与 visual_pos_to_byte 反向一致，与单行 cursor byte
+/// 路径同 namespace。caller 保证 byte 在 UTF-8 char boundary。
+///
+/// 边界规则：byte == vl.byte_end 且下一行存在且 byte_start == byte（wrap
+/// 边界，无 \n），优先归下一行 col=0 —— cursor 在 wrap 后行首符合用户直觉
+/// （否则光标在前一行末尾看起来"还没换行"）。
+#[allow(dead_code)] // T4 cursor_up/down_visual 用
+pub(crate) fn byte_to_visual_pos(byte: usize, vls: &[VisualLine]) -> (usize, usize) {
+    if vls.is_empty() {
+        return (0, 0);
+    }
+    for (idx, vl) in vls.iter().enumerate() {
+        if byte >= vl.byte_start && byte <= vl.byte_end {
+            if byte == vl.byte_end {
+                if let Some(next) = vls.get(idx + 1) {
+                    if next.byte_start == byte && next.logical_line == vl.logical_line {
+                        return (idx + 1, 0);
+                    }
+                }
+            }
+            return (idx, byte - vl.byte_start);
+        }
+    }
+    // byte 超出末尾：归末行末
+    let last = vls.last().unwrap();
+    (vls.len() - 1, last.byte_end - last.byte_start)
+}
+
+/// (vl_idx, col) → byte。col 单位与 byte_to_visual_pos 反向一致（byte 差）。
+/// col > line_len 时 clamp 到行末（cursor_up/down 时 preferred_col 超目标行
+/// 长度的场景）。
+#[allow(dead_code)] // T4 cursor_up/down_visual + T5 mouse 用
+pub(crate) fn visual_pos_to_byte(vl_idx: usize, col: usize, vls: &[VisualLine]) -> usize {
+    let Some(vl) = vls.get(vl_idx) else {
+        return vls.last().map(|v| v.byte_end).unwrap_or(0);
+    };
+    let line_len = vl.byte_end - vl.byte_start;
+    vl.byte_start + col.min(line_len)
+}
+
 impl Focusable for TextInput {
     fn focus_handle(&self, _cx: &App) -> FocusHandle {
         self.focus_handle.clone()
@@ -1769,5 +1939,178 @@ mod tests {
             compute_selection_range_clamped(cleared_anchor, cursor, new_text.len()),
             None
         );
+    }
+
+    // ─────────────────── M19 T2: 多行 helpers 单测 ─────────────────────
+
+    // 之前 byte_offset_at_x tests 已 `use gpui::{point, px, size, ...}`，
+    // 这里只需补 M19 自家的 super:: items（gpui::px 在同 mod 内已可见）。
+    use super::{
+        approx_char_width, byte_to_visual_pos, compute_visual_lines, visual_pos_to_byte,
+        VisualLine,
+    };
+
+    /// 大容器宽度，用于"不会 wrap"的测试场景
+    fn wide() -> Pixels {
+        px(10000.0)
+    }
+    /// 终端字体大小，多行测试一致用
+    fn fs() -> Pixels {
+        px(14.0)
+    }
+
+    #[test]
+    fn compute_visual_lines_empty_text_yields_one_line() {
+        let vls = compute_visual_lines("", wide(), fs());
+        assert_eq!(vls.len(), 1);
+        assert_eq!(vls[0].logical_line, 0);
+        assert_eq!(vls[0].byte_start, 0);
+        assert_eq!(vls[0].byte_end, 0);
+    }
+
+    #[test]
+    fn compute_visual_lines_single_logical_line_no_wrap() {
+        let vls = compute_visual_lines("hello", wide(), fs());
+        assert_eq!(vls.len(), 1);
+        assert_eq!(vls[0].logical_line, 0);
+        assert_eq!(vls[0].byte_end, 5);
+    }
+
+    #[test]
+    fn compute_visual_lines_explicit_newlines_split_logical_lines() {
+        let vls = compute_visual_lines("a\nb\nc", wide(), fs());
+        assert_eq!(vls.len(), 3);
+        assert_eq!(vls[0].logical_line, 0);
+        assert_eq!(vls[0].byte_end, 1);
+        assert_eq!(vls[1].logical_line, 1);
+        assert_eq!(vls[1].byte_start, 2); // 跳过 '\n'
+        assert_eq!(vls[1].byte_end, 3);
+        assert_eq!(vls[2].logical_line, 2);
+        assert_eq!(vls[2].byte_start, 4);
+        assert_eq!(vls[2].byte_end, 5);
+    }
+
+    #[test]
+    fn compute_visual_lines_trailing_newline_yields_empty_visual_line() {
+        // "a\n" → 2 visual lines: "a" + ""（让 cursor 能停在末尾空行）
+        let vls = compute_visual_lines("a\n", wide(), fs());
+        assert_eq!(vls.len(), 2);
+        assert_eq!(vls[1].byte_start, 2);
+        assert_eq!(vls[1].byte_end, 2);
+    }
+
+    #[test]
+    fn compute_visual_lines_wraps_long_ascii() {
+        // container 仅容 5 ASCII char (5 * 0.6 * 14 = 42px)；6 char wrap
+        let narrow = px(42.0);
+        let vls = compute_visual_lines("abcdefghij", narrow, fs());
+        assert!(vls.len() >= 2, "expected wrap, got {} lines", vls.len());
+        // 第 1 行最多 5 字符（容器仅容 5）
+        assert!(vls[0].byte_end <= 5);
+    }
+
+    #[test]
+    fn compute_visual_lines_word_break_prefers_space() {
+        // "hello world" 11 char。container 容 ~8 ASCII (8 * 0.6 * 14 ≈ 67px)
+        // 期望在 ' ' 后断 → 第 1 行 "hello " (6 byte)，第 2 行 "world"
+        let narrow = px(67.0);
+        let vls = compute_visual_lines("hello world", narrow, fs());
+        assert!(vls.len() >= 2);
+        // word break 后第 1 行末 byte = 6（含空格）
+        assert_eq!(vls[0].byte_end, 6);
+    }
+
+    #[test]
+    fn compute_visual_lines_cjk_wider() {
+        // 中文 char 是 ASCII 2 倍宽。container 容 2 中文 = 4 ASCII width
+        // ≈ 0.6 * 14 * 4 = 33.6px ≈ 1.2 * 14 * 2 = 33.6px
+        let narrow = px(34.0);
+        let vls = compute_visual_lines("中文你好", narrow, fs());
+        assert!(
+            vls.len() >= 2,
+            "CJK should wrap at ~2 chars, got {} lines",
+            vls.len()
+        );
+    }
+
+    #[test]
+    fn byte_to_visual_pos_first_line_offset() {
+        let vls = compute_visual_lines("hello\nworld", wide(), fs());
+        // byte=0 → (0, 0)
+        assert_eq!(byte_to_visual_pos(0, &vls), (0, 0));
+        // byte=3 ("hel|lo") → (0, 3)
+        assert_eq!(byte_to_visual_pos(3, &vls), (0, 3));
+    }
+
+    #[test]
+    fn byte_to_visual_pos_second_line() {
+        // "hello\nworld" — \n 在 byte 5；byte 6 = "world" 起
+        let vls = compute_visual_lines("hello\nworld", wide(), fs());
+        // byte=6 ("w") → (1, 0)
+        assert_eq!(byte_to_visual_pos(6, &vls), (1, 0));
+        // byte=8 ("wo|rld") → (1, 2)
+        assert_eq!(byte_to_visual_pos(8, &vls), (1, 2));
+    }
+
+    #[test]
+    fn byte_to_visual_pos_wrap_boundary_goes_to_next_row() {
+        // 强制 wrap：第 1 行 5 char，wrap 后第 2 行从 byte 5
+        // 检查 byte=5 归到第 2 行 col=0（不归第 1 行末尾）
+        let vls = vec![
+            VisualLine {
+                logical_line: 0,
+                byte_start: 0,
+                byte_end: 5,
+            },
+            VisualLine {
+                logical_line: 0,
+                byte_start: 5,
+                byte_end: 10,
+            },
+        ];
+        assert_eq!(byte_to_visual_pos(5, &vls), (1, 0));
+    }
+
+    #[test]
+    fn byte_to_visual_pos_byte_at_logical_line_end_stays_first_line() {
+        // logical line break（\n）：byte=5 (text="hello\n...") 应归第 0 行
+        // 行末，不是第 1 行行首（因为第 1 行起 byte=6 不是 5）
+        let vls = vec![
+            VisualLine {
+                logical_line: 0,
+                byte_start: 0,
+                byte_end: 5,
+            },
+            VisualLine {
+                logical_line: 1,
+                byte_start: 6,
+                byte_end: 11,
+            },
+        ];
+        // byte=5 → 第 0 行行末（col=5），不归第 1 行（不同 logical_line）
+        assert_eq!(byte_to_visual_pos(5, &vls), (0, 5));
+    }
+
+    #[test]
+    fn visual_pos_to_byte_roundtrip() {
+        let vls = compute_visual_lines("abc\ndef", wide(), fs());
+        // (0, 2) → byte 2 ("ab|c")
+        assert_eq!(visual_pos_to_byte(0, 2, &vls), 2);
+        // (1, 1) → byte 5 ("d|ef" 起算 byte_start=4 + col 1)
+        assert_eq!(visual_pos_to_byte(1, 1, &vls), 5);
+    }
+
+    #[test]
+    fn visual_pos_to_byte_clamps_col_to_line_end() {
+        let vls = compute_visual_lines("abc", wide(), fs());
+        // col=100 应 clamp 到行末 (byte 3)
+        assert_eq!(visual_pos_to_byte(0, 100, &vls), 3);
+    }
+
+    #[test]
+    fn approx_char_width_ascii_vs_cjk() {
+        // ASCII 半角 / CJK 全角，估算与设计一致
+        assert_eq!(approx_char_width('a', px(14.0)), px(14.0 * 0.6));
+        assert_eq!(approx_char_width('中', px(14.0)), px(14.0 * 1.2));
     }
 }
