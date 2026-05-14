@@ -95,7 +95,8 @@ mod tests {
     fn should_paint(focused: bool, visible_now: bool) -> bool {
         // 还原 paint_cursor 入口的 guard：
         // if cursor_state.focused && !cursor_state.is_visible_now() { return; }
-        !(focused && !visible_now)
+        // 取反后的 De Morgan 等价式（clippy::nonminimal_bool 要求最简形式）。
+        !focused || visible_now
     }
 
     #[test]
