@@ -78,15 +78,17 @@ pub fn default_background_for(kind: aish_ui::ThemeKind) -> u32 {
     }
 }
 
-/// 终端选区高亮 bg。dark 用偏暗紫蓝（与黑底对比），light 用浅天蓝（与白底
-/// 对比）。两者 alpha=0.6~0.8 让底下字符仍可见。
+/// 终端选区高亮 bg。M24：与 theme primary indigo (#5E6AD2) 对齐，dark/light
+/// 都用同 hue 仅调 lightness + alpha，跨主题统一品牌感。alpha 0.35~0.4
+/// 让底下字符仍可见。
 pub fn selection_bg_for(kind: aish_ui::ThemeKind) -> gpui::Hsla {
     use gpui::hsla;
+    // hue 232° = Linear indigo (#5E6AD2)，与 theme primary 同 hue 跨主题统一
     match kind {
-        // #3a3a8a 蓝紫 α=0.8
-        aish_ui::ThemeKind::Dark => hsla(243.0 / 360.0, 0.4, 0.38, 0.8),
-        // #bfdbfe 浅天蓝 α=0.7（macOS / Web 风浅蓝选区，浅底上对比足）
-        aish_ui::ThemeKind::Light => hsla(213.0 / 360.0, 0.96, 0.87, 0.7),
+        // dark：lightness 调到 50% 让选区在 #08090A 黑底上明显
+        aish_ui::ThemeKind::Dark => hsla(232.0 / 360.0, 0.57, 0.50, 0.4),
+        // light：lightness 调到 70% 让选区在 #FAFBFC 白底上柔和
+        aish_ui::ThemeKind::Light => hsla(232.0 / 360.0, 0.57, 0.72, 0.35),
     }
 }
 

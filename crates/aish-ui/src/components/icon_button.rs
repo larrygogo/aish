@@ -185,10 +185,13 @@ impl RenderOnce for IconButton {
         }
 
         if is_focused {
+            // M24 D-9 同 Button：alpha glow 替代实色 spread ring
+            let mut glow = ring;
+            glow.a = 0.4;
             el = el.shadow(vec![BoxShadow {
-                color: ring,
+                color: glow,
                 offset: point(px(0.0), px(0.0)),
-                blur_radius: px(0.0),
+                blur_radius: px(4.0),
                 spread_radius: px(2.0),
             }]);
         }

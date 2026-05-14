@@ -165,10 +165,15 @@ impl RenderOnce for Button {
         }
 
         if is_focused {
+            // M24 D-9：focus ring 改 alpha glow 而非实色 2px spread —— ring
+            // 色 (primary indigo) 加 alpha 0.4 + 4px blur + 2px spread，
+            // Linear 风软光晕，不抢主信息。
+            let mut glow = ring;
+            glow.a = 0.4;
             el = el.shadow(vec![BoxShadow {
-                color: ring,
+                color: glow,
                 offset: point(px(0.0), px(0.0)),
-                blur_radius: px(0.0),
+                blur_radius: px(4.0),
                 spread_radius: px(2.0),
             }]);
         }
