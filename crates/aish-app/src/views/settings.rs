@@ -204,13 +204,10 @@ impl Render for SettingsView {
             );
 
         // ───── 整页布局 ─────
-        div()
-            .id("settings-scroll")
-            .size_full()
+        aish_ui::ScrollPage::new("settings-scroll")
             .bg(colors.background)
-            .overflow_y_scroll()
-            .px_8()
-            .py_6()
+            .px(gpui::px(32.0))
+            .py(gpui::px(24.0))
             .child(page_title)
             .child(
                 div()

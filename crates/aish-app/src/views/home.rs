@@ -641,21 +641,15 @@ impl Render for HomeView {
             .text_size(font_size.xs)
             .child("HOSTS");
 
-        // root：size_full 提供视口。scroll 容器**不能**是 flex 容器 —— flex
-        // children 默认 flex-shrink: 1，当 children 总高超出 container 时会被
-        // 压扁而不是触发 scroll（与 settings.rs 同 trade-off：scroll div 走
-        // block layout，children 自然纵向流）。
-        // ContextMenu 必须在 scroll 容器**外**（root 直接 child）— 否则
-        // absolute 定位的 backdrop / 菜单会被 scroll viewport 裁切。
+        // ScrollPage 提供 stateful size_full + overflow_y_scroll，封装 flex
+        // pitfall（详见 aish_ui::ScrollPage 模块注释）。ContextMenu 与 ScrollPage
+        // 平级 child（不在 scroll viewport 内），absolute backdrop 不被裁。
         div()
             .relative()
             .size_full()
             .bg(colors.background)
             .child(
-                div()
-                    .id("home-scroll")
-                    .size_full()
-                    .overflow_y_scroll()
+                aish_ui::ScrollPage::new("home-scroll")
                     .child(header)
                     .children(active_section)
                     .child(
@@ -670,10 +664,6 @@ impl Render for HomeView {
                             .children(empty_hint),
                     ),
             )
-            // ContextMenu entity 永远挂在 view tree（无论 open 与否）。
-            // open=false 时 render 返回空 div 不占空间；open=true 时 absolute
-            // 覆盖全屏 backdrop + anchored 菜单。挂在 scroll 容器外保证不被
-            // overflow_y_scroll 裁掉。
             .child(self.context_menu.clone())
     }
 }
