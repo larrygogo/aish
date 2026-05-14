@@ -58,6 +58,12 @@ pub struct ScrollPage {
     py: Option<Pixels>,
     scroll_handle: Option<ScrollHandle>,
     on_wheel: Option<WheelHandler>,
+    /// true = 走 flex_1 + min_h(0) 而非 size_full —— caller 父必须 flex_col。
+    /// flex_1 严格限制 height 为 remaining space，children 撑大也不撑大本容器，
+    /// content_size > bounds.size → scroll_max > 0 → 滚动真生效。
+    /// size_full 在某些嵌套（block 父内）会被 children 撑大让 scroll_max=0，
+    /// 这是用户实测发现的根因（"body 没有适配高度"）。
+    flex_1: bool,
     children: Vec<AnyElement>,
 }
 
@@ -70,8 +76,17 @@ impl ScrollPage {
             py: None,
             scroll_handle: None,
             on_wheel: None,
+            flex_1: false,
             children: Vec::new(),
         }
+    }
+
+    /// 切换到 flex_1 + min_h(0) 模式（caller 父必须 flex_col）。
+    /// 用于 home / settings 这种 page 容器在 flex_col 内严格 fit remaining
+    /// height — 见 struct 字段注释。
+    pub fn flex_1(mut self) -> Self {
+        self.flex_1 = true;
+        self
     }
 
     pub fn bg(mut self, color: Hsla) -> Self {
@@ -124,7 +139,17 @@ impl RenderOnce for ScrollPage {
         //   按 offset transform paint，滚动生效。
         // - caller 没传 ScrollHandle：fallback 走 GPUI 内置 overflow_y_scroll
         //   wheel handler（settings 这种简单 page 够用）。
-        let mut d = div().id(self.id).size_full();
+        //
+        // height 模式：
+        // - flex_1=true：用 .flex_1().min_h(0) 严格 fit remaining height
+        //   （caller 父必须 flex_col）
+        // - flex_1=false：fallback .size_full()（block 父）
+        let mut d = div().id(self.id);
+        if self.flex_1 {
+            d = d.flex_1().min_h(gpui::px(0.0));
+        } else {
+            d = d.size_full();
+        }
         if self.scroll_handle.is_some() {
             d = d.overflow_hidden();
         } else {

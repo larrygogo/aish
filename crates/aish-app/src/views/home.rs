@@ -97,21 +97,16 @@ impl HomeView {
                 }
             }
         };
-        let cur = self.scroll_handle.offset();
-        let max = self.scroll_handle.max_offset();
-        tracing::info!(
-            sign = sign,
-            cur_y = ?cur.y,
-            max_y = ?max.y,
-            "home: handle_wheel triggered"
-        );
         if sign == 0.0 {
             return;
         }
+        let cur = self.scroll_handle.offset();
+        let max = self.scroll_handle.max_offset();
         // wheel up (delta.y > 0) = 看上方 = offset y 趋 0；反之趋 -max
         let step = px(60.0 * sign);
         let new_y = (cur.y + step).clamp(-max.y, px(0.0));
         self.scroll_handle.set_offset(point(cur.x, new_y));
+        cx.stop_propagation();
         cx.notify();
     }
 
@@ -688,15 +683,20 @@ impl Render for HomeView {
             .text_size(font_size.xs)
             .child("HOSTS");
 
-        // ScrollPage 提供 stateful size_full + overflow_y_scroll，封装 flex
-        // pitfall（详见 aish_ui::ScrollPage 模块注释）。ContextMenu 与 ScrollPage
-        // 平级 child（不在 scroll viewport 内），absolute backdrop 不被裁。
+        // outer 走 flex_col + size_full：ScrollPage.flex_1() 在 flex_col 内
+        // 严格 fit remaining height（min_h(0) 强制不被 children 撑大）—
+        // 之前用 .size_full() 在 block 父内被 children 撑大让 scroll_max=0，
+        // 用户实测"body 没有适配高度"根因。ContextMenu 仍平级 child（外层
+        // div 内）保证 absolute backdrop 不被 scroll viewport 裁。
         div()
             .relative()
+            .flex()
+            .flex_col()
             .size_full()
             .bg(colors.background)
             .child(
                 aish_ui::ScrollPage::new("home-scroll")
+                    .flex_1()
                     .track_scroll(&self.scroll_handle)
                     .on_wheel(cx.listener(|this, ev: &ScrollWheelEvent, _w, cx| {
                         this.handle_wheel(ev, cx);
