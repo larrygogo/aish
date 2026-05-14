@@ -12,19 +12,15 @@
 //! 注：keyboard shortcuts 当前仍是**文档级**展示（无实际键盘绑定代码），
 //! Ctrl+1/2/3 路由到 sidebar tab 等留 backlog。
 
-use aish_ui::theme::{ColorTokens, FontSize};
-use aish_ui::{theme, Card, Switch};
+use aish_ui::theme::{ColorTokens, FontSize, ThemeKind};
+use aish_ui::{theme, Card, Switch, Theme};
 use gpui::{div, prelude::*, px, AnyElement, Context, IntoElement, SharedString, Window};
 
-pub struct SettingsView {
-    /// Dark mode toggle 状态。M12：实际不真切 theme（Light 未实现），
-    /// 用户点 Light 时 toast warning + 视觉回弹（不更新 dark_mode）。
-    dark_mode: bool,
-}
+pub struct SettingsView {}
 
 impl SettingsView {
     pub fn new() -> Self {
-        Self { dark_mode: true }
+        Self {}
     }
 }
 
@@ -118,7 +114,11 @@ impl Render for SettingsView {
         let t = theme(cx);
         let colors = t.colors;
         let fs = t.font_size;
-        let dark = self.dark_mode;
+        // 当前主题种类从 global Theme 读 —— 切换后 set_global + refresh_windows
+        // 让所有 view 重新 render 拿新 theme。Switch 的 checked 状态直接反映
+        // global 真值，不再用 self.dark_mode 镜像（之前 镜像 + disabled 是因为
+        // Light 未实现的占位）。
+        let dark = matches!(t.kind, ThemeKind::Dark);
 
         // ───── 页面标题 ─────
         let page_title = div()
@@ -128,17 +128,25 @@ impl Render for SettingsView {
             .child("Settings");
 
         // ───── Appearance ─────
-        // Light theme 未实现 → Switch 直接 disabled 关闭交互（之前 onclick 弹
-        // toast + 视觉硬切回弹的体感很差）。row 下方 helper text 提前告知用户。
+        // M18-light 启用：toggle 真切 Theme global + 持久化到 app_state.toml
+        // 让重启保留选择。
         let dark_switch = Switch::new("settings-dark-mode")
             .checked(dark)
-            .disabled(true)
-            .on_change(cx.listener(|this, new_value: &bool, _w, cx| {
-                if *new_value {
-                    this.dark_mode = true;
-                    cx.notify();
-                }
-                // 切 Light 路径被 disabled() 拦下不会执行，分支不需要
+            .on_change(cx.listener(|_this, new_value: &bool, _w, cx| {
+                let dark_now = *new_value;
+                let new_theme = if dark_now {
+                    Theme::dark()
+                } else {
+                    Theme::light()
+                };
+                cx.set_global(new_theme);
+                // refresh_windows 让所有 view 重 render 拿新 theme global。
+                // 不用 cx.notify(this) —— 该 view 自身只是众多受影响 view 之一。
+                cx.refresh_windows();
+                // 持久化：load 当前 state、改 theme 字段、save。
+                let mut snapshot = crate::app_state_file::load_app_state();
+                snapshot.theme = Some(if dark_now { "dark" } else { "light" }.to_string());
+                crate::app_state_file::save_app_state(&snapshot);
             }))
             .into_any_element();
 
@@ -147,7 +155,7 @@ impl Render for SettingsView {
             .header(section_header("Appearance", colors, fs))
             .body(div().flex().flex_col().child(control_row(
                 "Dark mode",
-                Some("Light theme not yet implemented"),
+                None,
                 dark_switch,
                 colors,
                 fs,

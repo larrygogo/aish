@@ -5,11 +5,12 @@
 //! ring 走 logo 终端绿系（primary_active 直接用 logo 原色 #00ff41 作为按下
 //! 高光）。destructive / success / warning 保留鲜艳警示色作对比。
 
-use super::tokens::{hex, ColorTokens, FontSize, Radius, Spacing, Theme};
+use super::tokens::{hex, ColorTokens, FontSize, Radius, Spacing, Theme, ThemeKind};
 
 impl Theme {
     pub fn dark() -> Self {
         Self {
+            kind: ThemeKind::Dark,
             colors: ColorTokens {
                 // 黑底 + 中性灰阶（去蓝调）
                 background: hex(0x050505),

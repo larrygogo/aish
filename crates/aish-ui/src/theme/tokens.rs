@@ -105,7 +105,16 @@ impl Default for FontSize {
     }
 }
 
+/// 主题种类。运行时切换 dark / light 时，view 可 `theme(cx).kind` 查询当前
+/// 主题决定特定行为（如 settings switch 的 checked 状态）。
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ThemeKind {
+    Dark,
+    Light,
+}
+
 pub struct Theme {
+    pub kind: ThemeKind,
     pub colors: ColorTokens,
     pub radius: Radius,
     pub spacing: Spacing,

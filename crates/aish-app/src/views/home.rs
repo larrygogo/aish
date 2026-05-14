@@ -161,8 +161,9 @@ impl HomeView {
             s.selected_tab = Some(s.tabs.last().unwrap().id);
             s.sidebar = SidebarTab::Terminal;
             s.last_connected.insert(host_id, SystemTime::now());
+            // merge 而非 from_*：保留 theme 等其他持久化字段，避免覆盖用户偏好
             let snapshot =
-                crate::app_state_file::AppStateFile::from_last_connected(&s.last_connected);
+                crate::app_state_file::load_app_state().merge_last_connected(&s.last_connected);
             crate::app_state_file::save_app_state(&snapshot);
             cx.notify();
             (conn, cfg, label)

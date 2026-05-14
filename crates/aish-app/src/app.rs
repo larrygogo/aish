@@ -52,7 +52,13 @@ pub fn run() {
         .with_assets(AppAssets)
         .run(move |cx: &mut App| {
             // 注册 aish-ui Theme global（必须在创建任何 view / 调用 theme(cx) 之前）
-            cx.set_global(aish_ui::Theme::dark());
+            // 启动主题：先 load app_state.theme，未持久化时默认 dark。
+            // 注意：load_app_state 还会在下面被复用读 recent，重复 IO 但极便宜。
+            let init_theme = match crate::app_state_file::load_app_state().theme.as_deref() {
+                Some("light") => aish_ui::Theme::light(),
+                _ => aish_ui::Theme::dark(),
+            };
+            cx.set_global(init_theme);
 
             // 创建 ToastManager Entity 并注册 ToastHandle global
             let toast_manager = cx.new(aish_ui::ToastManager::new);

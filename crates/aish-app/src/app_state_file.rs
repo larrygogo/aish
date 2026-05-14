@@ -17,6 +17,10 @@ const APP_STATE_FILE: &str = "app_state.toml";
 pub struct AppStateFile {
     #[serde(default)]
     pub recent: HashMap<String, u64>,
+    /// 主题种类。"dark" / "light"，未指定时 None（启动用默认 dark）。
+    /// SettingsView 切换 Dark mode switch 后写入此字段并 save 让重启保留。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme: Option<String>,
 }
 
 pub fn app_state_path() -> Option<PathBuf> {
@@ -105,7 +109,24 @@ impl AppStateFile {
                 Some((host_id.0.to_string(), secs))
             })
             .collect();
-        Self { recent }
+        Self {
+            recent,
+            theme: None,
+        }
+    }
+
+    /// 把 last_connected 合并到现有 AppStateFile（保留 theme 等其他字段）。
+    /// 比 from_last_connected 更安全 —— 后者会用 None theme 覆盖磁盘现有
+    /// 主题选择（home 卡片点击触发 save 时会丢用户主题偏好）。
+    pub fn merge_last_connected(mut self, last_connected: &HashMap<HostId, SystemTime>) -> Self {
+        self.recent = last_connected
+            .iter()
+            .filter_map(|(host_id, time)| {
+                let secs = time.duration_since(SystemTime::UNIX_EPOCH).ok()?.as_secs();
+                Some((host_id.0.to_string(), secs))
+            })
+            .collect();
+        self
     }
 }
 
