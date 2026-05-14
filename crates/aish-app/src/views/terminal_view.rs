@@ -873,9 +873,17 @@ impl Focusable for TerminalView {
 }
 
 impl Render for TerminalView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let conn = self.state.read(cx).current_connection();
-        let cursor_state = self.cursor_state;
+        // cursor_state.focused 每帧按当前 focus 状态算 — self.cursor_state 内的
+        // focused 是构造时初始值（true），从不更新。Render 内拿 focus_handle
+        // 的 is_focused 写入派生 cursor_state，paint_cursor 据此分实心 / 空心
+        // + 是否闪烁。epoch（blink 相位）保留 self 的不每帧 reset。
+        let focused_now = self.focus_handle.is_focused(window);
+        let cursor_state = CursorState {
+            focused: focused_now,
+            ..self.cursor_state
+        };
         let state_entity = self.state.clone();
 
         // 当前 conn 的 phase + label，用于渲染 connecting loading / disconnected

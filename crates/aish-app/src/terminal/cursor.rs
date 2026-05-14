@@ -44,7 +44,9 @@ pub fn paint_cursor(
     window: &mut Window,
     cx: &mut App,
 ) {
-    if !cursor_state.is_visible_now() {
+    // 失焦下静态空心，不闪烁 — 闪烁是 active 状态信号，shell 失焦了仍闪会
+    // 让用户误以为终端在等待输入。仅 focused 时按 blink 相位决定是否画。
+    if cursor_state.focused && !cursor_state.is_visible_now() {
         return;
     }
     let theme_kind = aish_ui::theme(cx).kind;
@@ -86,5 +88,27 @@ mod tests {
     #[test]
     fn blink_period_constant() {
         assert_eq!(BLINK_PERIOD_MS, 600);
+    }
+
+    /// 失焦时 paint_cursor 不再检查 is_visible_now → 静态画空心。
+    /// 模拟 paint 决策：返回 true = 应画（focused 时按 blink，unfocused 总画）。
+    fn should_paint(focused: bool, visible_now: bool) -> bool {
+        // 还原 paint_cursor 入口的 guard：
+        // if cursor_state.focused && !cursor_state.is_visible_now() { return; }
+        !(focused && !visible_now)
+    }
+
+    #[test]
+    fn unfocused_paints_static_no_blink() {
+        // 失焦下不论 blink 相位都应画（静态空心）
+        assert!(should_paint(false, true));
+        assert!(should_paint(false, false));
+    }
+
+    #[test]
+    fn focused_respects_blink_phase() {
+        // 聚焦下按 blink：visible=true 画，visible=false 不画
+        assert!(should_paint(true, true));
+        assert!(!should_paint(true, false));
     }
 }
