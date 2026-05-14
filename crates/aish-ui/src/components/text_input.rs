@@ -306,8 +306,13 @@ impl TextInput {
     /// 查询当前是否 focused。InputBar 等 caller 用来决定外层 card 是否
     /// 画 focus ring（borderless 模式下 input 自身没 focus 反馈，caller
     /// 透过此查询给整体 card 加 active border 实现 textarea-like focus 状态）。
+    ///
+    /// 双重检查：element 在窗口内是否获焦 ∧ OS 窗口本身是否激活。切到别
+    /// App（OS 窗口失焦）时返回 false，避免 caller 画的 focus ring 在程序
+    /// 失焦状态下仍亮着。100ms blink timer cx.notify 让状态变化最迟 100ms
+    /// 内被下次 render 捕获。
     pub fn is_focused(&self, window: &Window) -> bool {
-        self.focus_handle.is_focused(window)
+        self.focus_handle.is_focused(window) && window.is_window_active()
     }
 
     // -------- blink helpers --------
