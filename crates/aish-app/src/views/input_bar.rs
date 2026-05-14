@@ -36,10 +36,15 @@ impl InputBarView {
         let input = cx.new(TextInput::new);
         let weak_self = cx.weak_entity();
         input.update(cx, |i, _cx| {
-            i.placeholder("输入文字（Enter 发送）");
+            i.placeholder("输入文字（Enter 换行，Ctrl+Enter 发送）")
+                .multiline(true)
+                .max_lines(6);
             // 把 callback 收到的 text 直接传给 send，避免 send 内再
             // self.input.read(cx) —— Enter 调用链里 TextInput entity 已被
             // listener mut-borrow，read 同一 entity 会触发 double_lease panic。
+            //
+            // M19: multiline=true 下 Enter 插 \\n、Ctrl+Enter 触发 fire_submit
+            // 路由到这里。on_submit 行为不变，caller 透明。
             i.on_submit(move |text, window, cx| {
                 let text = text.to_string();
                 if let Some(this) = weak_self.upgrade() {
