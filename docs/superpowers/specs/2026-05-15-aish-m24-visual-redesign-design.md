@@ -212,3 +212,49 @@ dark 下 alpha 翻倍（黑底上 shadow 不显，加深让 elevation 可见）�
 ## 7. Plan 引用
 
 见 [`../plans/2026-05-15-aish-m24-visual-redesign.md`](../plans/2026-05-15-aish-m24-visual-redesign.md)
+
+---
+
+## 8. 实施记录（2026-05-15 完成）
+
+T1-T6 + T8 已实施，T3 (radius lg 12→8) 实测当前已是 8 跳过，T7 全 QA 走
+git commit verify。
+
+### 实际 commits
+
+| Task | Commit | 内容 |
+|---|---|---|
+| spec + plan | `1404d7d` | 本文件 + plan 起草 |
+| T1 | `846e009` | dark tokens Warp/Linear 切换 — primary 终端绿→indigo |
+| T2 | `d6c3af1` | light tokens 对称 + 跨主题 primary hue lemma |
+| T3 | — | radius lg 实测已 8（spec 写 12 是错记），跳过 |
+| T4 | `69d9d0c` | elevation_{1,2,3} helper + Dialog/Popover/ContextMenu/Toast 接入 |
+| T5 | `643204f` | Button/IconButton focus ring alpha glow (T5 + T6 合 commit) |
+| T6 | `643204f` | 终端 selection_bg 跨主题 indigo hue 232° 统一 |
+
+### Risk 实际遇到
+
+- **R1 (用户期待保留绿系)**：用户已明示 Warp/Linear 方向，无回流。
+- **R2 (accent 变更影响所有组件)**：token cascade 自动 — 改 tokens.rs 后所有
+  组件用 `t.colors.primary/accent` 自动跟，无逐组件改动。
+- **R3 (light 下 shadow 不显)**：light alpha 0.08/0.15/0.22 与 dark 0.16/
+  0.50/0.65 不对称，分别适合两套底色对比度。
+- **R4 (测试断言 hue 失败)**：dark/light 各 12+ 测试覆盖单调性 lemma + hue
+  范围（0.60-0.72 indigo），新增 `light_and_dark_share_primary_hue` 锁定
+  跨主题品牌色一致。
+- **R5 (终端 ANSI 撞色)**：未动 ANSI palette；selection_bg 走 indigo alpha
+  与 ANSI cell 字符色独立，不冲突。
+- **R6 (硬编码色)**：仅 titlebar close 红 `#E81123` 是 Windows 11 风一致保
+  留（spec 已记），无其他遗漏。
+
+### 测试增量
+
+- aish-ui 204 → 同 (12 hue/lemma 测试自动适配新色值，1 新增
+  `light_and_dark_share_primary_hue`)
+- aish-app 144 不变（selection_bg 改一行 alpha）
+
+### 未做（M25+）
+
+- Typography 加密度（line_h / padding 收紧）— D-8 留 M25
+- 字体替换 / iconography 风格调整
+- 动画 / micro-interaction

@@ -10,13 +10,35 @@
 
 ## 当前状态
 
-- **活跃分支**：feat/inputbar-per-conn-20260514-zj（2026-05-15 完成 M22，待合 main）
-- **下一里程碑**：M23 候选 — collapse-orphan-conn（关 tab 保 actor，Home 加 active sessions 区块） / scrollbar thumb 可拖（M21 backlog） / Settings 实质内容补全
+- **活跃分支**：main（2026-05-15 完成 M22 / M23 / M24，全在 origin）
+- **下一里程碑**：M25 候选 — Typography 加密度（line_h / padding 收紧）/ icon 风格统一（stroke width） / 动画 micro-interaction
 - **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **204** + aish-app **144** + 其他 crate) 全过 — 总 468
 
 ---
 
 ## Milestones（按时间倒序）
+
+### M24 — 视觉重塑 Warp/Linear 风（2026-05-15）— ✅ 已完成
+- spec：[`specs/2026-05-15-aish-m24-visual-redesign-design.md`](specs/2026-05-15-aish-m24-visual-redesign-design.md)
+- plan：[`plans/2026-05-15-aish-m24-visual-redesign.md`](plans/2026-05-15-aish-m24-visual-redesign.md)
+- 范围：整体视觉从"终端绿 hacker"风切到 Warp/Linear 商业级 dev tool 风
+  - primary：终端绿 #00CC33 → Linear indigo **#5E6AD2**（跨主题统一品牌色）
+  - accent：暗绿 #2F6E3E → 深紫灰 #2D3047（dark）/ 浅紫灰 #E9EAF8（light）
+  - destructive：Tokyo Night 粉红 #F7768E → 真红 #E5484D
+  - neutral L0-L7 8 档 ramp 全部重排（bg/card/popover/secondary/border），
+    冷调一档；foreground 提亮到 #F4F5F8（dev tool 高对比）
+  - 状态色 desaturate（success #9ECE6A→#4FBB72 等）
+  - elevation_{1,2,3} helper：3 档 subtle shadow + dark/light alpha 不对称
+  - focus ring 改 alpha 0.4 + 4px blur soft glow（Linear 风）
+  - 终端 selection_bg 与 primary 同 hue 232° 跨主题统一品牌感
+- 关键 commits：
+  - `1404d7d` — spec + plan
+  - `846e009` — T1 dark tokens
+  - `d6c3af1` — T2 light tokens + 跨主题 primary hue lemma
+  - `69d9d0c` — T4 elevation_{1,2,3} + Dialog/Popover/ContextMenu/Toast 接入
+  - `643204f` — T5 focus glow + T6 终端 selection 跨主题 indigo
+- 测试：aish-ui 204 (+1 跨主题 lemma) / aish-app 144 不变
+- 已知边界 / 留 M25：Typography 加密度 / 字体 / icon stroke / 动画
 
 ### M22 — InputBar per-connection draft 隔离（2026-05-15）— ✅ 已完成
 - spec：[`specs/2026-05-15-aish-m22-inputbar-per-connection-design.md`](specs/2026-05-15-aish-m22-inputbar-per-connection-design.md)
