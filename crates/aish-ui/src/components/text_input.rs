@@ -71,6 +71,19 @@ pub struct TextInput {
     /// caller 通常先调 mask_char(Some('•')) 再 show_mask_toggle(true)。
     /// 点击眼睛：mask_char Some('•') ↔ None 切换。
     show_mask_toggle: bool,
+    /// M19：多行模式。true 时 Enter 插 \n / Ctrl+Enter 触发 on_submit /
+    /// 按 \n 拆 logical lines + word-wrap 成 visual lines / auto-grow 到
+    /// max_lines 上限后内部滚动。默认 false（单行行为完全不变）。
+    multiline: bool,
+    /// M19：多行模式下容器最大行数（含 wrap 后的 visual lines）。超出后
+    /// 容器高度固定不再增，内部 overflow_y_scroll。默认 6。multiline=false
+    /// 时此字段无效。
+    max_lines: usize,
+    /// M19：cursor 跨行 ↑/↓ 时的 col 记忆。让用户多次按 ↓ 经过短行后回到长行
+    /// 时仍在原 col（标准 textarea 行为）。横向操作（left/right/click/typing）
+    /// 清掉，重新设。T1 占位，T4 cursor_up/down_visual 实施时启用。
+    #[allow(dead_code)]
+    preferred_col: Option<usize>,
 }
 
 impl TextInput {
@@ -97,6 +110,9 @@ impl TextInput {
             viewport_bounds: None,
             drag_task: None,
             show_mask_toggle: false,
+            multiline: false,
+            max_lines: 6,
+            preferred_col: None,
         };
         this.start_blink_timer(cx);
         this
@@ -142,6 +158,22 @@ impl TextInput {
             Some('•')
         };
         cx.notify();
+    }
+
+    /// M19：启用多行模式。Enter 插 \\n，Ctrl+Enter 触发 on_submit，按 \\n
+    /// 拆 logical lines + word-wrap 成 visual lines + auto-grow 到 max_lines
+    /// 上限后内部滚动。默认 false 单行行为完全不变。
+    pub fn multiline(&mut self, b: bool) -> &mut Self {
+        self.multiline = b;
+        self
+    }
+
+    /// M19：多行模式下容器最大可见行数（按 wrap 后 visual lines 计）。
+    /// 超过此值容器停止增高，内部 overflow_y_scroll，cursor 在屏外时自动滚到
+    /// 可见。默认 6 行。multiline=false 时无效。
+    pub fn max_lines(&mut self, n: usize) -> &mut Self {
+        self.max_lines = n.max(1); // 至少 1 行
+        self
     }
 
     pub fn on_submit(&mut self, h: impl Fn(&str, &mut Window, &mut App) + 'static) -> &mut Self {
