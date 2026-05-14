@@ -385,6 +385,75 @@ impl TextInput {
             .unwrap_or(self.text.len())
     }
 
+    /// M19 T5: 多行版 cursor_from_click。click 是 viewport Point<Pixels>。
+    /// 1. 用 bounds_map 找 click.y 落在哪个 row（同 y 共享）
+    /// 2. 从该 row 内 entries 按 x 找 byte（复用 byte_offset_at_x），fallback
+    ///    用 vl.byte_end（cursor 落 row 末符合多行体感）
+    ///
+    /// mask 处理：仍走 displayed→source 转换（继承单行 mask 逻辑）。
+    pub(crate) fn cursor_from_click_2d(&self, click: gpui::Point<Pixels>) -> usize {
+        if self.bounds_map.is_empty() {
+            return 0;
+        }
+        let vls = self.current_visual_lines();
+        if vls.is_empty() {
+            return 0;
+        }
+
+        // 找 click.y 落在哪个 row：先 bounds_map 内找 y 区间命中的 entry
+        let click_y = click.y;
+        let mut matched_byte: Option<usize> = None;
+        for (b, bnds) in &self.bounds_map {
+            if click_y >= bnds.origin.y && click_y < bnds.origin.y + bnds.size.height {
+                matched_byte = Some(*b);
+                break;
+            }
+        }
+        // 找不到时 click 在所有 row 之上 / 之下：clamp 到首末 vl
+        let vl_idx = if let Some(b) = matched_byte {
+            byte_to_visual_pos(b, &vls).0
+        } else {
+            let first_y = self
+                .bounds_map
+                .first()
+                .map(|(_, b)| b.origin.y)
+                .unwrap_or(px(0.0));
+            if click_y < first_y {
+                0
+            } else {
+                vls.len() - 1
+            }
+        };
+
+        let vl = &vls[vl_idx];
+        // 该 row 内的 entries（同 visual line 共享 byte range）
+        let row_entries: Vec<(usize, Bounds<Pixels>)> = self
+            .bounds_map
+            .iter()
+            .filter(|(b, _)| *b >= vl.byte_start && *b < vl.byte_end)
+            .cloned()
+            .collect();
+
+        // mask 路径：bounds_map byte 是 displayed-space，需要转回 source-space
+        if self.mask_char.is_none() {
+            byte_offset_at_x(&row_entries, click.x, vl.byte_end)
+        } else {
+            // mask 多行：极少场景（password 一般单行），简化用 vl.byte_end fallback
+            let displayed_byte = byte_offset_at_x(&row_entries, click.x, vl.byte_end);
+            let displayed_text: String =
+                self.text.chars().map(|_| self.mask_char.unwrap()).collect();
+            let char_idx = displayed_text
+                .get(..displayed_byte.min(displayed_text.len()))
+                .map(|s| s.chars().count())
+                .unwrap_or(0);
+            self.text
+                .char_indices()
+                .nth(char_idx)
+                .map(|(b, _)| b)
+                .unwrap_or(self.text.len())
+        }
+    }
+
     /// 把原文 byte offset (self.cursor) 转成显示文本 byte offset，用于 mask 时切片。
     /// 非 mask 时原样返回。mask 时按 char index 在 displayed 中找对应 byte。
     fn cursor_for_display(&self, displayed: &str) -> usize {
@@ -1420,7 +1489,12 @@ impl Render for TextInput {
                     // render 入口的 clear_glyph_bounds() 还没执行，map 仍是上一帧的有效数据。
                     // cursor_from_click 把 displayed-space byte 映射回 source-space
                     // byte（mask 模式必要，否则 cursor 超过 self.text.len() 引发 panic）。
-                    let byte = this.cursor_from_click(ev.position.x);
+                    // M19: 多行走 cursor_from_click_2d（接 y 维度定位 vl_idx 再 x）。
+                    let byte = if this.multiline {
+                        this.cursor_from_click_2d(ev.position)
+                    } else {
+                        this.cursor_from_click(ev.position.x)
+                    };
                     this.is_dragging = true; // M16 T3: 开始 drag
                     this.drag_target_x = Some(ev.position.x);
                     // shift+click：扩选模式（保留 anchor，cursor 跳新位置）；
@@ -1453,7 +1527,11 @@ impl Render for TextInput {
                 }
                 // 实时更新 drag_target_x 让 auto-scroll timer 拿到最新位置。
                 this.drag_target_x = Some(ev.position.x);
-                let byte = this.cursor_from_click(ev.position.x);
+                let byte = if this.multiline {
+                    this.cursor_from_click_2d(ev.position)
+                } else {
+                    this.cursor_from_click(ev.position.x)
+                };
                 if byte != this.cursor {
                     this.cursor = byte;
                     this.reset_blink();
