@@ -97,13 +97,19 @@ impl HomeView {
                 }
             }
         };
+        let cur = self.scroll_handle.offset();
+        let max = self.scroll_handle.max_offset();
+        tracing::info!(
+            sign = sign,
+            cur_y = ?cur.y,
+            max_y = ?max.y,
+            "home: handle_wheel triggered"
+        );
         if sign == 0.0 {
             return;
         }
         // wheel up (delta.y > 0) = 看上方 = offset y 趋 0；反之趋 -max
         let step = px(60.0 * sign);
-        let cur = self.scroll_handle.offset();
-        let max = self.scroll_handle.max_offset();
         let new_y = (cur.y + step).clamp(-max.y, px(0.0));
         self.scroll_handle.set_offset(point(cur.x, new_y));
         cx.notify();

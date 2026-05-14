@@ -116,7 +116,20 @@ impl ParentElement for ScrollPage {
 
 impl RenderOnce for ScrollPage {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
-        let mut d = div().id(self.id).size_full().overflow_y_scroll();
+        // 两套滚动模式（互斥）：
+        // - caller 持 ScrollHandle：用 overflow_hidden + track_scroll（与
+        //   tab_bar.rs 同稳定模式）。GPUI 内置 wheel 仅在 overflow.y=Scroll
+        //   时跑，用 overflow_hidden 让它不跑，caller 的 on_wheel 唯一接管
+        //   wheel → set_offset；track_scroll 不依赖 overflow，仍让 children
+        //   按 offset transform paint，滚动生效。
+        // - caller 没传 ScrollHandle：fallback 走 GPUI 内置 overflow_y_scroll
+        //   wheel handler（settings 这种简单 page 够用）。
+        let mut d = div().id(self.id).size_full();
+        if self.scroll_handle.is_some() {
+            d = d.overflow_hidden();
+        } else {
+            d = d.overflow_y_scroll();
+        }
         if let Some(c) = self.bg {
             d = d.bg(c);
         }
