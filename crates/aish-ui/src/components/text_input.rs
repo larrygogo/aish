@@ -209,6 +209,9 @@ impl TextInput {
         // 下次 delete_selection 时 drain 越界 panic（HostForm 切 host edit
         // 重置字段是典型触发场景）。
         self.selection_anchor = None;
+        // M19: 清 preferred_col —— 否则跨 text 切换后 ↑↓ 用旧 col 算
+        // 体感错位（按 ↓ 落到不预期位置）。
+        self.preferred_col = None;
         self.reset_blink();
         cx.notify();
     }
@@ -218,6 +221,7 @@ impl TextInput {
         self.cursor = 0;
         // 同 set_text：text 清空后 anchor 必须同步清，否则 drain panic
         self.selection_anchor = None;
+        self.preferred_col = None;
         self.reset_blink();
         cx.notify();
     }
@@ -798,7 +802,7 @@ impl TextInput {
                 return false;
             }
         };
-        let payload = compute_paste_payload(&raw);
+        let payload = compute_paste_payload(&raw, self.multiline);
         if payload.is_empty() {
             return false;
         }
@@ -967,13 +971,22 @@ pub(crate) fn compute_copy_payload(
     }
 }
 
-/// 计算粘贴 payload 的纯函数：单行 TextInput 把多行剪贴板内容截到首行
-/// （遇到首个 \r 或 \n 截断），与浏览器 `<input>` 行为一致。
+/// 计算粘贴 payload 的纯函数：
+/// - 单行：截到首行（遇到首个 \r 或 \n 截断），与浏览器 `<input>` 行为一致
+/// - 多行：保留 \n 整段 paste；\r\n 归一化为 \n（Windows 剪贴板常见），
+///   单独 \r 也归一化为 \n（Mac 老剪贴板 / 某些 terminal）。
+///
 /// 不 trim 前后空格 —— 用户可能有意粘前导空格。
-pub(crate) fn compute_paste_payload(raw: &str) -> String {
-    match raw.find(['\n', '\r']) {
-        Some(idx) => raw[..idx].to_string(),
-        None => raw.to_string(),
+pub(crate) fn compute_paste_payload(raw: &str, multiline: bool) -> String {
+    if multiline {
+        // \r\n → \n 优先（不能让 \r 单独留下，否则 \r 字符 render 异常）；
+        // 然后单独 \r → \n
+        raw.replace("\r\n", "\n").replace('\r', "\n")
+    } else {
+        match raw.find(['\n', '\r']) {
+            Some(idx) => raw[..idx].to_string(),
+            None => raw.to_string(),
+        }
     }
 }
 
@@ -1918,42 +1931,72 @@ mod tests {
 
     #[test]
     fn compute_paste_payload_single_line_passthrough() {
-        assert_eq!(super::compute_paste_payload("hello"), "hello");
+        assert_eq!(super::compute_paste_payload("hello", false), "hello");
     }
 
     #[test]
     fn compute_paste_payload_truncates_at_lf() {
-        assert_eq!(super::compute_paste_payload("line1\nline2"), "line1");
+        assert_eq!(super::compute_paste_payload("line1\nline2", false), "line1");
     }
 
     #[test]
     fn compute_paste_payload_truncates_at_crlf() {
         // \r\n 中的 \r 先被命中，截到 \r 之前 —— 同样得到首行内容
-        assert_eq!(super::compute_paste_payload("line1\r\nline2"), "line1");
+        assert_eq!(
+            super::compute_paste_payload("line1\r\nline2", false),
+            "line1"
+        );
     }
 
     #[test]
     fn compute_paste_payload_truncates_at_lone_cr() {
         // macOS classic / 部分 SSH 终端的 \r-only 换行
-        assert_eq!(super::compute_paste_payload("line1\rline2"), "line1");
+        assert_eq!(super::compute_paste_payload("line1\rline2", false), "line1");
     }
 
     #[test]
     fn compute_paste_payload_preserves_leading_whitespace() {
         // 不 trim：用户可能有意粘带前导空格的内容
-        assert_eq!(super::compute_paste_payload("  hello"), "  hello");
+        assert_eq!(super::compute_paste_payload("  hello", false), "  hello");
     }
 
     #[test]
     fn compute_paste_payload_empty_clipboard_returns_empty() {
-        assert!(super::compute_paste_payload("").is_empty());
+        assert!(super::compute_paste_payload("", false).is_empty());
+    }
+
+    #[test]
+    fn compute_paste_payload_multiline_preserves_newlines() {
+        // multiline=true 时 \n 保留整段
+        assert_eq!(
+            super::compute_paste_payload("line1\nline2\nline3", true),
+            "line1\nline2\nline3"
+        );
+    }
+
+    #[test]
+    fn compute_paste_payload_multiline_normalizes_crlf_to_lf() {
+        // Windows 剪贴板常用 \r\n，归一化成 \n 避免 \r 单独留下
+        assert_eq!(
+            super::compute_paste_payload("line1\r\nline2", true),
+            "line1\nline2"
+        );
+    }
+
+    #[test]
+    fn compute_paste_payload_multiline_normalizes_lone_cr_to_lf() {
+        // 老 Mac / 终端的 \r-only 换行也归一化
+        assert_eq!(
+            super::compute_paste_payload("line1\rline2", true),
+            "line1\nline2"
+        );
     }
 
     #[test]
     fn compute_paste_payload_pure_newline_returns_empty() {
-        // 剪贴板只有换行时，截到首行 = 空串
-        assert!(super::compute_paste_payload("\n").is_empty());
-        assert!(super::compute_paste_payload("\r\n").is_empty());
+        // 单行：剪贴板只有换行时，截到首行 = 空串
+        assert!(super::compute_paste_payload("\n", false).is_empty());
+        assert!(super::compute_paste_payload("\r\n", false).is_empty());
     }
 
     #[test]
