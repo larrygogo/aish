@@ -683,11 +683,17 @@ impl Render for HomeView {
             .text_size(font_size.xs)
             .child("HOSTS");
 
-        // outer 走 flex_col + size_full：ScrollPage.flex_1() 在 flex_col 内
-        // 严格 fit remaining height（min_h(0) 强制不被 children 撑大）—
-        // 之前用 .size_full() 在 block 父内被 children 撑大让 scroll_max=0，
-        // 用户实测"body 没有适配高度"根因。ContextMenu 仍平级 child（外层
-        // div 内）保证 absolute backdrop 不被 scroll viewport 裁。
+        // 完全照搬 tab_bar.rs 的稳定 scroll pattern（已验证 work）：
+        // - 外层 flex_col + size_full：给 inner scroll 容器一个 fit 的父
+        // - scroll 容器 .flex_1().min_h(0)：严格 fit remaining height 不被
+        //   children 撑大
+        // - overflow_hidden（不是 overflow_y_scroll）+ track_scroll(&handle)
+        //   + 手写 on_scroll_wheel：caller 唯一接管 wheel → set_offset
+        // - children 用 block layout（容器不带 .flex()）—— children 走 block
+        //   flow 自然纵向，不会因 flex-shrink 被压扁
+        //
+        // 暂时**绕开 ScrollPage 抽象**直接 inline 写 — 验证是否 ScrollPage
+        // 自身有边角 bug；如果 inline work 后续再抽回组件。
         div()
             .relative()
             .flex()
@@ -695,10 +701,13 @@ impl Render for HomeView {
             .size_full()
             .bg(colors.background)
             .child(
-                aish_ui::ScrollPage::new("home-scroll")
+                div()
+                    .id("home-scroll")
                     .flex_1()
+                    .min_h(px(0.0))
+                    .overflow_hidden()
                     .track_scroll(&self.scroll_handle)
-                    .on_wheel(cx.listener(|this, ev: &ScrollWheelEvent, _w, cx| {
+                    .on_scroll_wheel(cx.listener(|this, ev: &ScrollWheelEvent, _w, cx| {
                         this.handle_wheel(ev, cx);
                     }))
                     .child(header)
