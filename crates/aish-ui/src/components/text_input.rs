@@ -550,6 +550,50 @@ impl TextInput {
         }
     }
 
+    /// M19 T4: 当前 text 的 visual_lines 列表。keyboard nav 用。viewport 宽
+    /// 从 viewport_bounds 取（canvas prepaint 上一帧写入），首帧 fallback 400px。
+    /// font_size 用 12px hardcoded（与 render 内 theme.font_size.sm 默认一致；
+    /// 若主题改字号需要同步 —— 后续 cache 到 self 字段优化）。
+    fn current_visual_lines(&self) -> Vec<VisualLine> {
+        let container_w = self
+            .viewport_bounds
+            .map(|b| b.size.width)
+            .unwrap_or(px(400.0));
+        compute_visual_lines(&self.text, container_w, px(12.0))
+    }
+
+    /// M19 T4: cursor 上移一个 visual line。preferred_col 保 col 记忆（连续 ↑↓
+    /// 经过短行回到长行仍在原 col）。已在首行 → cursor 回 byte 0。
+    pub(crate) fn cursor_up_visual(&mut self) {
+        self.clear_selection();
+        let vls = self.current_visual_lines();
+        let (vl_idx, col) = byte_to_visual_pos(self.cursor, &vls);
+        let pref_col = self.preferred_col.unwrap_or(col);
+        if vl_idx == 0 {
+            self.cursor = 0;
+        } else {
+            self.cursor = visual_pos_to_byte(vl_idx - 1, pref_col, &vls);
+        }
+        self.preferred_col = Some(pref_col);
+        self.reset_blink();
+    }
+
+    /// M19 T4: cursor 下移一个 visual line。preferred_col 同上。
+    /// 已在末行 → cursor 到 text 末。
+    pub(crate) fn cursor_down_visual(&mut self) {
+        self.clear_selection();
+        let vls = self.current_visual_lines();
+        let (vl_idx, col) = byte_to_visual_pos(self.cursor, &vls);
+        let pref_col = self.preferred_col.unwrap_or(col);
+        if vl_idx + 1 >= vls.len() {
+            self.cursor = self.text.len();
+        } else {
+            self.cursor = visual_pos_to_byte(vl_idx + 1, pref_col, &vls);
+        }
+        self.preferred_col = Some(pref_col);
+        self.reset_blink();
+    }
+
     pub(crate) fn backspace(&mut self) {
         if self.delete_selection() {
             return;
@@ -719,36 +763,80 @@ impl TextInput {
     }
 
     fn handle_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        // 横向操作 / typing / 删字 时清 preferred_col（标准 textarea 行为：
+        // 用户横向走光标后再 ↑/↓ 应该用"当前 col"重新记忆）
+        let ctrl = event.keystroke.modifiers.control;
+        let multiline = self.multiline;
         match event.keystroke.key.as_str() {
             "backspace" => {
+                self.preferred_col = None;
                 self.backspace();
                 cx.notify();
                 self.fire_change(window, cx);
             }
             "delete" => {
+                self.preferred_col = None;
                 self.delete_forward();
                 cx.notify();
                 self.fire_change(window, cx);
             }
             "left" => {
+                self.preferred_col = None;
                 self.cursor_left();
                 cx.notify();
             }
             "right" => {
+                self.preferred_col = None;
                 self.cursor_right();
                 cx.notify();
             }
+            "up" if multiline => {
+                self.cursor_up_visual();
+                cx.notify();
+            }
+            "down" if multiline => {
+                self.cursor_down_visual();
+                cx.notify();
+            }
             "home" => {
+                self.preferred_col = None;
                 self.clear_selection();
-                self.cursor = 0;
+                if multiline {
+                    // 多行：到当前 visual line 行首
+                    let vls = self.current_visual_lines();
+                    let (vl_idx, _) = byte_to_visual_pos(self.cursor, &vls);
+                    self.cursor = vls.get(vl_idx).map(|v| v.byte_start).unwrap_or(0);
+                } else {
+                    self.cursor = 0;
+                }
                 self.reset_blink();
                 cx.notify();
             }
             "end" => {
+                self.preferred_col = None;
                 self.clear_selection();
-                self.cursor = self.text.len();
+                if multiline {
+                    let vls = self.current_visual_lines();
+                    let (vl_idx, _) = byte_to_visual_pos(self.cursor, &vls);
+                    self.cursor = vls
+                        .get(vl_idx)
+                        .map(|v| v.byte_end)
+                        .unwrap_or(self.text.len());
+                } else {
+                    self.cursor = self.text.len();
+                }
                 self.reset_blink();
                 cx.notify();
+            }
+            // 多行下 Enter 插 \n，Ctrl+Enter 触发 submit；单行 Enter 仍 submit
+            "enter" if multiline && !ctrl => {
+                self.preferred_col = None;
+                self.insert_str("\n");
+                cx.notify();
+                self.fire_change(window, cx);
+            }
+            "enter" if multiline && ctrl => {
+                self.fire_submit(window, cx);
             }
             "enter" if !event.keystroke.modifiers.shift => {
                 self.fire_submit(window, cx);
@@ -969,7 +1057,6 @@ pub(crate) fn compute_visual_lines(
 /// 边界规则：byte == vl.byte_end 且下一行存在且 byte_start == byte（wrap
 /// 边界，无 \n），优先归下一行 col=0 —— cursor 在 wrap 后行首符合用户直觉
 /// （否则光标在前一行末尾看起来"还没换行"）。
-#[allow(dead_code)] // T4 cursor_up/down_visual 用
 pub(crate) fn byte_to_visual_pos(byte: usize, vls: &[VisualLine]) -> (usize, usize) {
     if vls.is_empty() {
         return (0, 0);
@@ -994,7 +1081,6 @@ pub(crate) fn byte_to_visual_pos(byte: usize, vls: &[VisualLine]) -> (usize, usi
 /// (vl_idx, col) → byte。col 单位与 byte_to_visual_pos 反向一致（byte 差）。
 /// col > line_len 时 clamp 到行末（cursor_up/down 时 preferred_col 超目标行
 /// 长度的场景）。
-#[allow(dead_code)] // T4 cursor_up/down_visual + T5 mouse 用
 pub(crate) fn visual_pos_to_byte(vl_idx: usize, col: usize, vls: &[VisualLine]) -> usize {
     let Some(vl) = vls.get(vl_idx) else {
         return vls.last().map(|v| v.byte_end).unwrap_or(0);
@@ -2190,5 +2276,75 @@ mod tests {
         // ASCII 半角 / CJK 全角，估算与设计一致
         assert_eq!(approx_char_width('a', px(14.0)), px(14.0 * 0.6));
         assert_eq!(approx_char_width('中', px(14.0)), px(14.0 * 1.2));
+    }
+
+    /// 模拟 cursor_up_visual / cursor_down_visual 的 pure 算法：
+    /// 给 (cursor_byte, preferred_col, delta) → 新 cursor_byte。
+    /// delta=-1 上移 / +1 下移；边界 clamp（首行回 byte 0 / 末行回 text 末）。
+    fn move_cursor_vl(
+        text: &str,
+        cursor: usize,
+        preferred_col: Option<usize>,
+        delta: i32,
+    ) -> (usize, usize) {
+        let vls = compute_visual_lines(text, wide(), fs());
+        let (vl_idx, col) = byte_to_visual_pos(cursor, &vls);
+        let pref = preferred_col.unwrap_or(col);
+        let new_byte = if delta < 0 {
+            if vl_idx == 0 {
+                0
+            } else {
+                visual_pos_to_byte(vl_idx - 1, pref, &vls)
+            }
+        } else if vl_idx + 1 >= vls.len() {
+            text.len()
+        } else {
+            visual_pos_to_byte(vl_idx + 1, pref, &vls)
+        };
+        (new_byte, pref)
+    }
+
+    #[test]
+    fn cursor_down_visual_keeps_preferred_col() {
+        // "long line\nshort\nlong line again"
+        // 从 long line byte 5（col 5）↓ 到 short（行 5 chars，col clamp 到 5 = 行末）
+        // 再 ↓ 到 long line again（pref_col 仍 5，落第 6 字符前）
+        let text = "long line\nshort\nlong line again";
+        // long line byte 5 = "long " 第 6 char 之前 ("l" of "line")
+        let (b1, pref) = move_cursor_vl(text, 5, None, 1);
+        // short 行 byte_start = 10, 行长 5 byte → col 5 落行末 → b1 = 10 + 5 = 15
+        assert_eq!(b1, 15);
+        assert_eq!(pref, 5);
+        // 再 ↓：long line again byte_start = 16, col=5 → 21
+        let (b2, pref2) = move_cursor_vl(text, b1, Some(pref), 1);
+        assert_eq!(b2, 21);
+        assert_eq!(pref2, 5);
+    }
+
+    #[test]
+    fn cursor_up_visual_at_first_line_goes_byte_0() {
+        let text = "first\nsecond";
+        // cursor 在 first 中间（byte 2）↑ → 应到 byte 0
+        let (b, _) = move_cursor_vl(text, 2, None, -1);
+        assert_eq!(b, 0);
+    }
+
+    #[test]
+    fn cursor_down_visual_at_last_line_goes_text_end() {
+        let text = "a\nb";
+        // cursor 在 b（byte 2）↓ → 应到 text 末（3）
+        let (b, _) = move_cursor_vl(text, 2, None, 1);
+        assert_eq!(b, 3);
+    }
+
+    #[test]
+    fn cursor_up_visual_no_preferred_col_uses_current() {
+        // 不传 preferred_col → 用当前 col；从 short 行 col=3 ↑ 到 long 行 col=3
+        let text = "long line\nshort";
+        // short 行 byte_start = 10，col=3 → cursor = 13
+        let (b, pref) = move_cursor_vl(text, 13, None, -1);
+        // long line col=3 → byte 3
+        assert_eq!(b, 3);
+        assert_eq!(pref, 3);
     }
 }
