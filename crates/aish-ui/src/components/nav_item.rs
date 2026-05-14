@@ -1,8 +1,8 @@
 //! NavItem — 导航项。Horizontal（顶部栏）+ Vertical（侧栏）双模。
 //!
 //! icon 接受任意 IntoElement（SVG / Nerd Font / 纯文字），label 可选。
-//! active 时画 indicator：vertical 在左侧 2px primary 条，
-//! horizontal 在底部 2px primary 条。
+//! active 时用 bg(accent) + foreground 文字色区分（无 indicator 条，
+//! 与 dropdown / session_picker / toast 统一去除 primary 绿条风格）。
 
 use std::rc::Rc;
 
@@ -92,12 +92,6 @@ impl RenderOnce for NavItem {
             t.colors.muted_foreground
         };
 
-        let indicator_color = if active {
-            t.colors.primary
-        } else {
-            gpui::transparent_black()
-        };
-
         let mut el = div().id(self.id).text_color(fg).cursor_pointer();
 
         el = match orientation {
@@ -108,22 +102,20 @@ impl RenderOnce for NavItem {
                 .flex_col()
                 .items_center()
                 .justify_center()
-                .gap(px(4.0))
-                .border_l_2()
-                .border_color(indicator_color),
+                .gap(px(4.0)),
             NavItemOrientation::Horizontal => el
                 .h(px(36.0))
                 .px(t.spacing.px_3)
                 .flex()
                 .flex_row()
                 .items_center()
-                .gap(t.spacing.px_2)
-                .border_b_2()
-                .border_color(indicator_color),
+                .gap(t.spacing.px_2),
         };
 
-        if active && orientation == NavItemOrientation::Vertical {
-            el = el.bg(t.colors.card);
+        // active 用 bg(accent) 替代 indicator 条 — primary 绿太抢眼与整体
+        // 灰阶风不搭，accent 是灰阶柔和高亮（dark/light 各有阶梯）。
+        if active {
+            el = el.bg(t.colors.accent);
         }
 
         if !active {

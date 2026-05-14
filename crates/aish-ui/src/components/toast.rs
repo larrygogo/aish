@@ -164,20 +164,20 @@ fn render_toast(
                 }
             });
 
-    // 视觉：左 4px 粗状态色条（VSCode notification 风）+ rounded card + shadow。
-    // 之前样式：单边 1px border 全围染色 + popover 暗 bg，单薄、像 dev-tool 提示。
-    // 新样式：4px 左条聚焦状态色，整卡 popover bg + 大圆角 + shadow 浮起，
-    // 内部 padding 更宽松，icon / 文字 / close 三层有呼吸感。
+    // 视觉：rounded card + 1px kind 色 border + shadow + popover bg。
+    // 之前用 absolute 4px 左条强调 kind，但与项目整体灰阶 + indicator 条
+    // 风格统一去除（绿/红色实色条与 modern minimal 不搭）。kind 区分靠
+    // icon 颜色 + 1px border 颜色微妙提示，不抢眼。
     div()
         .relative()
         .min_w(px(300.0))
         .max_w(px(440.0))
-        .pl(px(16.0))
-        .pr(px(8.0))
+        .px(px(12.0))
         .py(px(12.0))
         .rounded(t.radius.lg)
         .bg(t.colors.popover)
-        .overflow_hidden() // 让左条 rounded 不溢出
+        .border_1()
+        .border_color(border_color)
         // shadow：black 40% alpha，向下偏移 4px + 12px blur，浮起感
         // 不带 spread，让 shadow 紧贴卡片轮廓不发散
         .shadow(vec![BoxShadow {
@@ -190,17 +190,6 @@ fn render_toast(
         .flex_row()
         .items_start() // icon 与文字第一行顶部对齐（长文字换行时仍对齐）
         .gap(px(12.0))
-        // 4px 左条状态色：用 absolute div 而非 border-l，让 rounded 在 outer
-        // 容器生效（border-l 与 rounded 一起会让左条边角不平滑）
-        .child(
-            div()
-                .absolute()
-                .top_0()
-                .bottom_0()
-                .left_0()
-                .w(px(4.0))
-                .bg(border_color),
-        )
         // svg 必须套 flex_shrink_0 div：GPUI svg 元素本身设了 size(18px)，
         // 但 flex 默认 shrink=1，在长 message 挤压 max_w 时会把 svg 压到
         // width=0 触发 'can't render at a zero size' 报错刷屏。包一层固定宽

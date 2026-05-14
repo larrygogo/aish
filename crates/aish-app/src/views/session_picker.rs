@@ -230,18 +230,8 @@ impl Render for SessionPickerView {
                     .cursor_pointer()
                     .hover(move |st| st.bg(hover_bg))
                     .active(move |st| st.bg(active_bg))
-                    // 键盘选中行左侧 2px primary 竖条 indicator
-                    .when(is_kb_selected, |d| {
-                        d.child(
-                            div()
-                                .absolute()
-                                .top_0()
-                                .bottom_0()
-                                .left_0()
-                                .w(gpui::px(2.0))
-                                .bg(colors.primary),
-                        )
-                    })
+                    // 键盘选中行：仅 bg 区分（kb_bg 已 set 为 secondary_hover），
+                    // 不画 primary 绿左条 — 与 nav_item / dropdown 同灰阶风。
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {

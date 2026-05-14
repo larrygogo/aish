@@ -95,18 +95,10 @@ impl RenderOnce for DropdownMenu {
                 .text_size(t.font_size.sm)
                 .text_color(fg);
 
-            // 键盘选中态：secondary_hover bg + 左 2px primary 竖条 indicator
-            // 与 SessionPicker / 其它列表 selection 视觉一致。
+            // 键盘选中态：仅 bg(secondary_hover) 区分，不画 primary 绿条
+            // （整体灰阶风格统一，与 nav_item / session_picker 同模式）。
             if is_kb_selected {
-                row = row.bg(t.colors.secondary_hover).child(
-                    div()
-                        .absolute()
-                        .top_0()
-                        .bottom_0()
-                        .left_0()
-                        .w(gpui::px(2.0))
-                        .bg(t.colors.primary),
-                );
+                row = row.bg(t.colors.secondary_hover);
             }
 
             if let Some(icon_name) = item.icon {
