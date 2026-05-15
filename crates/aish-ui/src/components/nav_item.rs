@@ -210,8 +210,13 @@ impl Render for NavItem {
 
         // NavItem 设计上是导航容器（与 Card / ListRow 同类），仅用
         // bg + active 高亮表达状态 — 不画 focus ring（避免 sidebar 窄柱内
-        // 紫色 glow 视觉过载）。键盘 Tab 焦点仍走 focus_handle，只是不附
-        // 视觉 ring。
+        // 紫色 glow 视觉过载）。
+        //
+        // hover bg robustness：base_bg 永远从 idle 出发，非 active 时附 GPUI
+        // .hover() 作为真实视觉源（基于实际鼠标位置）—— entity hover_state
+        // 仅驱动动画 path 的 fade-in/out lerp。这样即使 hover_state 卡在
+        // Hovered（mouse_down 期间 GPUI 捕获鼠标 + 漏 on_hover(false) 事件），
+        // 鼠标真离开 div 时 .hover 不触发 → 视觉 instant 回 idle，不卡 hover 色。
         let hover_state = self.hover_state;
         let pressing = self.pressing;
         let hover_entering = !active && matches!(hover_state, HoverState::Entering { .. });
@@ -220,15 +225,12 @@ impl Render for NavItem {
         let press_count = self.press_count;
         let hover_anim_count = self.hover_anim_count;
 
-        // base fg + bg：active 永远 selected；非 active 看 hover_state
-        // Leaving 视觉起点 = hover (反向 lerp 到 idle)
+        // base：active 永远 selected；非 active 永远 idle（实际 hover 由 GPUI
+        // .hover() / animate path closure 接管，见下方两路径）
         let (base_fg, base_bg) = if active {
             (active_selected_fg, selected_bg)
         } else {
-            match hover_state {
-                HoverState::Idle | HoverState::Entering { .. } => (idle_fg, idle_bg),
-                HoverState::Hovered | HoverState::Leaving { .. } => (hover_fg, hover_bg),
-            }
+            (idle_fg, idle_bg)
         };
 
         let handler = self.on_click.clone();
@@ -291,10 +293,18 @@ impl Render for NavItem {
         });
 
         if !need_anim {
+            // 非动画稳态路径：附 GPUI .hover() 作为实际视觉源（mouse 真在 div
+            // 时切 hover bg/fg，离开 instant 回 idle）。仅非 active 时挂 — active
+            // selected 视觉稳定不参与 hover。
+            if !active {
+                el = el.hover(move |s| s.text_color(hover_fg).bg(hover_bg));
+            }
             return el.into_any_element();
         }
 
         // 动画路径：lerp fg + bg（仅 hover_entering 时），叠加 press opacity。
+        // 不附 .hover() — closure 内的 lerp 主导，避免 GPUI 真实 hover 立即覆
+        // 盖 lerp 中间帧导致 fade-in/out 视觉丢失。
         let anim_id: ElementId = (
             "motion-nav-item",
             press_count.wrapping_add(hover_anim_count) as usize,
