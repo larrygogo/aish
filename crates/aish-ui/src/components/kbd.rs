@@ -32,8 +32,11 @@ impl RenderOnce for Kbd {
     fn render(self, _w: &mut Window, cx: &mut App) -> impl IntoElement {
         let t = theme(cx);
         let colors = t.colors;
+        // flex_shrink_0 + 自然宽度（无 .w(...)）让 chip 永远 wrap 内容，
+        // 不被 flex_row 父容器拉伸到全宽（之前在 200px 列内会撑成长条）。
         div()
             .id(self.id)
+            .flex_shrink_0()
             .px(px(6.0))
             .py(px(1.0))
             .rounded(t.radius.sm)
@@ -41,7 +44,9 @@ impl RenderOnce for Kbd {
             .border_color(colors.border)
             .bg(colors.secondary)
             .typography(crate::TypeRole::Code, t)
-            .text_color(colors.muted_foreground)
+            // foreground 替代 muted — Kbd chip 的核心信息是\"按键名\"本身，
+            // 必须高对比可读；之前 muted_foreground 在 secondary bg 上对比度不足。
+            .text_color(colors.foreground)
             .child(self.keys)
     }
 }

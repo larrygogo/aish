@@ -99,7 +99,8 @@ fn two_column_row(left: &str, right: &str, t: &Theme) -> AnyElement {
 
 /// M35 T15: shortcut 专用行 — 左侧 Kbd chip 视觉化按键，右侧描述。
 /// 与 two_column_row 同样的左 200px 固定 + 右自然宽节奏，但左列用 Kbd
-/// chip 替代纯文本，视觉上 \"按键\" 与 \"描述\" 分得更清晰。
+/// chip 替代纯文本。左列设 flex container 让 chip 取自然宽度（不被
+/// 200px 列宽拉伸），整列固定让多行 chip 左对齐齐整。
 fn shortcut_row(id: &'static str, keys: &str, desc: &str, t: &Theme) -> AnyElement {
     div()
         .flex()
@@ -110,6 +111,9 @@ fn shortcut_row(id: &'static str, keys: &str, desc: &str, t: &Theme) -> AnyEleme
         .child(
             div()
                 .w(px(200.0))
+                .flex()
+                .flex_row()
+                .items_center()
                 .child(Kbd::new(id, SharedString::from(keys.to_string()))),
         )
         .child(
