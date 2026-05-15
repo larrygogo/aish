@@ -375,4 +375,73 @@ cargo test --workspace
 
 ## 9. 实施记录
 
-（M31 实施后填）
+### Commits
+
+| Task | Commit | 摘要 |
+|---|---|---|
+| T1 | `f1d9bb2` | ButtonEntity 旁挂 + 9 个 pure fn 单测（pressing state / focus animator / opacity endpoints） |
+| T2 | `98a380c` | IconButtonEntity 旁挂同 T1 模式，复用 button.rs 的 pick_button_colors / press_opacity_at helper |
+| T3 | `a171d0d` | aish-ui 内 dialog/toast 2 callsite 迁新 API；toast close_buttons HashMap retain 同步 |
+| T4(p1) | `4ff730d` | aish-app 5 view 单例 9 callsite（empty_terminal / settings / terminal_view / input_bar / home single） |
+| T4(p2) | `76f899a` | host_form 6 callsite 收尾；delete_cancel_focus 改从 entity.focus_handle() 取 |
+| T5 | `91f1979` | home host_card_buttons + session_open_buttons / tab_bar close_buttons HashMap + retain helper 模式 |
+| T6 | `4608899` | 删 stateless Button/IconButton + rename Entity → 简洁名；callsite sed 批量 rename |
+
+### 实施期发现 / 调整
+
+- **plan T1 调整为旁挂模式**：原 spec D-4 设想 "rename stateless → ButtonLegacy
+  + entity 沿用 Button 名" 会让 T1 commit 后 main 立即不可编译，违背 CLAUDE.md
+  "每 task 跑质量门禁"。提交 `ad6cae6` 改 plan：T1-T5 期间 stateless `Button` +
+  `ButtonEntity` 并存，T6 删 stateless 同时 rename Entity 回 Button。每 task
+  完成 main 可编译。
+
+- **R7 实际验证**：M29 D-9 `Dialog::initial_focus(handle)` 依赖 Button 的
+  focus_handle。新 entity 内置 focus_handle (cx.focus_handle() in new())，
+  caller 通过 `button.read(cx).focus_handle()` 取出作为 dialog initial_focus
+  参数 — 兼容 M29 行为。host_form delete_cancel_focus 字段被移除，改从
+  delete_cancel_btn.read(cx).focus_handle() 直接取。
+
+- **R-spec-render：AnyElement 不可二次 with_animation**：原计划 press
+  feedback + focus ring fade 各自一层 animate_or_skip。实施 T1 时验证
+  `AnyElement` 不实现 Styled，无法 chain `.opacity()` / `.shadow()`。改为
+  单 animate_or_skip wrapper 内 closure 同时处理两路（pressing → opacity，
+  focus_animating → shadow alpha 0→0.4）；ring_show_static 路径在 closure
+  内静态挂 shadow。两态 80ms duration 共用同 animator。
+
+- **press feedback 用 opacity 0.85→1.0**：spec D-2 已决策（GPUI 限制
+  L4 / R4 — div 无 transform translate / scale，仅 svg 有 with_transformation）。
+  实施验证 — opacity 视觉清晰，无副作用。
+
+- **input_bar Send button 动态 disabled**：每帧 render 时
+  `self.send_btn.update(cx, |b, _| b.label(...).disabled(...))` 同步状态，
+  builder 改 `&mut self -> &mut Self` 是关键（D-7）。
+
+- **R5 worktree 不需要**：plan T1 旁挂模式让每 task main 可编译，全程在
+  main 实施，无需 worktree。
+
+### 测试增量
+
+| 文件 | 新增 / 删除 |
+|---|---|
+| button.rs | +9 M31 pure fn（pressing / focus_animator / press_opacity_at），-7 旧 stateless 单测 |
+| icon_button.rs | -4 旧 stateless 单测（new_defaults / size_chains / focus_handle_* 等），保留 box_size_relationships |
+| 净增 | aish-ui 262 → 260（-2，删 11 旧测 + 加 9 新测） |
+
+### 视觉差异（手测）
+
+- **press feedback**：所有 button mouse_down 触发 80ms ease_out_quint
+  opacity 0.85 → 1.0 渐显，松开自动复位
+- **focus ring fade-in**：Tab 切换 focus 时 ring 80ms opacity 0 → 0.4
+  渐显（之前 instant box_shadow）
+- **reduced_motion ON**：所有 button press / focus 立即出 end-state，
+  无动画过渡
+- **hover transition 不动**：保留 GPUI `.hover()` instant 切色（D-8）
+
+### 不变量校验
+
+- ✅ 35 callsite 全数迁移（grep `Button::new\|IconButton::new` 全部走
+  `cx.new(|cx| Button::new(id, cx).label(...)...)` 模式）
+- ✅ Vec/HashMap 渲染（home host card × N / tab_bar tab × N / toast × N）
+  全部 retain_alive_entities 同步避免 entity 泄漏
+- ✅ HostForm M29 D-9 `Dialog::initial_focus(button.focus_handle())` 兼容
+- ✅ Settings reduced_motion toggle 切换后所有 button 同步生效

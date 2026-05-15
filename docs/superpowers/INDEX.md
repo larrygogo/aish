@@ -10,15 +10,53 @@
 
 ## 当前状态
 
-- **活跃分支**：main（2026-05-15 完成 M22-M30 + M27，全在 origin）
-- **下一里程碑候选**：M31 (Button stateful entity + press feedback / TabItem indicator slide / focus ring fade — M30 defer 项)
-- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **262** + aish-app **147** + 其他 crate) 全过
+- **活跃分支**：main（2026-05-15 完成 M22-M31 + M27，全在 origin）
+- **下一里程碑候选**：M32（TabItem indicator slide — M30 T6 仍 defer / hover transition / Skeleton 业务接入）
+- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **260** + aish-app **147** + 其他 crate) 全过
 
 ---
 
 ## Milestones（按时间倒序）
 
-### M30 — 动画 / micro-interaction 体系（2026-05-15）— ✅ 主线完成（T5/T6 defer M31）
+### M31 — Button / IconButton stateful 重构 + press / focus 动画（2026-05-15）— ✅ 已完成
+- spec：[`specs/2026-05-15-aish-m31-button-stateful-design.md`](specs/2026-05-15-aish-m31-button-stateful-design.md)
+- plan：[`plans/2026-05-15-aish-m31-button-stateful.md`](plans/2026-05-15-aish-m31-button-stateful.md)
+- 范围：把 aish-ui 的 Button / IconButton 从 stateless `#[derive(IntoElement)]`
+  升级为 stateful `Entity`（Render），落地 M30 defer 的 press feedback
+  + focus ring fade-in
+  - **aish-ui 底层**：Button + IconButton 各加 pressing / focus_animated /
+    was_focused_prev / press_count 字段；fire_press(80ms timer 幂等 check) +
+    schedule_clear_focus_anim helper；render 内单 animate_or_skip 同时驱动
+    press opacity 0.85→1.0 + ring alpha 0→0.4（spec L4 限制：div 不支持
+    transform translate / scale，只能 opacity）
+  - **callsite 改造**：35 处 callsite 全部从 `Button::new("id").label(...).primary()`
+    right-value builder 改为 `cx.new(|cx| Button::new(id, cx).label(...).primary())`
+    持 `Entity<Button>` 字段；builder 签名 `&mut self -> &mut Self`
+  - **Vec / HashMap 渲染**：home 持 host_card_buttons (HashMap<HostId>) +
+    session_open_buttons (HashMap<ConnectionId>)；tab_bar 持 close_buttons
+    (HashMap<TabId>)；toast 持 close_buttons (HashMap<u64>)；render 前
+    retain_alive_entities (M22) 同步避免 entity 泄漏
+  - **plan T1 旁挂调整**：spec D-4 原 rename-and-replace 让 main 临时不可编译，
+    改为 ButtonEntity 旁挂 → T6 删 stateless 并 rename Entity → Button，
+    每 task main 都可编译
+  - **focus ring 兼容 M29 D-9**：Button 内置 focus_handle (cx.focus_handle()
+    in new())，dialog initial_focus 通过 `button.read(cx).focus_handle()` 取
+- 关键 commits：
+  - `f1d9bb2` — T1 ButtonEntity 旁挂 + 9 pure fn 单测
+  - `98a380c` — T2 IconButtonEntity 旁挂
+  - `a171d0d` — T3 aish-ui 内 dialog/toast callsite
+  - `4ff730d` — T4 5 view 单例 9 callsite
+  - `76f899a` — T4 收尾 host_form 6 callsite
+  - `91f1979` — T5 Vec/HashMap 渲染 8 callsite + retain helper
+  - `4608899` — T6 删 stateless + rename Entity → 简洁名
+- 测试：aish-ui 262 → **260**（+9 M31 pure fn 单测 - 11 删 stateless 旧测），
+  aish-app 147 不变
+- 已知边界 / 留 M32+：
+  - **hover transition** 仍 instant 切色（spec D-8 / M30 D-3）— 留 M32+
+  - **focus fade-out** 不做（exit 直接消失，D-3 简化）
+  - **TabItem indicator slide** — M30 T6 仍 defer，工程量超 M31 范围
+
+### M30 — 动画 / micro-interaction 体系（2026-05-15）— ✅ 主线完成（T5/T6 → M31 落地 T5）
 - spec：[`specs/2026-05-15-aish-m30-animation-design.md`](specs/2026-05-15-aish-m30-animation-design.md)
 - plan：[`plans/2026-05-15-aish-m30-animation.md`](plans/2026-05-15-aish-m30-animation.md)
 - 范围：建立 motion token + reduced_motion 偏好系统，落地 Dialog / Toast 入场动画
@@ -38,10 +76,12 @@
   - `e696d29` — T4 Toast enter opacity 0→1
   - `41807c4` — T7 reduced_motion toggle + 持久化（aish-app +2）
 - 测试：aish-ui 242 → **261**（+19），aish-app 145 → **147**（+2）
-- **Defer 到 M31**：
-  - T5 — Button / IconButton press feedback：Button stateless 组件无法持 timer，
-    需先重构为 stateful Entity
-  - T6 — TabItem active indicator slide：跨 element 关联工程量超 M30
+- **Defer 状态**：
+  - T5 — Button / IconButton press feedback ✅ **M31 落地**（commit
+    `4608899` 之前一系列），Button 重构成 stateful Entity 后 80ms opacity
+    0.85→1.0 + focus ring fade-in 生效
+  - T6 — TabItem active indicator slide：跨 element 关联工程量超 M30，
+    仍 defer M32+
 - 已知边界：
   - GPUI div 不支持 translate / transform，所有 motion 限 opacity / 色值 / position 已有属性
   - hover transition 不做（spec D-3，依然 GPUI `.hover()` instant 切色）
