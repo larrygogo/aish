@@ -12,7 +12,8 @@ use gpui_platform::application;
 
 use crate::bridge::{Bridge, EventChannel};
 use crate::state::{
-    AppState, DisconnectReason, SessionCommand, SidebarTab, SshErrorKind, SshEvent,
+    AppState, ConnectionPhase, DisconnectReason, SessionCommand, SidebarTab, SshErrorKind,
+    SshEvent, TmuxState,
 };
 
 /// 把 per-conn entity HashMap 与"哪些 key 还 alive"做同步：drop 已 stale
@@ -32,6 +33,103 @@ pub(crate) fn retain_alive_entities<K, V>(
     K: Eq + std::hash::Hash,
 {
     map.retain(|k, _| is_alive(k));
+}
+
+/// M35 T11: Terminal viewport 顶部 ConnectionBar — 24px strip 显示当前
+/// connection 的 status dot + host label + user@host:port (Code) +
+/// tmux session badge（如 attached）。让用户 5 tab 间切换时一眼看出
+/// 当前在哪个 host / tmux 状态。
+///
+/// 内联在 RootView Terminal main_body 内（tab_bar 下方，terminal viewport
+/// 上方），仅 connection tab 显示。Default tab / 未连接时返回 None。
+fn render_connection_bar(
+    state: &AppState,
+    conn: aish_types::ConnectionId,
+    t: &aish_ui::Theme,
+) -> Option<gpui::AnyElement> {
+    use aish_ui::TypographyExt;
+    let conn_info = state.connections.get(&conn)?;
+    let host_cfg = state.hosts.iter().find(|h| h.id == conn_info.host_id);
+
+    let phase = state.connection_phases.get(&conn);
+    let (dot_color, phase_label) = match phase {
+        Some(ConnectionPhase::Connected) => (t.colors.success, "已连接"),
+        Some(ConnectionPhase::Connecting) => (t.colors.warning, "连接中"),
+        Some(ConnectionPhase::Disconnected { .. }) => (t.colors.destructive, "已断开"),
+        None => (t.colors.muted_foreground, "未连接"),
+    };
+
+    let label = conn_info.label.clone();
+    let target = host_cfg
+        .map(|h| format!("{}@{}:{}", h.user, h.host, h.port))
+        .unwrap_or_default();
+
+    let tmux_attached: Option<String> = match state.tmux_state.get(&conn) {
+        Some(TmuxState::Detected {
+            attached: Some(sid),
+            ..
+        }) => Some(sid.as_str().to_string()),
+        _ => None,
+    };
+
+    let bar = div()
+        .h(px(24.0))
+        .px(px(12.0))
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(px(8.0))
+        .bg(t.colors.card)
+        .border_b_1()
+        .border_color(t.colors.border)
+        .child(
+            // status dot
+            div()
+                .w(px(8.0))
+                .h(px(8.0))
+                .rounded_full()
+                .bg(dot_color)
+                .flex_shrink_0(),
+        )
+        .child(
+            div()
+                .typography(aish_ui::TypeRole::Body, t)
+                .text_color(t.colors.foreground)
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_ellipsis()
+                .child(label),
+        )
+        .child(
+            div()
+                .typography(aish_ui::TypeRole::Caption, t)
+                .child("·"),
+        )
+        .child(
+            div()
+                .typography(aish_ui::TypeRole::Code, t)
+                .text_color(t.colors.muted_foreground)
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_ellipsis()
+                .child(target),
+        )
+        // spacer
+        .child(div().flex_1())
+        .child(
+            div()
+                .typography(aish_ui::TypeRole::Caption, t)
+                .text_color(dot_color)
+                .child(phase_label),
+        );
+
+    let bar = if let Some(sess) = tmux_attached {
+        bar.child(aish_ui::Badge::new(format!("tmux: {}", sess)).primary())
+    } else {
+        bar
+    };
+
+    Some(bar.into_any_element())
 }
 
 /// AssetSource 链：先尝试 aish-ui 的 IconName 体系，再尝试 aish-app 自己的
@@ -558,11 +656,21 @@ impl Render for RootView {
                             .expect("input_bars 刚 insert 必存在")
                             .clone()
                     });
+                    // M35 T11: ConnectionBar — tab_bar 与 terminal viewport
+                    // 间紧凑 24px strip 显示当前 connection status + host info +
+                    // tmux session。仅 connection tab（current_conn=Some）显示，
+                    // Default tab 跳过。
+                    let connection_bar_el: Option<gpui::AnyElement> = current_conn.and_then(|c| {
+                        let app = self.state.read(cx);
+                        let t = aish_ui::theme(cx);
+                        render_connection_bar(app, c, t)
+                    });
                     let mut col = div()
                         .size_full()
                         .flex()
                         .flex_col()
                         .child(self.tab_bar.clone())
+                        .children(connection_bar_el)
                         .child(terminal_area);
                     if let Some(ib) = input_bar_el {
                         col = col.child(ib);
