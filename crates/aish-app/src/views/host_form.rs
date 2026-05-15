@@ -24,13 +24,11 @@ use gpui::{
 
 use crate::bridge::Bridge;
 use crate::persistence;
-use crate::state::{AppState, AuthKind, HostFormDraft, HostFormState, SshEvent};
+use crate::state::{AppState, AuthKind, HostFormDraft, HostFormState};
 
 pub struct HostFormModal {
     state: Entity<AppState>,
     bridge: Arc<Bridge>,
-    #[allow(dead_code)]
-    tx: tokio::sync::mpsc::Sender<SshEvent>,
     dialog: Entity<Dialog>,
     /// M29 D-6：delete confirm 拆独立 dialog（380 窄 + destructive 视觉）。
     /// 与 add/edit dialog 独立 open/close，避免共用 body 时分支爆炸。
@@ -102,12 +100,7 @@ enum SyncedKey {
 }
 
 impl HostFormModal {
-    pub fn new(
-        state: Entity<AppState>,
-        bridge: Arc<Bridge>,
-        tx: tokio::sync::mpsc::Sender<SshEvent>,
-        cx: &mut Context<Self>,
-    ) -> Self {
+    pub fn new(state: Entity<AppState>, bridge: Arc<Bridge>, cx: &mut Context<Self>) -> Self {
         cx.observe(&state, |this, _state, cx| {
             this.sync_from_state(cx);
             cx.notify();
@@ -282,7 +275,6 @@ impl HostFormModal {
         Self {
             state,
             bridge,
-            tx,
             dialog,
             delete_dialog,
             delete_cancel_btn,
@@ -315,12 +307,10 @@ impl HostFormModal {
 
         match (self.synced_key, current) {
             // modal 关闭：两个 dialog 都关（R5 防双 open）
-            (_, None) => {
-                if self.synced_key != SyncedKey::None {
-                    self.synced_key = SyncedKey::None;
-                    self.dialog.update(cx, |d, cx| d.close(cx));
-                    self.delete_dialog.update(cx, |d, cx| d.close(cx));
-                }
+            (_, None) if self.synced_key != SyncedKey::None => {
+                self.synced_key = SyncedKey::None;
+                self.dialog.update(cx, |d, cx| d.close(cx));
+                self.delete_dialog.update(cx, |d, cx| d.close(cx));
             }
             // modal 切换：根据 next 决定 open 哪个 dialog，close 另一个（R5）
             (prev, Some(next)) if prev != next => {
@@ -419,7 +409,6 @@ impl HostFormModal {
             auth_kind,
             key_path: self.keyfile_input.read(cx).text().to_string(),
             password: self.password_input.read(cx).text().to_string(),
-            password_visible: false,
             error: None,
         }
     }
