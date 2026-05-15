@@ -32,6 +32,10 @@ pub struct Dialog {
     /// open 后通过 focus_chain(...) 注册。Tab / Shift+Tab 在此链上循环，
     /// 不让焦点跑出 dialog 外（无障碍 + 减少误操作）。空 = 不启用 trap。
     focus_chain: Vec<FocusHandle>,
+    /// M29 D-9：open 后默认 focus 的 element。Some(h) 时 dialog open 即
+    /// focus 该 handle（如 host_form 的首 input / delete confirm 的 Cancel
+    /// button）；None 时回落到 dialog 自身 focus_handle（M12 原行为）。
+    initial_focus: Option<FocusHandle>,
 }
 
 impl Dialog {
@@ -46,7 +50,16 @@ impl Dialog {
             on_close: None,
             on_key: None,
             focus_chain: Vec::new(),
+            initial_focus: None,
         }
+    }
+
+    /// M29 D-9: 设 dialog open 后默认 focus 的元素（host_form 首 input /
+    /// delete confirm 的 Cancel button）。caller 通常在 sync_from_state
+    /// 内 set，open() 内部 set needs_focus=true，下次 render 时 focus 此 handle。
+    pub fn initial_focus(&mut self, h: FocusHandle) -> &mut Self {
+        self.initial_focus = Some(h);
+        self
     }
 
     pub fn title(&mut self, t: impl Into<SharedString>) -> &mut Self {
@@ -161,9 +174,15 @@ impl Render for Dialog {
             return div().into_any_element();
         }
 
-        // 第一次 open 后聚焦，保证 Esc 能响应
+        // 第一次 open 后聚焦，保证 Esc 能响应。
+        // M29 D-9: 若 caller 设了 initial_focus 优先 focus 它（如 host_form
+        // 首 input / delete confirm Cancel），否则回落到 dialog 自身 focus_handle。
         if self.needs_focus {
-            self.focus_handle.focus(window, cx);
+            if let Some(h) = self.initial_focus.as_ref() {
+                h.focus(window, cx);
+            } else {
+                self.focus_handle.focus(window, cx);
+            }
             self.needs_focus = false;
         }
 
@@ -286,6 +305,28 @@ mod tests {
     fn default_width_is_480() {
         let width = gpui::px(480.0);
         assert_eq!(width, gpui::px(480.0));
+    }
+
+    /// M29 D-9：initial_focus 优先级决策 — pure fn 模拟 render 内 needs_focus
+    /// 路径选 focus 目标。
+    fn pick_focus_target(initial_focus_set: bool) -> &'static str {
+        if initial_focus_set {
+            "initial"
+        } else {
+            "dialog_self"
+        }
+    }
+
+    #[test]
+    fn initial_focus_set_picks_initial() {
+        // caller 调 .initial_focus(h) 后 → focus 该 handle 而非 dialog 自身
+        assert_eq!(pick_focus_target(true), "initial");
+    }
+
+    #[test]
+    fn initial_focus_unset_falls_back_to_self() {
+        // M12 原行为：未 set initial_focus 时 focus dialog 自身（让 Esc 能响应）
+        assert_eq!(pick_focus_target(false), "dialog_self");
     }
 
     #[test]

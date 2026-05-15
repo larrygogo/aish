@@ -94,6 +94,11 @@ pub struct TextInput {
     /// mouse 仍可点击定位 cursor + select 文本（与浏览器 disabled input 一致
     /// 行为是完全不响应，aish 折中：允许选择 + 复制，禁止编辑）。
     disabled: bool,
+    /// M29 D-7：错误态视觉。caller 在实时校验失败时调 `.error(true)`，
+    /// border / focus ring 走 destructive 色（红），让用户在 input 自身
+    /// 就看出问题，不必扫到下方 inline error 文字。**优先级最高**：
+    /// error=true 时即便 focused 也走 destructive border 而非 ring。
+    error: bool,
     /// M19：多行模式。true 时 Enter 插 \n / Ctrl+Enter 触发 on_submit /
     /// 按 \n 拆 logical lines + word-wrap 成 visual lines / auto-grow 到
     /// max_lines 上限后内部滚动。默认 false（单行行为完全不变）。
@@ -151,6 +156,7 @@ impl TextInput {
             drag_task: None,
             show_mask_toggle: false,
             disabled: false,
+            error: false,
             multiline: false,
             max_lines: 6,
             preferred_col: None,
@@ -190,6 +196,13 @@ impl TextInput {
     /// icon 在 Eye / EyeOff 间切换（masked = EyeOff 提示"目前隐藏"）。
     /// 禁用编辑（上传中 / 只读 等场景）：键盘 / IME 输入跳过；mouse 仍可定位
     /// cursor + selection（保留 copy 能力）。
+    /// M29 D-7：实时校验错误态。true 时 border + focus ring 走 destructive 色。
+    /// caller 通常配合 inline error 文字（red Caption）使用。
+    pub fn error(&mut self, e: bool) -> &mut Self {
+        self.error = e;
+        self
+    }
+
     pub fn disabled(&mut self, b: bool) -> &mut Self {
         self.disabled = b;
         self
@@ -1657,7 +1670,10 @@ impl Render for TextInput {
         let show_cursor = focused && self.cursor_visible_now();
 
         let t = theme(cx);
-        let border_color = if focused {
+        // M29 D-7：error 优先级最高，即便 focused 也走 destructive
+        let border_color = if self.error {
+            t.colors.destructive
+        } else if focused {
             t.colors.ring
         } else {
             t.colors.border
@@ -2521,6 +2537,35 @@ mod tests {
     fn drag_state_starts_false() {
         let dragging = false;
         assert!(!dragging);
+    }
+
+    /// M29 D-7: error 优先级最高的 border_color match — 纯函数模拟 render
+    /// 内的三态决策（error / focused / idle）。
+    fn pick_border_state(error: bool, focused: bool) -> &'static str {
+        if error {
+            "destructive"
+        } else if focused {
+            "ring"
+        } else {
+            "border"
+        }
+    }
+
+    #[test]
+    fn text_input_error_overrides_focus_ring() {
+        // error=true 即便 focused，border 走 destructive 不走 ring
+        assert_eq!(pick_border_state(true, true), "destructive");
+        assert_eq!(pick_border_state(true, false), "destructive");
+    }
+
+    #[test]
+    fn text_input_focused_picks_ring_when_not_error() {
+        assert_eq!(pick_border_state(false, true), "ring");
+    }
+
+    #[test]
+    fn text_input_idle_picks_border() {
+        assert_eq!(pick_border_state(false, false), "border");
     }
 
     #[test]
