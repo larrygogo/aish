@@ -27,16 +27,23 @@ crates/aish-ui/src/components/toast.rs            (1 callsite，per-toast)
 
 ## Tasks（顺序，每条独立 commit）
 
-### T1: 新增 Button Entity（旧 stateless 保留 `#[deprecated]`）
+### T1: 新增 ButtonEntity（旁挂，保留 stateless Button 不改）
 
 **对应 ADR**: D-1 / D-2 / D-7 / D-9
 
-- 在 `button.rs` 内**并存**新旧两套：
-  - 旧：保留 `pub struct ButtonLegacy` + `impl RenderOnce`（rename 当前结构，
-    加 `#[deprecated(since="M31", note="use Button entity instead")]` 注解）
-  - 新：`pub struct Button { id, label, variant, disabled, on_click, focus_handle: FocusHandle, pressing: bool, focus_animated: bool, was_focused_prev: bool }` + `impl Render`
-- 新 `Button::new(id, cx)` 构造：cx.focus_handle()，pressing/focus_animated false
-- builder 方法签名改 `&mut self -> &mut Self`：caller 在 cx.new 闭包内 chain
+**关键调整（vs spec 原设计）**：spec D-4 原说"rename stateless → `ButtonLegacy`
++ 新 entity 沿用名 `Button`"，会让 T1 commit 后 main 立即不可编译（违背
+CLAUDE.md "每 task 跑质量门禁"）。**plan 改：ButtonEntity 旁挂模式** —
+T1-T5 期间新旧两套 type 并存（不同名），T6 删 stateless 同时 rename
+ButtonEntity → Button。每 task 完成 main 都可编译。
+
+- 在 `button.rs` 内**并存**两套：
+  - 旧：`pub struct Button` + `impl RenderOnce` **保持不动**（callsite 仍可用）
+  - 新：`pub struct ButtonEntity { id, label, variant, disabled, on_click,
+    focus_handle: FocusHandle, pressing: bool, focus_animated: bool,
+    was_focused_prev: bool }` + `impl Render`
+- 新 `ButtonEntity::new(id, cx)` 构造：cx.focus_handle()，pressing/focus_animated false
+- builder 方法签名 `&mut self -> &mut Self`：caller 在 cx.new 闭包内 chain
 - render 内部：
   - 计算 `now_focused = self.focus_handle.is_focused(window)`
   - 若 `!self.was_focused_prev && now_focused`：set `focus_animated=true` + spawn 80ms timer 清 false
@@ -50,22 +57,22 @@ crates/aish-ui/src/components/toast.rs            (1 callsite，per-toast)
   - `focus_animator_should_start(prev, cur)`：(false, true)=true，其他 false
   - `press_opacity_animator_at_endpoints`：0.0→0.85，1.0→1.0
   - `press_opacity_clamped`：负值 / 超 1 时 opacity 保留端点
-- **不**改 aish-app 的 callsite，旧 stateless API 仍工作（callsite 用 ButtonLegacy alias 临时）
+- **不**改 aish-app 的 callsite，旧 stateless `Button` 仍工作
 
 **质量门禁**: fmt + clippy + test 通过；aish-ui 测试 +4 ~ +5；aish-app 旧 callsite 不动 — 整个 main 仍可编译。
 
 ---
 
-### T2: IconButton Entity 同 Button 对称（旧保留 deprecated）
+### T2: IconButtonEntity 旁挂（旧 stateless IconButton 不变）
 
 **对应 ADR**: D-6
 
-- `icon_button.rs` 重构同 T1 模式：旧 IconButtonLegacy + 新 IconButton entity
+- `icon_button.rs` 同 T1 模式：旧 stateless `IconButton` 保持，新 `IconButtonEntity`
 - pressing / focus_animated 字段 + 80ms animate 包装相同
 - size (Small / Default / Large) / variant 字段保留不变
 - 单测 +3：`icon_btn_pressing_default_false` / `icon_btn_focus_anim_transition` / press 端点
 
-**质量门禁**: fmt + clippy + test 通过；aish-ui 测试 +3；旧 callsite 走 IconButtonLegacy alias 临时。
+**质量门禁**: fmt + clippy + test 通过；aish-ui 测试 +3；旧 callsite 不动 main 可编译。
 
 ---
 
@@ -101,7 +108,7 @@ crates/aish-ui/src/components/toast.rs            (1 callsite，per-toast)
 - `input_bar.rs` 2 处：InputBarView 加 `pick_btn` / `send_btn`
 - `settings.rs` 2 处：SettingsView 加 `open_config_btn` / `open_github_btn`
 - `terminal_view.rs` 1 处：reconnect btn — Disconnected 状态显示
-- 删除 ButtonLegacy / IconButtonLegacy alias，编译器报错检验所有 callsite 覆盖（注：本 task 后只剩 Vec/HashMap 渲染场景未改）
+- 本 task 后只剩 Vec/HashMap 渲染场景未改（T5 处理）
 
 **质量门禁**: fmt + clippy + test 通过；手测 add host / save host / settings buttons 都正常；press feedback 在每个 button 80ms 暗→亮可见。
 
@@ -124,16 +131,17 @@ crates/aish-ui/src/components/toast.rs            (1 callsite，per-toast)
 
 ---
 
-### T6: 删 ButtonLegacy / IconButtonLegacy + 单测改 Entity 版
+### T6: 删 stateless Button / IconButton + rename Entity → 简洁名
 
 **对应 ADR**: D-4
 
-- 移除 `#[deprecated]` legacy struct + impl
-- `button.rs` / `icon_button.rs` 单测改用 Entity 构造
-  - 创建 Entity 需 cx — 用 `gpui::TestApp` 或仿照 dialog.rs 模式留 pure fn 模拟
-  - 若 GPUI test app 麻烦，把 builder 单测改为 pure fn 模拟（D-9）
-- 同步删除 mod.rs / lib.rs 的 ButtonLegacy / IconButtonLegacy re-export
-- 旧 deprecated alias 消失后跑 clippy 检查无 deprecation warning 漏网
+- 删除 `pub struct Button` (stateless `RenderOnce`) + 单测
+- 删除 `pub struct IconButton` (stateless `RenderOnce`) + 单测
+- rename `ButtonEntity → Button`、`IconButtonEntity → IconButton`（VS Code
+  symbol rename 或 sed 批量）— callsite 在 T3-T5 已用旁挂名，rename 后
+  callsite 走 `Button::new(id, cx)` 新签名
+- 同步 mod.rs / lib.rs re-export 收敛到单一 `Button` / `IconButton`
+- 单测改用 Entity 构造（D-9 pure fn 模拟模式）— 或留少量 pure fn 替代
 
 **质量门禁**: fmt + clippy + test 通过；aish-ui 测试不少于 T2 末态；clippy 0 warning。
 
@@ -153,21 +161,21 @@ crates/aish-ui/src/components/toast.rs            (1 callsite，per-toast)
 - [ ] Risk R1-R8 在 task 内有 mitigation 落地
 - [ ] T1 / T2 加 7~8 个 aish-ui 单测（pressing state / focus animator / opacity endpoints）
 - [ ] T3 toast retain_alive_entities — 验证 toast 列表变化时无 stale entity
-- [ ] T4 / T5 callsite 全数迁新 API，T6 删 Legacy 编译器把关
+- [ ] T4 / T5 callsite 全数迁 ButtonEntity / IconButtonEntity，T6 rename 后无 stateless 残留
 - [ ] T5 home host_card_buttons / tab_bar close_buttons HashMap 都用 retain_alive_entities
 - [ ] commits 严格按 task 顺序；每个 commit fmt + clippy + test 通过
 - [ ] commit message 末尾加 `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`
-- [ ] 整个 M31 用 worktree 隔离实施分支（spec R5）
-- [ ] T6 删 Legacy 后 main 全 callsite 编译验证 — 不让 ButtonLegacy 残留
+- [ ] **不走** worktree（plan T1 调整：旁挂模式让每 task main 都可编译）
+- [ ] T6 删 stateless + rename 后 main 编译 + callsite 无 stateless 残留
 
 ---
 
 ## 实施顺序与依赖
 
 ```
-T1 (Button entity 引入，旧 stateless 标 deprecated) ──┐
-                                                       ↓
-T2 (IconButton entity 同 T1 模式) ─────────────────────┘
+T1 (ButtonEntity 旁挂，旧 stateless Button 不动) ──┐
+                                                    ↓
+T2 (IconButtonEntity 旁挂同 T1 模式) ───────────────┘
                                                        ↓
             ┌──────────────────────────────────────────┘
             ↓
@@ -196,7 +204,7 @@ T1 / T2 互不依赖可并行实施（不同文件），但 T3 必须等两者 d
 | T3 | dialog.rs / toast.rs | +30 / +50 (toast HashMap retain) | 0.5 天 |
 | T4 | 7 个 view 文件 | +200 / -150 | 1 天 |
 | T5 | home.rs / tab_bar.rs | +120 / -50 + retain helper | 0.5 天 |
-| T6 | button.rs / icon_button.rs | -100（删 Legacy）+ test 重写 | 0.5 天 |
+| T6 | button.rs / icon_button.rs | -200（删 stateless + rename）+ test 重写 | 0.5 天 |
 | T7 | spec + INDEX | +60 | 0.25 天 |
 | **合计** | | | **~3.75 天** |
 
@@ -215,7 +223,7 @@ T1 / T2 互不依赖可并行实施（不同文件），但 T3 必须等两者 d
 - **focus_handle 兼容 M29 D-9**：HostForm dialog `.initial_focus(label_input.focus_handle)`
   仍工作 — Button.focus_handle() 返回 self.focus_handle.clone()（与 M15
   外部注入语义保持向后兼容）
-- **callsite 改造期 main 可编译**：T1-T6 期间每 task 独立 commit，每 commit
-  跑质量门禁；不允许 partial state 跨 task
+- **callsite 改造期 main 可编译**：T1 旁挂模式让所有 task 完成 main 都
+  能编译 + 通过质量门禁，不允许 partial state 跨 task
 - **press timer 不死锁**：spawn timer 用 weak entity update + check pressing
   仍 true 才清，连点不死锁（R3）
