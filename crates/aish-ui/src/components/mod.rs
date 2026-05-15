@@ -32,7 +32,7 @@ pub use context_menu::ContextMenu;
 pub use dialog::Dialog;
 pub use dropdown_menu::DropdownMenu;
 pub use empty_state::{EmptyState, ErrorState, StatusView};
-pub use icon_button::{IconButton, IconButtonSize};
+pub use icon_button::{IconButton, IconButtonEntity, IconButtonSize};
 pub use menu_item::MenuItem;
 pub use nav_item::{NavItem, NavItemOrientation};
 pub use popover::{Popover, PopoverPlacement};

@@ -472,8 +472,8 @@ fn ring_shadow(t: &crate::theme::Theme, alpha_factor: f32) -> Vec<BoxShadow> {
 }
 
 /// 纯函数：按 variant + disabled 返回 (idle_bg, hover_bg, active_bg, fg)。
-/// 抽出供 stateless Button + ButtonEntity 共用。
-fn pick_button_colors(
+/// 抽出供 stateless Button + ButtonEntity + IconButtonEntity 共用（pub(crate)）。
+pub(crate) fn pick_button_colors(
     variant: ButtonVariant,
     disabled: bool,
     t: &crate::theme::Theme,
@@ -516,7 +516,7 @@ fn pick_button_colors(
 
 /// press feedback opacity：linear 0.85 → 1.0 在 delta ∈ [0, 1]。
 /// 与 with_animation 的 easing 配合 — easing 已 ease-out，本 fn 仅线性映射。
-fn press_opacity_at(delta: f32) -> f32 {
+pub(crate) fn press_opacity_at(delta: f32) -> f32 {
     let d = delta.clamp(0.0, 1.0);
     0.85 + 0.15 * d
 }
