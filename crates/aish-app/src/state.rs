@@ -451,6 +451,11 @@ pub struct AppState {
     pub modal: Option<HostFormState>,
     pub last_connected: HashMap<HostId, SystemTime>,
     pub sidebar: SidebarTab,
+    /// M35 T9: sidebar 是否展开（220px 含「最近连接」list）。
+    /// false = 64px icon-only 折叠模式（v0.next 默认 / muscle memory），
+    /// true = 220px 含完整 nav + 最近连接 list。
+    /// 通过 sidebar 顶部 logo 区域点击 toggle，持久化到 app_state.toml。
+    pub sidebar_expanded: bool,
 
     /// 每连接一个 actor 命令通道。
     pub sessions: HashMap<ConnectionId, mpsc::Sender<SessionCommand>>,
@@ -533,6 +538,7 @@ impl AppState {
             tabs: vec![],
             selected_tab: None,
             sidebar: SidebarTab::Home,
+            sidebar_expanded: false, // M35 T9: 默认折叠，保留 muscle memory
             pending_session_picker: None,
             pending_palette: false,
             sessions: HashMap::new(),

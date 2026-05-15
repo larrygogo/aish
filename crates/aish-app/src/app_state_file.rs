@@ -23,6 +23,11 @@ pub struct AppStateFile {
     /// SettingsView Switch 写盘后，启动时回灌到 Theme.reduced_motion。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reduced_motion: Option<bool>,
+    /// M35 T9: sidebar 是否展开（220px 含「最近连接」list）。
+    /// None = 默认 false（折叠 / 64px icon-only — 保留 v0.next muscle memory）。
+    /// 用户点 logo 区域 toggle 后写盘。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sidebar_expanded: Option<bool>,
 }
 
 pub fn app_state_path() -> Option<PathBuf> {

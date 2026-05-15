@@ -99,6 +99,9 @@ pub fn run() {
                 }
             };
             let loaded_state = crate::app_state_file::load_app_state();
+            // M35 T9: 回灌 sidebar_expanded 偏好（into_last_connected 消耗
+            // self，先取出需要的字段）
+            let sidebar_expanded = loaded_state.sidebar_expanded.unwrap_or(false);
             let last_connected = loaded_state.into_last_connected();
             let channel = EventChannel::new();
             let tx_for_state = channel.tx.clone();
@@ -106,6 +109,7 @@ pub fn run() {
                 let mut s = AppState::with_hosts(hosts);
                 s.last_connected = last_connected;
                 s.hosts_load_error = hosts_load_error;
+                s.sidebar_expanded = sidebar_expanded;
                 // 注入 event_tx：让 alacritty Term 的 TitleListener 能把 OSC
                 // 0/1/2 title event 推回主循环
                 s.event_tx = Some(tx_for_state);
