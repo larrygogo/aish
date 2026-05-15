@@ -518,7 +518,9 @@ impl RootView {
         })
         .detach();
 
-        let sidebar_nav = cx.new(|cx| crate::views::SidebarNavView::new(state.clone(), cx));
+        let sidebar_nav = cx.new(|cx| {
+            crate::views::SidebarNavView::new(state.clone(), bridge.clone(), tx.clone(), cx)
+        });
         let tab_bar = cx.new(|cx| crate::views::TabBarView::new(state.clone(), bridge.clone(), cx));
         let home =
             cx.new(|cx| crate::views::HomeView::new(state.clone(), bridge.clone(), tx.clone(), cx));
