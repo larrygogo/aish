@@ -52,12 +52,13 @@ fn section_header(title: &'static str, t: &Theme) -> AnyElement {
 fn two_column_row(left: &str, right: &str, t: &Theme) -> AnyElement {
     // M26 T5: 左 Label (13/500/fg) + secondary_fg override 弱化（让 right
     // 是主信息）；右 Body (13/400/fg)。语义：left 是字段名，right 是值。
+    // M27 anatomy：py(10) 与 control_row 统一行高（settings card 内 row 节奏一致）。
     div()
         .flex()
         .flex_row()
         .items_center()
         .px_4()
-        .py(px(8.0))
+        .py(px(10.0))
         .child(
             div()
                 .w(px(200.0))

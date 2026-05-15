@@ -546,7 +546,10 @@ impl Render for HomeView {
                 // 的 inset 在 flex container 内行为与 CSS 不一致，定位飘移），改为
                 // actions inline 但透明，body_row 标记 group → actions
                 // group_hover 显形。
-                // B1: py_4 (16px) 替代 py_3p5 (14px) 给卡片更舒展的内部呼吸
+                //
+                // M27 anatomy：py 16 → 12，host card 更紧凑（Linear/Warp 风
+                // dev tool 高密度），avatar 40 + 3 行 (14/13/12) = ~52 + py 24
+                // = ~76px row 高，比之前 ~84px 略紧。
                 let body_row = div()
                     .group(group_name)
                     .flex()
@@ -554,7 +557,7 @@ impl Render for HomeView {
                     .items_center()
                     .gap_3()
                     .px_4()
-                    .py_4()
+                    .py_3()
                     .child(avatar)
                     .child(
                         div()
