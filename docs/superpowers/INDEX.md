@@ -26,7 +26,7 @@
 
 ## Milestones（按时间倒序）
 
-### M35 UI/UX 整体提升（2026-05-15 立项 + Phase A 落地）— 📋 **进行中（Phase A ✅，Phase B T8 ✅，T7/T9-T12/C 待定）**
+### M35 UI/UX 整体提升（2026-05-15 立项 + Phase A/B 主体落地）— 📋 **进行中（Phase A ✅，Phase B 5/6 ✅，Phase C 待定）**
 
 - 范围：基于 M22-M34 已建立的 design tokens + motion 系统底子做视觉层级
   与信息密度的密度提升 + 定位明确化。3-phase 11-14 天，18 个 task。
@@ -44,16 +44,26 @@
   - T6 sidebar icon + Caption label，64px (`6c14a2b`)
   - T4 Home 改名「继续工作」/「保存的主机」+ Title3 升级 + separator (`8abb844`)
   - 视觉对齐 icon fix (`2bdb482`)
-- **Phase B（v0.next+1）部分完成，6 task：**
-  - **T8 CommandPalette MVP ✅ (2026-05-15)**：fuzzy host search + global ⌘K/Ctrl+P
-    trigger，~475 行含 7 单测（fuzzy_score / selection wrap / Enter handler）
-  - T7 Home 「最近连接」迁移（待 T9 完成后做）
-  - T9-T12 待规划实施（6 task，5-7 天估计）
+- **Phase B（v0.next+1）5/6 主体完成 (2026-05-15)，6 task：**
+  - **T8 CommandPalette MVP ✅** (`f8a3462`)：fuzzy host search + global
+    ⌘K/Ctrl+P trigger，~475 行含 7 单测（fuzzy_score / selection wrap /
+    Enter handler）
+  - **T9 Sidebar 220px 双模式 ⛔ revert** (`da9cd8b`)：实施期 borrow 冲突
+    未修完。state 层 sidebar_expanded field + 持久化已落地作 prep，
+    UI 大改延后
+  - **T7 Home 「最近连接」迁移 ⏸** blocked on T9
+  - **T10 HostForm 单行 user@host:port ✅** (`bfd07f8`)：parse_connection_string
+    + 10 单测（typical/IPv6/边界）+ label 字段移底部
+  - **T11 Terminal ConnectionBar (24px) ✅** (`b7a604c`)：tab_bar 与
+    terminal viewport 间紧凑 status strip（status dot + host label +
+    user@host:port + phase label + tmux session badge）
+  - **T12 Disconnected ErrorState ✅** (`7ec238a`)：中央 ErrorState 替代
+    底部 strip，3 button (重连 / 编辑 host / 复制错误)
 - **Phase C（v0.next+2）待定** — 6 task / 5 天
 - Spec：[`specs/2026-05-15-aish-m35-uiux-overhaul-design.md`](specs/2026-05-15-aish-m35-uiux-overhaul-design.md)
 - Plan：[`plans/2026-05-15-aish-m35-uiux-overhaul.md`](plans/2026-05-15-aish-m35-uiux-overhaul.md)
-- 测试基线：aish-ui 274 → 278（+4 个新 pure-fn 测试），aish-app +7
-  commandpalette 单测，共 543 全过
+- 测试基线：aish-ui 274 → 278（+4 个新 pure-fn 测试），aish-app 150 →
+  167（+17 parse_connection_string / fuzzy_score 单测），共 559 全过
 
 ### hover leave fade-out (motion 系统补完)（2026-05-15）— ✅ 已完成
 - 范围：M30-M34 motion 系统最后补完 — 5 个 entity 组件（Button /
