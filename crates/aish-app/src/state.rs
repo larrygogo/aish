@@ -469,6 +469,10 @@ pub struct AppState {
     /// 推回 GPUI 主循环。`None` 时 listener 走 fallback 不发事件（测试 fixture
     /// 创建 AppState 时常见，无 listener 也能正常构造 Term）。
     pub event_tx: Option<mpsc::Sender<SshEvent>>,
+    /// M28 T7：hosts.json load 失败时 error message。`None` = 加载成功。
+    /// 启动时 `app.rs` 在 `load_hosts()` Err 路径 set；Home 据此渲染
+    /// ErrorState + 重试 button 替代默认 hosts 列表。重试成功后清回 None。
+    pub hosts_load_error: Option<String>,
 }
 
 impl Connection {
@@ -528,6 +532,7 @@ impl AppState {
             last_aborted_batch: HashMap::new(),
             connection_phases: HashMap::new(),
             event_tx: None,
+            hosts_load_error: None,
         }
     }
 
@@ -911,6 +916,14 @@ mod tests {
         assert_eq!(state.hosts.len(), 1);
         assert!(state.host_pty_term.is_empty());
         assert!(state.host_pty_dimensions.is_empty());
+    }
+
+    #[test]
+    fn hosts_load_error_default_is_none() {
+        // M28 T7: new AppState 应该 hosts_load_error = None（加载成功）
+        // app.rs Err 路径才 set Some(err)
+        let state = AppState::with_hosts(vec![]);
+        assert!(state.hosts_load_error.is_none());
     }
 
     #[test]

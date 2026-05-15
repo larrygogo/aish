@@ -276,12 +276,12 @@ impl Render for SessionPickerView {
             .collect();
 
         let body: gpui::AnyElement = if sessions.is_empty() {
-            // M26: empty state 用 Body (13/400) + muted_fg override
-            div()
-                .py(spacing.px_4)
-                .typography(aish_ui::TypeRole::Body, t)
-                .text_color(colors.muted_foreground)
-                .child("(无 session — 关闭弹窗回到 raw shell)")
+            // M28 T6: 用 EmptyState 替代 muted 一行文字，dialog 内紧凑场景
+            // 不带 action（关闭即可回 raw shell，不需要主 CTA）。
+            aish_ui::EmptyState::new("session-picker-empty")
+                .icon(aish_ui::IconName::Inbox)
+                .title("没有可用的 tmux session")
+                .description("关闭此弹窗回到 raw shell")
                 .into_any_element()
         } else {
             div()

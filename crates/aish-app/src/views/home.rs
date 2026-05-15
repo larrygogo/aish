@@ -142,6 +142,30 @@ impl HomeView {
         });
     }
 
+    /// M28 T7：hosts.json load 失败 ErrorState 上点"重试"路径。
+    /// 重新调 persistence::load_hosts()，成功清 error + 替换 state.hosts；
+    /// 失败更新 error message。
+    fn handle_retry_load_hosts(&mut self, cx: &mut Context<Self>) {
+        match crate::persistence::load_hosts() {
+            Ok(hosts) => {
+                self.state.update(cx, |s, cx| {
+                    s.hosts = hosts;
+                    s.hosts_load_error = None;
+                    cx.notify();
+                });
+                aish_ui::toast_success(cx, "主机列表已恢复");
+            }
+            Err(e) => {
+                let msg = format!("{}", e);
+                self.state.update(cx, |s, cx| {
+                    s.hosts_load_error = Some(msg.clone());
+                    cx.notify();
+                });
+                aish_ui::toast_error(cx, format!("加载失败：{}", msg));
+            }
+        }
+    }
+
     fn handle_card_click(&mut self, host_id: HostId, cx: &mut Context<Self>) {
         let (conn_id, config, label) = self.state.update(cx, |s, cx| {
             let conn = s.open_connection(host_id);
@@ -630,15 +654,40 @@ impl Render for HomeView {
             })
             .collect();
 
-        let empty_hint = if app.hosts.is_empty() {
+        // M28 T7: load 失败 → ErrorState + 重试 button；优先于 empty
+        // hint，因为这是真错误不是空状态。
+        let load_error = app.hosts_load_error.clone();
+        let empty_hint = if let Some(err) = load_error {
+            let retry_btn = aish_ui::Button::new("home-hosts-load-retry")
+                .primary()
+                .label("重试")
+                .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
+                    this.handle_retry_load_hosts(cx);
+                }));
             Some(
-                // M26 empty state: Body + muted_fg override
-                div()
-                    .px_4()
-                    .py_8()
-                    .typography(aish_ui::TypeRole::Body, theme)
-                    .text_color(colors.muted_foreground)
-                    .child("还没有保存的连接 — 点上方 + 添加 host 开始"),
+                aish_ui::ErrorState::new("home-hosts-load-failed")
+                    .icon(aish_ui::IconName::FileQuestion)
+                    .title("加载主机列表失败")
+                    .description(err)
+                    .action(retry_btn)
+                    .into_any_element(),
+            )
+        }
+        // M28 T4: hosts 空 → EmptyState 4-slot anatomy
+        else if app.hosts.is_empty() {
+            let add_btn = aish_ui::Button::new("home-empty-add-host")
+                .primary()
+                .label("+ 添加 host")
+                .on_click(
+                    cx.listener(|this, _ev: &MouseDownEvent, _w, cx| this.handle_add_click(cx)),
+                );
+            Some(
+                aish_ui::EmptyState::new("home-no-hosts")
+                    .icon(aish_ui::IconName::Inbox)
+                    .title("还没有保存的连接")
+                    .description("点击右上角 + 添加 host 开始")
+                    .action(add_btn)
+                    .into_any_element(),
             )
         } else {
             None

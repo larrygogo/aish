@@ -86,11 +86,13 @@ pub fn run() {
             cx.set_global(aish_ui::ToastHandle(toast_manager.clone()));
 
             crate::terminal::font::register_bundled_font(cx);
-            let hosts = match crate::persistence::load_hosts() {
-                Ok(h) => h,
+            // M28 T7: load 失败时记 error，Home 渲染 ErrorState + 重试入口
+            // 替代之前 silent fail（用户感知不到）。
+            let (hosts, hosts_load_error) = match crate::persistence::load_hosts() {
+                Ok(h) => (h, None),
                 Err(e) => {
-                    tracing::error!("load hosts.json failed: {} — starting with empty list", e);
-                    Vec::new()
+                    tracing::error!("load hosts.json failed: {}", e);
+                    (Vec::new(), Some(format!("{}", e)))
                 }
             };
             let loaded_state = crate::app_state_file::load_app_state();
@@ -100,6 +102,7 @@ pub fn run() {
             let state = cx.new(|_cx| {
                 let mut s = AppState::with_hosts(hosts);
                 s.last_connected = last_connected;
+                s.hosts_load_error = hosts_load_error;
                 // 注入 event_tx：让 alacritty Term 的 TitleListener 能把 OSC
                 // 0/1/2 title event 推回主循环
                 s.event_tx = Some(tx_for_state);
