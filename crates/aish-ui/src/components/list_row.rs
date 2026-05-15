@@ -194,14 +194,12 @@ impl Render for ListRow {
         let press_count = self.press_count;
         let hover_anim_count = self.hover_anim_count;
 
-        let base_bg = if selected {
-            hover_bg
-        } else {
-            match hover_state {
-                HoverState::Idle | HoverState::Entering { .. } => idle_bg,
-                HoverState::Hovered | HoverState::Leaving { .. } => hover_bg,
-            }
-        };
+        // base_bg robustness：非 selected 时永远 idle_bg；实际 hover 视觉由
+        // 下方两路径接管（non-animate path 附 GPUI .hover() 真实视觉；animate
+        // path closure lerp 主导）。这样即使 hover_state 卡 Hovered（mouse_down
+        // 期间 GPUI 捕获鼠标漏 on_hover(false) 事件），鼠标真离开 div 时 .hover
+        // 不触发 → 视觉 instant 回 idle，不卡 hover 色。与 NavItem 同模式。
+        let base_bg = if selected { hover_bg } else { idle_bg };
 
         let handler = self.on_click.clone();
         let on_press_listener = cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
@@ -240,6 +238,12 @@ impl Render for ListRow {
         }
 
         if !need_anim {
+            // 非动画稳态路径：附 GPUI .hover() 作为真实视觉源（mouse 真在 div
+            // 时切 hover bg，离开 instant 回 idle）。仅 has_click 且非 selected
+            // 时挂 — selected 视觉锁 hover_bg 不参与 hover。
+            if has_click && !selected {
+                el = el.hover(move |s| s.bg(hover_bg));
+            }
             return el.into_any_element();
         }
 

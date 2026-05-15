@@ -306,12 +306,11 @@ impl Render for Button {
         let hover_anim_count = self.hover_anim_count;
         let variant = self.variant;
 
-        // base bg：Idle/Entering → idle_bg；Hovered → hover_bg；
-        // Leaving → hover_bg（lerp 起点；animator 内反向 lerp 到 idle_bg）
-        let base_bg = match hover_state {
-            HoverState::Idle | HoverState::Entering { .. } => idle_bg,
-            HoverState::Hovered | HoverState::Leaving { .. } => hover_bg,
-        };
+        // base_bg robustness：永远 idle_bg；实际 hover 视觉由 non-animate
+        // 路径的 GPUI .hover() / animate 路径的 closure lerp 接管。这样即使
+        // hover_state 卡 Hovered（mouse_down 期间 GPUI 捕获鼠标漏 on_hover
+        // false 事件），鼠标真离开 div 时 .hover 不触发 → 视觉 instant 回 idle。
+        let base_bg = idle_bg;
 
         // base Div — 不依赖闭包，直接用值构造。两个分支后续各自决定 wrap。
         let handler = self.on_click.clone();
@@ -356,7 +355,12 @@ impl Render for Button {
         }
 
         if !need_anim {
-            // 无动画路径：focused 时挂静态 ring，否则裸 div
+            // 非动画稳态：附 GPUI .hover() 作为真实视觉源（mouse 真在 div 时
+            // 切 hover_bg，离开 instant 回 idle）。disabled 不挂。
+            if !disabled {
+                el = el.hover(move |s| s.bg(hover_bg));
+            }
+            // focused 时挂静态 ring，否则裸 div
             if now_focused {
                 el = el.shadow(static_ring);
             }

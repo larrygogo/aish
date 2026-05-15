@@ -270,11 +270,11 @@ impl Render for IconButton {
         let hover_anim_count = self.hover_anim_count;
         let variant = self.variant;
 
-        // base bg: M32 + M34 v2 — Leaving 与 Hovered 同起点 (hover_bg)
-        let base_bg = match hover_state {
-            HoverState::Idle | HoverState::Entering { .. } => idle_bg,
-            HoverState::Hovered | HoverState::Leaving { .. } => hover_bg,
-        };
+        // base_bg robustness：永远 idle_bg；hover 视觉由 non-animate 路径的
+        // GPUI .hover() / animate 路径的 closure lerp 接管。Ghost variant 走
+        // alpha-only lerp (hover_bg_at 内 alpha=delta 模式)；Default 走 hsla
+        // 普通 lerp。两路径 closure 内逻辑保留不变。与 Button 同 robustness。
+        let base_bg = idle_bg;
 
         let handler = self.on_click.clone();
         let on_press_listener = cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
@@ -311,6 +311,10 @@ impl Render for IconButton {
         }
 
         if !need_anim {
+            // 非动画稳态：附 GPUI .hover() 真实视觉源（disabled 不挂）。
+            if !disabled {
+                el = el.hover(move |s| s.bg(hover_bg));
+            }
             if now_focused {
                 let mut glow = ring_color;
                 glow.a = 0.4;

@@ -271,14 +271,11 @@ impl Render for TabItem {
         let hover_anim_count = self.hover_anim_count;
         let active_anim_count = self.active_anim_count;
 
-        let base_bg = if active {
-            selected_bg
-        } else {
-            match hover_state {
-                HoverState::Idle | HoverState::Entering { .. } => idle_bg,
-                HoverState::Hovered | HoverState::Leaving { .. } => hover_bg,
-            }
-        };
+        // base_bg robustness：active 用 selected；非 active 永远 idle_bg。
+        // 实际 hover 视觉由 non-animate 路径的 GPUI .hover() / animate 路径
+        // 的 closure lerp 接管，防 hover_state 卡 Hovered 时 bg 不消（与
+        // NavItem / Card / ListRow 同模式）。
+        let base_bg = if active { selected_bg } else { idle_bg };
 
         let handler = self.on_click.clone();
         let on_press_listener = cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
@@ -347,6 +344,9 @@ impl Render for TabItem {
                         .h(px(2.0))
                         .bg(primary),
                 );
+            } else {
+                // 非 active 时附 GPUI .hover() 真实视觉源（机制同 NavItem）
+                el = el.hover(move |s| s.bg(hover_bg));
             }
             if now_focused {
                 let mut glow = ring_color;

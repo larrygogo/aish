@@ -414,15 +414,11 @@ impl Render for CardEntity {
         let hover_anim_count = self.hover_anim_count;
         let variant = self.variant;
 
-        // hover-aware base bg（仅 on_click 启用 hover；无 on_click 时永远 idle_bg）
-        let base_bg = if has_click {
-            match hover_state {
-                HoverState::Idle | HoverState::Entering { .. } => idle_bg,
-                HoverState::Hovered | HoverState::Leaving { .. } => hover_bg,
-            }
-        } else {
-            idle_bg
-        };
+        // base_bg robustness：永远 idle_bg；实际 hover 视觉由 non-animate
+        // 路径的 GPUI .hover() / animate 路径的 closure lerp 接管。这样即使
+        // hover_state 卡 Hovered（mouse_down 期间 GPUI 捕获鼠标漏 on_hover
+        // false 事件），鼠标真离开 div 时 .hover 不触发 → 视觉 instant 回 idle。
+        let base_bg = idle_bg;
 
         let handler = self.on_click.clone();
         let on_press_listener = cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
@@ -496,6 +492,10 @@ impl Render for CardEntity {
             });
 
         if !need_anim {
+            // 非动画稳态：附 GPUI .hover() 作为真实视觉源（仅 has_click 时启用）。
+            if has_click {
+                el = el.hover(move |s| s.bg(hover_bg));
+            }
             return el.into_any_element();
         }
 
