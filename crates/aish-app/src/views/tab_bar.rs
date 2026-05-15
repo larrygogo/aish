@@ -21,7 +21,7 @@ use gpui::{
 use aish_ui::{ContextMenu, DropdownMenu, IconName, MenuItem, TextInput};
 
 use crate::bridge::Bridge;
-use crate::state::{AppState, SessionCommand, SshEvent, TabContent};
+use crate::state::{AppState, SessionCommand, TabContent};
 
 /// drag payload：tab 拖拽 reorder 用。'static + Clone 满足 GPUI on_drag<T>
 /// 的 T 约束（GPUI 把 payload 包 Arc<dyn Any> 跨 drag 生命周期传递）。
@@ -64,8 +64,6 @@ impl gpui::Render for TabDragPreview {
 pub struct TabBarView {
     state: Entity<AppState>,
     bridge: Arc<Bridge>,
-    #[allow(dead_code)]
-    tx: tokio::sync::mpsc::Sender<SshEvent>,
     focus_handle: FocusHandle,
     /// tabs 横向滚动 handle。绑定到 scroll 容器后可读 offset / max_offset 决定
     /// 是否显示左右 < > 箭头，并通过 set_offset 编程式滚动。
@@ -104,12 +102,7 @@ pub struct TabBarView {
 const TAB_MENU_ITEM_COUNT: usize = 4;
 
 impl TabBarView {
-    pub fn new(
-        state: Entity<AppState>,
-        bridge: Arc<Bridge>,
-        tx: tokio::sync::mpsc::Sender<SshEvent>,
-        cx: &mut Context<Self>,
-    ) -> Self {
+    pub fn new(state: Entity<AppState>, bridge: Arc<Bridge>, cx: &mut Context<Self>) -> Self {
         cx.observe(&state, |_this, _state, cx| cx.notify()).detach();
         // ScrollHandle.max_offset 在首次 paint 后才被 GPUI 写入，render 阶段
         // 读到的是上一帧值，首次 mount 时 max_offset = 0 → show_right 永远
@@ -190,7 +183,6 @@ impl TabBarView {
         Self {
             state,
             bridge,
-            tx,
             focus_handle: cx.focus_handle(),
             scroll_handle: ScrollHandle::new(),
             editing_tab: None,

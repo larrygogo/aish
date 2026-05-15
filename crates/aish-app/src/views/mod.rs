@@ -1,7 +1,5 @@
 //! GPUI Views。
 
-#![allow(dead_code)]
-
 mod empty_terminal;
 mod home;
 mod host_form;

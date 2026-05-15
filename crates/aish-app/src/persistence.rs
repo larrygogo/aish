@@ -7,8 +7,6 @@
 //!
 //! 写入用原子 tmp+rename 防半写损坏。
 
-#![allow(dead_code)]
-
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};

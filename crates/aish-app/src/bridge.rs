@@ -1,7 +1,5 @@
 //! Bridge：把 tokio runtime 与 GPUI executor 解耦。
 
-#![allow(dead_code)]
-
 use std::future::Future;
 use std::sync::Arc;
 
@@ -44,10 +42,6 @@ impl Bridge {
         self.runtime.spawn(fut);
     }
 
-    pub fn handle(&self) -> tokio::runtime::Handle {
-        self.runtime.handle().clone()
-    }
-
     /// 启动一个连接的 actor task。每个 ConnectionId 对应独立的 SSH session +
     /// PTY，同一 HostConfig 可以并发启多个连接。
     pub fn spawn_session(
@@ -85,7 +79,6 @@ mod tests {
 
     #[test]
     fn bridge_starts() {
-        let bridge = Bridge::start().expect("runtime should start");
-        let _handle = bridge.handle();
+        let _bridge = Bridge::start().expect("runtime should start");
     }
 }

@@ -132,7 +132,6 @@ const LOCAL_TERM_RESIZE_DELAY_MS: u64 = 80;
 pub struct TerminalView {
     state: Entity<AppState>,
     bridge: Arc<Bridge>,
-    #[allow(dead_code)]
     tx: tokio::sync::mpsc::Sender<SshEvent>,
     focus_handle: FocusHandle,
     cursor_state: CursorState,

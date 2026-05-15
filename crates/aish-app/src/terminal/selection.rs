@@ -3,7 +3,6 @@
 //! - `pixel_to_grid`: 像素坐标 → (Line, Column, Side)
 //! - `start_selection`: mouse_down → Selection::new
 //! - `update_selection`: mouse_drag → sel.update
-//! - `clear_selection`: 清除 selection
 //! - `selected_text`: 取选中文本（用于 Ctrl+Shift+C）
 
 use alacritty_terminal::index::{Column, Line, Point, Side};
@@ -67,11 +66,6 @@ pub fn update_selection(
     if let Some(ref mut sel) = term.selection {
         sel.update(Point::new(line, col), side);
     }
-}
-
-/// 清除 selection。
-pub fn clear_selection(term: &mut Term<crate::state::TitleListener>) {
-    term.selection = None;
 }
 
 /// 取选中的文本（用于复制到剪贴板）。空选中或无 selection 返回 None。

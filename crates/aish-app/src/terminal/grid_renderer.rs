@@ -8,8 +8,6 @@
 
 use alacritty_terminal::grid::Indexed;
 use alacritty_terminal::index::Point;
-#[cfg(test)]
-use alacritty_terminal::index::{Column, Line};
 use alacritty_terminal::selection::SelectionRange;
 use alacritty_terminal::term::cell::{Cell, Flags};
 use alacritty_terminal::vte::ansi::NamedColor;
@@ -30,14 +28,6 @@ pub struct GridLayout {
 }
 
 impl GridLayout {
-    /// 将 alacritty 的 (line, column) 转换为像素坐标（左上角）。
-    pub fn cell_to_pixel(&self, point: Point) -> (Pixels, Pixels) {
-        (
-            self.origin_x + self.cell_width * point.column.0 as f32,
-            self.origin_y + self.cell_height * point.line.0 as f32,
-        )
-    }
-
     /// display_iter 里的 line 是相对 viewport 的偏移（负数表示历史，0 = 第一可见行）。
     /// 把 display line（i32）转换为像素 y 坐标。
     pub fn display_line_to_y(&self, line: i32) -> Pixels {
@@ -266,37 +256,5 @@ fn flush_line(
             None,
         );
         let _ = shaped.paint(origin, line_height, gpui::TextAlign::Left, None, window, cx);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use gpui::px;
-
-    #[test]
-    fn cell_to_pixel_at_origin() {
-        let layout = GridLayout {
-            cell_width: px(10.0),
-            cell_height: px(20.0),
-            origin_x: px(0.0),
-            origin_y: px(0.0),
-        };
-        let (x, y) = layout.cell_to_pixel(Point::new(Line(0), Column(0)));
-        assert_eq!(x, px(0.0));
-        assert_eq!(y, px(0.0));
-    }
-
-    #[test]
-    fn cell_to_pixel_at_offset() {
-        let layout = GridLayout {
-            cell_width: px(10.0),
-            cell_height: px(20.0),
-            origin_x: px(5.0),
-            origin_y: px(10.0),
-        };
-        let (x, y) = layout.cell_to_pixel(Point::new(Line(2), Column(3)));
-        assert_eq!(x, px(5.0 + 30.0));
-        assert_eq!(y, px(10.0 + 40.0));
     }
 }

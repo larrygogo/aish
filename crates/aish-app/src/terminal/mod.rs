@@ -6,8 +6,6 @@
 //! - `cursor`: 光标渲染 + 闪烁
 //! - `selection`: mouse drag → Term selection (Task 6)
 
-#![allow(dead_code)]
-
 pub mod colors;
 pub mod cursor;
 pub mod font;

@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::collections::HashMap;
 use std::fs;
 use std::io;
@@ -114,24 +112,7 @@ impl AppStateFile {
             .collect()
     }
 
-    pub fn from_last_connected(last_connected: &HashMap<HostId, SystemTime>) -> Self {
-        let recent = last_connected
-            .iter()
-            .filter_map(|(host_id, time)| {
-                let secs = time.duration_since(SystemTime::UNIX_EPOCH).ok()?.as_secs();
-                Some((host_id.0.to_string(), secs))
-            })
-            .collect();
-        Self {
-            recent,
-            theme: None,
-            reduced_motion: None,
-        }
-    }
-
     /// 把 last_connected 合并到现有 AppStateFile（保留 theme 等其他字段）。
-    /// 比 from_last_connected 更安全 —— 后者会用 None theme 覆盖磁盘现有
-    /// 主题选择（home 卡片点击触发 save 时会丢用户主题偏好）。
     pub fn merge_last_connected(mut self, last_connected: &HashMap<HostId, SystemTime>) -> Self {
         self.recent = last_connected
             .iter()
@@ -200,12 +181,12 @@ mod tests {
     }
 
     #[test]
-    fn from_last_connected_snapshot() {
+    fn merge_last_connected_snapshot() {
         let id = HostId(Uuid::new_v4());
         let t = SystemTime::UNIX_EPOCH + Duration::from_secs(1715174400);
         let mut lc = HashMap::new();
         lc.insert(id, t);
-        let state = AppStateFile::from_last_connected(&lc);
+        let state = AppStateFile::default().merge_last_connected(&lc);
         assert_eq!(state.recent.get(&id.0.to_string()), Some(&1715174400u64));
     }
 

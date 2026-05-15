@@ -9,8 +9,6 @@
 //!   - `config.id: HostId` — 配置标识，keyring 密码按 HostId 索引（同一 host 的
 //!     多个连接共享 keyring 条目）
 
-#![allow(dead_code)]
-
 use aish_types::{ConnectionId, HostConfig, RemoteSession};
 use tokio::sync::mpsc;
 
@@ -179,12 +177,7 @@ pub(crate) async fn connection_task(
     let session_for_os = session.clone();
     let tx_for_os = event_tx.clone();
     let host_id_for_os = host_id;
-    tokio::spawn(os_detect_task(
-        conn,
-        host_id_for_os,
-        session_for_os,
-        tx_for_os,
-    ));
+    tokio::spawn(os_detect_task(host_id_for_os, session_for_os, tx_for_os));
 
     // 4. 主循环：raw shell 单一模式。tmux attach 不再切换协议，只是往 channel
     //    发送 `tmux attach -t '<sess>'\r` 字节，让远端 tmux 接管 PTY 渲染。
@@ -550,7 +543,6 @@ fn parse_uname(stdout: &[u8]) -> Option<String> {
 }
 
 async fn os_detect_task(
-    conn: ConnectionId,
     host_id: aish_types::HostId,
     client: aish_ssh::SshClient,
     event_tx: mpsc::Sender<SshEvent>,
@@ -571,11 +563,7 @@ async fn os_detect_task(
         },
     };
     let _ = event_tx
-        .send(SshEvent::OsDetected {
-            conn,
-            host_id,
-            os_kind,
-        })
+        .send(SshEvent::OsDetected { host_id, os_kind })
         .await;
 }
 

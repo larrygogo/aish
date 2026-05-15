@@ -6,8 +6,6 @@
 //! map（sessions / host_pty_term / host_pty_dimensions / tmux_state）以
 //! `ConnectionId` 为键。
 
-#![allow(dead_code)]
-
 use std::collections::HashMap;
 use std::time::SystemTime;
 
@@ -90,7 +88,6 @@ pub enum SshEvent {
     /// 后写入对应 HostConfig.os_kind 并 persist。`None` = 探测失败 / macOS
     /// 没该文件 / 命令 exec 出错，仍走事件让 UI 不再无限等待。
     OsDetected {
-        conn: ConnectionId,
         host_id: aish_types::HostId,
         os_kind: Option<String>,
     },
@@ -296,8 +293,6 @@ pub struct HostFormDraft {
     /// auth_kind == Password 时使用。
     /// 编辑模式下默认 ""，留空表示「不改密码」（保留 keyring 现有值）。
     pub password: String,
-    /// 控制密码字段 mask / 明文 显示（👁 toggle）
-    pub password_visible: bool,
     /// 校验失败时显示在 modal 底部的红字。
     pub error: Option<String>,
 }
@@ -322,7 +317,6 @@ impl HostFormDraft {
             auth_kind,
             key_path,
             password: String::new(),
-            password_visible: false,
             error: None,
         }
     }
@@ -651,19 +645,6 @@ impl AppState {
         }
         self.tabs.swap(pos, new_pos as usize);
         true
-    }
-
-    /// 把当前 tab 替换为指定 content/title（用于"在默认页里点了 host 卡片
-    /// → 同一个 tab 变成 connection tab"的流程）。
-    pub fn replace_current_tab(&mut self, content: TabContent, title: String) {
-        let id = match self.selected_tab {
-            Some(i) => i,
-            None => return,
-        };
-        if let Some(t) = self.tabs.iter_mut().find(|t| t.id == id) {
-            t.content = content;
-            t.title = title;
-        }
     }
 
     /// 关闭一个 tab。如果是 Connection tab，**调用方**负责发 SessionCommand::Disconnect
@@ -1066,28 +1047,6 @@ mod tests {
     }
 
     #[test]
-    fn replace_current_tab_swaps_in_place() {
-        use aish_types::TabId;
-        let h = mk_host("a");
-        let host_id = h.id;
-        let mut state = AppState::with_hosts(vec![h]);
-        let conn = state.open_connection(host_id);
-        // 手动 push 一个初始 tab（M4a 起 with_hosts 不自动创建）
-        let initial_tab_id = TabId::new();
-        state.tabs.push(Tab {
-            id: initial_tab_id,
-            content: TabContent::Default,
-            title: "新连接".into(),
-            title_locked: false,
-        });
-        state.selected_tab = Some(initial_tab_id);
-        state.replace_current_tab(TabContent::Connection(conn), "腾讯云 #1".into());
-        assert_eq!(state.selected_tab, Some(initial_tab_id));
-        assert_eq!(state.current_tab().unwrap().title, "腾讯云 #1");
-        assert_eq!(state.current_connection(), Some(conn));
-    }
-
-    #[test]
     fn cycle_selected_tab_wraps_around() {
         use aish_types::TabId;
         let mut state = AppState::with_hosts(vec![]);
@@ -1338,7 +1297,6 @@ mod tests {
             auth_kind: AuthKind::KeyFile,
             key_path: "/tmp/x".into(),
             password: "".into(),
-            password_visible: false,
             error: None,
         };
         let r = draft.into_config(None);
@@ -1356,7 +1314,6 @@ mod tests {
             auth_kind: AuthKind::KeyFile,
             key_path: "/tmp/x".into(),
             password: "".into(),
-            password_visible: false,
             error: None,
         };
         assert!(draft.into_config(None).unwrap_err().contains("port"));
@@ -1372,7 +1329,6 @@ mod tests {
             auth_kind: AuthKind::KeyFile,
             key_path: "/nonexistent/path/aish_test_only".into(),
             password: "".into(),
-            password_visible: false,
             error: None,
         };
         assert!(draft
@@ -1392,7 +1348,6 @@ mod tests {
             auth_kind: AuthKind::KeyFile,
             key_path: key.path().display().to_string(),
             password: "".into(),
-            password_visible: false,
             error: None,
         };
         let cfg = draft.into_config(None).unwrap();
@@ -1411,7 +1366,6 @@ mod tests {
             auth_kind: AuthKind::KeyFile,
             key_path: key.path().display().to_string(),
             password: "".into(),
-            password_visible: false,
             error: None,
         };
         let id = HostId(Uuid::new_v4());
@@ -1429,7 +1383,6 @@ mod tests {
             auth_kind: AuthKind::Password,
             key_path: "".into(),
             password: "".into(),
-            password_visible: false,
             error: None,
         };
         let r = draft.into_config(None);
@@ -1447,7 +1400,6 @@ mod tests {
             auth_kind: AuthKind::Password,
             key_path: "".into(),
             password: "secret".into(),
-            password_visible: false,
             error: None,
         };
         let cfg = draft.into_config(None).unwrap();
@@ -1468,7 +1420,6 @@ mod tests {
             auth_kind: AuthKind::Password,
             key_path: "".into(),
             password: "".into(),
-            password_visible: false,
             error: None,
         };
         let cfg = draft.into_config(Some(id)).unwrap();

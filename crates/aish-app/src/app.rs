@@ -170,11 +170,7 @@ pub fn run() {
                             state.drop_session(conn, format!("{}: {}", kind_zh, msg));
                             cx.notify();
                         }
-                        SshEvent::OsDetected {
-                            conn: _,
-                            host_id,
-                            os_kind,
-                        } => {
+                        SshEvent::OsDetected { host_id, os_kind } => {
                             // 写入对应 HostConfig.os_kind + 持久化 hosts.json
                             // 失败时仅 log warning，不打扰用户（探测本身就是 best-effort）。
                             let mut changed = false;
@@ -419,8 +415,7 @@ impl RootView {
         .detach();
 
         let sidebar_nav = cx.new(|cx| crate::views::SidebarNavView::new(state.clone(), cx));
-        let tab_bar = cx
-            .new(|cx| crate::views::TabBarView::new(state.clone(), bridge.clone(), tx.clone(), cx));
+        let tab_bar = cx.new(|cx| crate::views::TabBarView::new(state.clone(), bridge.clone(), cx));
         let home =
             cx.new(|cx| crate::views::HomeView::new(state.clone(), bridge.clone(), tx.clone(), cx));
         let terminal = cx.new(|cx| {
@@ -429,12 +424,10 @@ impl RootView {
         let empty_terminal =
             cx.new(|cx| crate::views::EmptyTerminalGuideView::new(state.clone(), cx));
         let settings = cx.new(crate::views::SettingsView::new);
-        let host_form = cx.new(|cx| {
-            crate::views::HostFormModal::new(state.clone(), bridge.clone(), tx.clone(), cx)
-        });
-        let session_picker = cx.new(|cx| {
-            crate::views::SessionPickerView::new(state.clone(), bridge.clone(), tx.clone(), cx)
-        });
+        let host_form =
+            cx.new(|cx| crate::views::HostFormModal::new(state.clone(), bridge.clone(), cx));
+        let session_picker =
+            cx.new(|cx| crate::views::SessionPickerView::new(state.clone(), bridge.clone(), cx));
 
         let toast_manager = cx.global::<aish_ui::ToastHandle>().0.clone();
 

@@ -21,15 +21,11 @@ use gpui::{
 };
 
 use crate::bridge::Bridge;
-use crate::state::{
-    humanize_last_connected, AppState, SessionCommand, SidebarTab, SshEvent, TmuxState,
-};
+use crate::state::{humanize_last_connected, AppState, SessionCommand, SidebarTab, TmuxState};
 
 pub struct SessionPickerView {
     state: Entity<AppState>,
     bridge: Arc<Bridge>,
-    #[allow(dead_code)]
-    tx: tokio::sync::mpsc::Sender<SshEvent>,
     dialog: Entity<Dialog>,
     /// 是否已为当前 pending_session_picker 打开过 dialog。状态 mirror
     /// 防止每帧重复 open（dialog 自身有幂等性，但避免无意义 notify）。
@@ -41,12 +37,7 @@ pub struct SessionPickerView {
 }
 
 impl SessionPickerView {
-    pub fn new(
-        state: Entity<AppState>,
-        bridge: Arc<Bridge>,
-        tx: tokio::sync::mpsc::Sender<SshEvent>,
-        cx: &mut Context<Self>,
-    ) -> Self {
+    pub fn new(state: Entity<AppState>, bridge: Arc<Bridge>, cx: &mut Context<Self>) -> Self {
         cx.observe(&state, |this, _state, cx| {
             this.sync_from_state(cx);
             cx.notify();
@@ -75,7 +66,6 @@ impl SessionPickerView {
         Self {
             state,
             bridge,
-            tx,
             dialog,
             is_open_for: None,
             selected_idx: 0,
