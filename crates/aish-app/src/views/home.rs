@@ -311,10 +311,13 @@ impl Render for HomeView {
             .primary()
             .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| this.handle_add_click(cx)));
 
+        // M27: page header padding 走 anatomy.page（outer_px 32 / outer_py_top 24 /
+        // header_to_content_gap 16）— 之前 px_8/pt_6/pb_3 等价 32/24/12，
+        // pb 从 12 改 16 与 settings page_title pb 对齐。
         let header = div()
-            .px_8()
-            .pt_6()
-            .pb_3()
+            .px(theme.anatomy.page.outer_px)
+            .pt(theme.anatomy.page.outer_py_top)
+            .pb(theme.anatomy.page.header_to_content_gap)
             .flex()
             .flex_row()
             .items_center()
@@ -722,12 +725,14 @@ impl Render for HomeView {
                     .child(header)
                     .children(active_section)
                     .child(
+                        // M27: HOSTS section 走 anatomy.page（outer_px 32 /
+                        // outer_py_bottom 24）+ list_row.gap_spacious (12)
                         div()
-                            .px_8()
-                            .pb_6()
+                            .px(theme.anatomy.page.outer_px)
+                            .pb(theme.anatomy.page.outer_py_bottom)
                             .flex()
                             .flex_col()
-                            .gap_3()
+                            .gap(theme.anatomy.list_row.gap_spacious)
                             .child(hosts_section_label)
                             .children(cards)
                             .children(empty_hint),

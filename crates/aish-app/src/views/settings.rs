@@ -125,10 +125,11 @@ impl Render for SettingsView {
         let dark = matches!(t.kind, ThemeKind::Dark);
 
         // ───── 页面标题 ─────
-        // M26 T2: page title 用 Title1 (20/600/fg)；之前 hardcoded 24px
-        // size-only，与 home page title 不一致
+        // M26 T2: page title 用 Title1 (20/600/fg)。
+        // M27: pb 走 anatomy.page.header_to_content_gap (16) — 之前 pb_6=24
+        // 偏松，统一让 page_title 与首 Card 间隔 16，与 home page header 一致。
         let page_title = div()
-            .pb_6()
+            .pb(t.anatomy.page.header_to_content_gap)
             .typography(aish_ui::TypeRole::Title1, t)
             .child("Settings");
 
@@ -245,17 +246,20 @@ impl Render for SettingsView {
             .flex_col()
             .bg(colors.background)
             .child(
+                // M27: ScrollPage padding 走 anatomy.page；Card 之间 gap 走
+                // anatomy.page.section_gap（16）— 之前 gap_4=16 等价但解耦
+                // 让后续调密度只改 anatomy 一处生效。
                 aish_ui::ScrollPage::new("settings-scroll")
                     .scrollbar(&self.scrollbar)
                     .flex_1()
-                    .px(gpui::px(32.0))
-                    .py(gpui::px(24.0))
+                    .px(t.anatomy.page.outer_px)
+                    .py(t.anatomy.page.outer_py_top)
                     .child(page_title)
                     .child(
                         div()
                             .flex()
                             .flex_col()
-                            .gap_4()
+                            .gap(t.anatomy.page.section_gap)
                             .child(appearance_card)
                             .child(shortcuts_card)
                             .child(about_card),
