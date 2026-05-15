@@ -139,7 +139,7 @@ fn render_toast(
     toast: Toast,
     cx: &mut App,
     weak_mgr: gpui::WeakEntity<ToastManager>,
-) -> impl IntoElement {
+) -> gpui::AnyElement {
     let t = theme(cx);
     let (border_color, fg_color) = match toast.kind {
         ToastKind::Info => (t.colors.accent, t.colors.foreground),
@@ -165,7 +165,7 @@ fn render_toast(
     // 之前用 absolute 4px 左条强调 kind，但与项目整体灰阶 + indicator 条
     // 风格统一去除（绿/红色实色条与 modern minimal 不搭）。kind 区分靠
     // icon 颜色 + 1px border 颜色微妙提示，不抢眼。
-    div()
+    let card = div()
         .relative()
         .min_w(px(300.0))
         .max_w(px(440.0))
@@ -207,7 +207,21 @@ fn render_toast(
                 .child(toast.message),
         )
         // close_btn 同样钉住宽度，长 message 不会把 X 挤掉
-        .child(div().flex_shrink_0().child(close_btn))
+        .child(div().flex_shrink_0().child(close_btn));
+
+    // M30：每条 toast 包 enter 动画（slow 250ms ease_out_quint opacity 0→1）。
+    // exit 不做（D-4 Phase 3：自动 dismiss / X click 直接 unmount，避免三态机
+    // 复杂度 — toast 队列里可能多个 closing 状态混乱）。
+    // 注：spec D-4 原方案是 opacity + translate_x，但 GPUI div 不支持 transform
+    // translate（仅 svg），简化为 opacity-only。手测后视觉够 subtle。
+    let easing = t.motion.easing_standard.clone();
+    crate::theme::animate_or_skip(
+        card,
+        t,
+        ("motion-toast-enter", toast_id as usize),
+        gpui::Animation::new(t.motion.slow).with_easing(move |d| easing(d)),
+        |el, delta| el.opacity(delta),
+    )
 }
 
 #[derive(Clone)]
