@@ -59,7 +59,26 @@
     user@host:port + phase label + tmux session badge）
   - **T12 Disconnected ErrorState ✅** (`7ec238a`)：中央 ErrorState 替代
     底部 strip，3 button (重连 / 编辑 host / 复制错误)
-- **Phase C（v0.next+2）待定** — 6 task / 5 天
+- **Phase C（v0.next+2）4/6 task 完成 (2026-05-15)：**
+  - **T14 Kbd chip ✅** (`b775959`)：aish-ui 新 RenderOnce 组件 + 3 单测
+  - **T15 Settings shortcuts + 关于页 ✅** (`942c76f`)：shortcuts 接 Kbd
+    chip + 加 ⌘K palette 行 + About 加 logo hero。后续 fix `afa8356`
+    chip 拉伸 + 颜色对比度
+  - **T17 Light theme 实验性标签 ✅** (`8761ffd`)：Dark mode 行加 helper
+    明示 light 部分色彩未调优
+  - **T18 大文件评估 ✅（无改动）**：state.rs 1742 / terminal_view.rs 1308 /
+    host_form.rs 1048 / home.rs 988 / tab_bar.rs 969 / app.rs 966 /
+    ssh_actor.rs 959 — 7 个 > 900 行文件全部评估「轻量拆分 ROI 不足」：
+    state.rs 80% 是 tests（同文件惯例），其余文件 render 多 phase 与 cx/
+    state 紧耦合，拆出后回环跨 mod 可读性反降。保留现状写入 INDEX。
+  - **T13 StatusBar ⛔ defer**：plan 列的 3 slot（latency/tmux mouse mode/
+    reduced_motion 指示）— latency 不存在、TmuxMouseDisabled 是瞬时
+    SshEvent 非 state、reduced_motion 单 bool 不值得 24px 全屏。违反
+    earn-every-pixel 原则
+  - **T16 Linux brand icon 补 8 个 ⏸ blocked**：rocky/mint/manjaro/nixos/
+    gentoo/opensuse/raspbian/elementary SVG 资产需手动放进
+    `crates/aish-ui/assets/icons/distros/` 后才能 include_bytes! 嵌入。
+    实施环境无外网 fetch 能力，等用户提供资产或下次 maintainer 补
 - Spec：[`specs/2026-05-15-aish-m35-uiux-overhaul-design.md`](specs/2026-05-15-aish-m35-uiux-overhaul-design.md)
 - Plan：[`plans/2026-05-15-aish-m35-uiux-overhaul.md`](plans/2026-05-15-aish-m35-uiux-overhaul.md)
 - 测试基线：aish-ui 274 → 278（+4 个新 pure-fn 测试），aish-app 150 →
