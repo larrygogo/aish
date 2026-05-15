@@ -1,7 +1,5 @@
 //! aish-ssh — SSH 客户端层（russh 包装）。
 
-#![allow(dead_code)]
-
 mod channel;
 mod client;
 mod error;

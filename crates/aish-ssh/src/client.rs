@@ -127,11 +127,6 @@ impl SshClient {
         })
     }
 
-    /// 获取底层 russh Handle（仅 channel.rs 内部用）。
-    pub(crate) fn handle(&self) -> &Handle<NoopHandler> {
-        &self.handle
-    }
-
     /// 跑一条远端命令并等其完成。封装 channel_open + exec + 收 stdout/stderr/exit-code。
     /// 用于 tmux list-sessions 等短命令；不适合长跑（用 open_channel + shell）。
     pub async fn exec_command(&self, command: &str) -> Result<ExecResult, SshError> {
