@@ -68,6 +68,14 @@ pub enum SshEvent {
         conn: ConnectionId,
         session: SessionId,
     },
+    /// 远端 tmux client 退出（用户在 tmux 内按 prefix+d / detach 命令 /
+    /// kill-session 等触发）。actor 在 channel 输出里检测到 "[detached"
+    /// 字符串后发，让 app.rs 清 tmux_state[conn].attached 标记，sidebar
+    /// 同步显示"已 detach"状态。
+    TmuxSessionDetached {
+        conn: ConnectionId,
+        session: SessionId,
+    },
     /// SFTP 上传成功，path 是远端绝对路径（如 /tmp/aish-clip-123456.png）。
     ImageUploaded {
         conn: ConnectionId,
@@ -792,6 +800,17 @@ impl AppState {
     pub fn mark_tmux_attached(&mut self, conn: ConnectionId, session: SessionId) {
         if let Some(TmuxState::Detected { attached, .. }) = self.tmux_state.get_mut(&conn) {
             *attached = Some(session);
+        }
+    }
+
+    /// detach-detect：清掉 tmux_state attached 标记。actor 在 channel data
+    /// 内检测到 "[detached" 标记后 emit TmuxSessionDetached 触发本方法。
+    /// 仅当当前 attached 与 emit 的 session 匹配时才清（防 race）。
+    pub fn mark_tmux_detached(&mut self, conn: ConnectionId, session: SessionId) {
+        if let Some(TmuxState::Detected { attached, .. }) = self.tmux_state.get_mut(&conn) {
+            if attached.as_ref() == Some(&session) {
+                *attached = None;
+            }
         }
     }
 

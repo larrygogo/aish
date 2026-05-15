@@ -159,6 +159,11 @@ pub(crate) async fn connection_task(
 
     // 4. 主循环：raw shell 单一模式。tmux attach 不再切换协议，只是往 channel
     //    发送 `tmux attach -t '<sess>'\r` 字节，让远端 tmux 接管 PTY 渲染。
+    //
+    // detach detection：local mut `attached_session` 跟踪当前 attach 的 sess_id；
+    // ChannelMsg::Data 内 scan "[detached" 子串（tmux client 退出前输出
+    // "[detached (from session XYZ)]"）触发 SshEvent::TmuxSessionDetached。
+    let mut attached_session: Option<aish_types::SessionId> = None;
     loop {
         tokio::select! {
             msg = chan.wait() => match msg {
@@ -172,6 +177,21 @@ pub(crate) async fn connection_task(
                     tracing::warn!(?conn, signal = ?signal_name, "actor: channel ExitSignal");
                 }
                 Some(ChannelMsg::Data { data }) => {
+                    // detach detection：仅在 attached_session=Some 时 scan，
+                    // 避免空闲 raw shell 内用户手打 "[detached" 误判。
+                    // tmux client 退出输出 "[detached (from session XYZ)]"，
+                    // 这是 tmux 内部 hardcoded 英文，与 locale 无关。
+                    if let Some(sess) = &attached_session {
+                        if has_detach_marker(&data) {
+                            let _ = event_tx
+                                .send(SshEvent::TmuxSessionDetached {
+                                    conn,
+                                    session: sess.clone(),
+                                })
+                                .await;
+                            attached_session = None;
+                        }
+                    }
                     let _ = event_tx
                         .send(SshEvent::PaneOutput {
                             conn,
@@ -233,6 +253,9 @@ pub(crate) async fn connection_task(
                         tracing::warn!(?conn, "actor: send tmux attach failed: {}", e);
                         continue;
                     }
+                    // 记录 attached session 让后续 channel data 内 "[detached"
+                    // marker 检测能 emit TmuxSessionDetached（detach-detect）
+                    attached_session = Some(sess_id.clone());
                     let _ = event_tx
                         .send(SshEvent::TmuxAttached {
                             conn,
@@ -628,6 +651,21 @@ async fn tmux_mouse_check_task(
     }
 }
 
+/// detach detection helper：扫 channel data 含 tmux client 退出标记。
+///
+/// tmux client 退出（用户在 tmux 内 prefix+d / detach / kill-session）时输出
+/// `[detached (from session XYZ)]` 到 raw shell — tmux 内部 hardcoded 英文，
+/// 不受 LANG / LC_ALL 影响。检测 `[detached` 子串足够区分（用户手打罕见且
+/// 仅在 attached_session=Some 时才 scan，详 actor main loop 调用点）。
+fn has_detach_marker(data: &[u8]) -> bool {
+    // 简单子串搜索，bytes window 5
+    const MARKER: &[u8] = b"[detached";
+    if data.len() < MARKER.len() {
+        return false;
+    }
+    data.windows(MARKER.len()).any(|w| w == MARKER)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -858,5 +896,47 @@ mod tests {
     fn encode_uppercase_chars_preserve_case() {
         assert_eq!(encode_key("Z", false, false), b"Z");
         assert_eq!(encode_key("A", false, false), b"A");
+    }
+
+    // ============================================================================
+    // detach-detect helper tests
+    // ============================================================================
+
+    #[test]
+    fn detach_marker_typical_message() {
+        // tmux client 退出标准输出
+        assert!(has_detach_marker(b"[detached (from session 0)]\r\n"));
+    }
+
+    #[test]
+    fn detach_marker_short_form() {
+        // 旧版 tmux 可能只输出 [detached]
+        assert!(has_detach_marker(b"[detached]\r\n"));
+    }
+
+    #[test]
+    fn detach_marker_no_match_in_random_text() {
+        assert!(!has_detach_marker(b"hello world\n"));
+        assert!(!has_detach_marker(b"$ ls -la\n"));
+    }
+
+    #[test]
+    fn detach_marker_partial_no_false_positive() {
+        // 不应匹配只有部分
+        assert!(!has_detach_marker(b"[detach"));
+        assert!(!has_detach_marker(b"detached"));
+    }
+
+    #[test]
+    fn detach_marker_anywhere_in_buffer() {
+        // 实际 channel data 通常含其他 ANSI escape，marker 不在开头
+        assert!(has_detach_marker(
+            b"\x1b[?25l[detached (from session foo)]\x1b[?25h"
+        ));
+    }
+
+    #[test]
+    fn detach_marker_empty_data() {
+        assert!(!has_detach_marker(b""));
     }
 }

@@ -251,6 +251,12 @@ pub fn run() {
                             state.mark_tmux_attached(conn, session);
                             cx.notify();
                         }
+                        SshEvent::TmuxSessionDetached { conn, session } => {
+                            // detach-detect：actor 在 channel data 检测到
+                            // "[detached" 标记 → 清 sidebar attached 标记
+                            state.mark_tmux_detached(conn, session);
+                            cx.notify();
+                        }
                         SshEvent::ImageUploaded { conn, path } => {
                             // 流式：每张图（无论单发还是 batch 中）成功后立即 append path
                             // 到 PTY。前置空格防止与用户已输入 token 粘连。
