@@ -701,47 +701,83 @@ fn keyfile_row(
         )
 }
 
+/// M29 D-7：footer 两端对齐 + border-top。
+///
+/// 布局：
+/// - 顶部 border + pt（与 body 视觉切割）+ mt（与 body 间距）
+/// - justify_between：左 [Delete or 占位] / 右 [Cancel] [Save]
+/// - edit 模式 show_delete=true 显示左侧 Delete（destructive），其余空 div 占位
+/// - footer 内 Cancel 回归 — delete dialog footer 已有 Cancel，对齐两 dialog
+///   的语义；用户也可以靠 Esc 关闭，但 Cancel 按钮让"取消"更显眼。
 fn buttons_row(
     primary_label: &'static str,
     show_delete: bool,
     save_disabled: bool,
     cx: &mut Context<HostFormModal>,
 ) -> impl IntoElement {
-    let spacing_px_2 = {
+    let (spacing_px_2, spacing_px_3, border_color, form_footer_gap) = {
         let t = theme(cx);
-        t.spacing.px_2
+        (
+            t.spacing.px_2,
+            t.spacing.px_3,
+            t.colors.border,
+            t.anatomy.form.footer_gap,
+        )
     };
-    // 删 footer 内 "Cancel" 按钮 —— Dialog 顶部已有 X 关闭 + Esc 关闭，重复
-    // 一个 Cancel 让 footer 视觉拥挤且语义重复。保留 Delete + 主操作（Save /
-    // Add / Connect），用户用 X / Esc 取消（与系统 modal 习惯一致）。
-    let mut row = div().flex().flex_row().gap(spacing_px_2).justify_end();
-    if show_delete && primary_label != "Delete" {
-        // edit 模式额外加一个 Delete 按钮（DeleteConfirm 通过 home.rs 单独触发）
-        row = row.child(
-            Button::new("host-delete")
-                .label("Delete")
-                .destructive()
-                .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
-                    // 从 Editing 切到 DeleteConfirm
-                    this.state.update(cx, |s, cx| {
-                        if let Some(HostFormState::Editing { id, draft }) = &s.modal {
-                            s.modal = Some(HostFormState::DeleteConfirm {
-                                id: *id,
-                                label: draft.label.clone(),
-                            });
-                            cx.notify();
-                        }
-                    });
-                })),
-        );
-    }
-    row.child(
-        Button::new("host-save")
-            .label(primary_label)
-            .primary()
-            .disabled(save_disabled)
+
+    // 左侧：edit 模式 Delete，其它情况空 div（保持 justify_between 布局占位）
+    let left: AnyElement = if show_delete {
+        Button::new("host-delete")
+            .label("Delete")
+            .destructive()
             .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
-                this.save(cx);
-            })),
-    )
+                // 从 Editing 切到 DeleteConfirm（sync_from_state 会切到 delete_dialog）
+                this.state.update(cx, |s, cx| {
+                    if let Some(HostFormState::Editing { id, draft }) = &s.modal {
+                        s.modal = Some(HostFormState::DeleteConfirm {
+                            id: *id,
+                            label: draft.label.clone(),
+                        });
+                        cx.notify();
+                    }
+                });
+            }))
+            .into_any_element()
+    } else {
+        div().into_any_element()
+    };
+
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .justify_between()
+        .border_t_1()
+        .border_color(border_color)
+        .pt(spacing_px_3)
+        .mt(spacing_px_3)
+        .gap(form_footer_gap)
+        .child(left)
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .gap(spacing_px_2)
+                .child(
+                    Button::new("host-cancel")
+                        .label("Cancel")
+                        .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
+                            this.cancel(cx);
+                        })),
+                )
+                .child(
+                    Button::new("host-save")
+                        .label(primary_label)
+                        .primary()
+                        .disabled(save_disabled)
+                        .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
+                            this.save(cx);
+                        })),
+                ),
+        )
 }
