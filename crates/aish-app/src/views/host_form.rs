@@ -105,7 +105,7 @@ impl HostFormModal {
         let weak = cx.weak_entity();
         dialog.update(cx, move |d, _cx| {
             d.title("Host");
-            d.width(gpui::px(460.0));
+            d.width(gpui::px(480.0)); // M29 D-8: 460 → 480 让 label-on-top + Radio 更宽松
             d.on_close(move |_window, cx| {
                 if let Some(this) = weak.upgrade() {
                     this.update(cx, |this, cx| this.cancel(cx));
@@ -421,9 +421,9 @@ impl Render for HostFormModal {
         // (keyfile_row / buttons_row / cx.listener 等)，无法稳定持 &Theme，
         // 因此本 view 内文字仍 inline `.text_size + .text_color`，等价 typography
         // role (Body/Caption/Label) 但不走 .typography() ext。
-        let (colors, font_size, spacing) = {
+        let (colors, font_size, spacing, form_field_gap) = {
             let t = theme(cx);
-            (t.colors, t.font_size, t.spacing)
+            (t.colors, t.font_size, t.spacing, t.anatomy.form.field_gap)
         };
         // M29 D-3：auth 切换从 Tabs idx → enum 字段
         let auth_kind = self.auth_kind;
@@ -466,10 +466,22 @@ impl Render for HostFormModal {
             // 时禁用，避免用户带着错误 submit。空字段不算 error（validator 空 OK），
             // 进入 save() 时由 draft.into_config 报"必填"，所以空白态保持可点 Save。
             let save_disabled = self.host_error.is_some() || self.port_error.is_some();
+            // M29 D-7: 把 host_error / port_error 联动到 input.error(bool)
+            // 视觉，让红 border 提示用户哪个 input 错。
+            let host_err_active = self.host_error.is_some();
+            let port_err_active = self.port_error.is_some();
+            self.host_input.update(cx, |i, _| {
+                i.error(host_err_active);
+            });
+            self.port_input.update(cx, |i, _| {
+                i.error(port_err_active);
+            });
+            // M29 D-2: 字段 gap 12（anatomy.form.field_gap）替代 spacing.px_3
+            // 等价值 12 但语义清晰
             div()
                 .flex()
                 .flex_col()
-                .gap(spacing.px_3)
+                .gap(form_field_gap)
                 .child(field_row(cx, "label", self.label_input.clone(), None))
                 .child(field_row(
                     cx,
@@ -545,16 +557,15 @@ impl Render for HostFormModal {
     }
 }
 
-fn field_label(cx: &App, text: &'static str) -> impl IntoElement {
-    let t = theme(cx);
-    // M26 form field label: Label (13/500/fg) + secondary_fg override 弱化
-    div()
-        .w(gpui::px(80.0))
-        .typography(aish_ui::TypeRole::Label, t)
-        .text_color(t.colors.secondary_foreground)
-        .child(text)
-}
-
+/// M29 D-1: field_row 改 label-on-top layout（之前 label 80px 左栅格 +
+/// secondary_fg 弱化得像 placeholder；现在 label 显眼，input 占满宽，
+/// inline error 与 input 同列对齐）。
+///
+/// anatomy:
+/// - 字段块 flex_col + inline_gap 6（label↔input）+ inline_gap 4（input↔error）
+/// - label: Label role (13/500/fg)，**不再** secondary_fg override
+/// - error: Body role (13/400) + destructive override（之前 Caption 12/muted
+///   太弱，看不清出错）
 fn field_row(
     cx: &App,
     label: &'static str,
@@ -565,34 +576,19 @@ fn field_row(
     div()
         .flex()
         .flex_col()
-        .gap(t.spacing.px_1)
+        .gap(t.anatomy.form.inline_gap) // label↔input 6
         .child(
             div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap(t.spacing.px_3)
-                .child(field_label(cx, label))
-                .child(div().flex_1().child(input)),
+                .typography(aish_ui::TypeRole::Label, t)
+                .child(label),
         )
-        // 实时校验错误显示：与 input 同 column 对齐（左侧空 label 宽缩进）。
-        // 用 destructive 红字 xs 小号，不喧宾夺主。空 / 未校验 时不渲染该行。
+        .child(input)
         .when_some(error, |d, msg| {
             d.child(
                 div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap(t.spacing.px_3)
-                    .child(div().w(gpui::px(80.0)))
-                    .child(
-                        // M26 inline error: Caption (12/muted) + destructive override
-                        div()
-                            .flex_1()
-                            .typography(aish_ui::TypeRole::Caption, t)
-                            .text_color(t.colors.destructive)
-                            .child(msg),
-                    ),
+                    .typography(aish_ui::TypeRole::Body, t)
+                    .text_color(t.colors.destructive)
+                    .child(msg),
             )
         })
 }
@@ -601,24 +597,37 @@ fn keyfile_row(
     keyfile_input: Entity<TextInput>,
     cx: &mut Context<HostFormModal>,
 ) -> impl IntoElement {
-    let spacing_px_3 = {
+    // M29 D-1: label-on-top + input/picker 横排
+    let (inline_gap, label_gap) = {
         let t = theme(cx);
-        t.spacing.px_3
+        (t.anatomy.form.inline_gap, t.spacing.px_2)
     };
     div()
         .flex()
-        .flex_row()
-        .items_center()
-        .gap(spacing_px_3)
-        .child(field_label(cx, "key path"))
-        .child(div().flex_1().child(keyfile_input))
+        .flex_col()
+        .gap(inline_gap)
+        .child({
+            let t = theme(cx);
+            div()
+                .typography(aish_ui::TypeRole::Label, t)
+                .child("key path")
+        })
         .child(
-            Button::new("pick-keyfile")
-                .label("…")
-                .secondary()
-                .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
-                    this.pick_keyfile(cx);
-                })),
+            // input + picker button 横排
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(label_gap)
+                .child(div().flex_1().child(keyfile_input))
+                .child(
+                    Button::new("pick-keyfile")
+                        .label("…")
+                        .secondary()
+                        .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
+                            this.pick_keyfile(cx);
+                        })),
+                ),
         )
 }
 
