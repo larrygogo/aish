@@ -772,9 +772,10 @@ impl Render for HomeView {
                                     .children(active_chip),
                             )
                             .child(
-                                // M26 T4: host_text user@addr:port → Body
+                                // M35 T2: user@host:port → Code (JetBrains Mono 等宽)
+                                // 给 SSH 主题信息 developer tool 视觉
                                 div()
-                                    .typography(aish_ui::TypeRole::Body, theme)
+                                    .typography(aish_ui::TypeRole::Code, theme)
                                     .text_color(colors.secondary_foreground)
                                     .child(host_text),
                             )

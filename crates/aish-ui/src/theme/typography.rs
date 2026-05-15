@@ -14,6 +14,12 @@ use gpui::{px, FontWeight, Hsla, Pixels, Styled};
 
 use super::tokens::{ColorTokens, Theme};
 
+/// 等宽字体名 — 与 aish-app 的 terminal::font::FONT_NAME 一致（同一份
+/// bundled 字体）。aish-ui 不直接 include_bytes 字体（grid 渲染由 aish-app
+/// 控），但需要一个 well-known name 让 typography(TypeRole::Code) 接管
+/// font_family。caller 需保证 aish-app 已 init font。
+pub const CODE_FONT_NAME: &str = "JetBrainsMono Nerd Font";
+
 /// 默认 color role —— caller 链 `.text_color(custom)` 仍可 override。
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ColorRole {
@@ -59,7 +65,8 @@ pub enum TypeRole {
     Title2,
     /// 20/600/fg — page title (Home / Settings 等)
     Title1,
-    /// 13/400/fg — inline code / 路径文字（caller 自己加 monospace font_family）
+    /// 13/400/fg — inline code / 路径文字。M35 T2 起 typography() trait
+    /// 自动 apply `CODE_FONT_NAME` font_family（JetBrains Mono Nerd Font）。
     Code,
 }
 
@@ -156,9 +163,16 @@ impl Typography {
 pub trait TypographyExt: Styled + Sized {
     fn typography(self, role: TypeRole, t: &Theme) -> Self {
         let style = t.typography.role(role);
-        self.text_size(style.size)
+        let mut s = self
+            .text_size(style.size)
             .font_weight(style.weight)
-            .text_color(style.default_color_role.resolve(&t.colors))
+            .text_color(style.default_color_role.resolve(&t.colors));
+        // M35 T2: Code role 自动应用 monospace font_family，让 host /
+        // user@host:port / 路径等 SSH 主题信息有 developer tool 等宽视觉。
+        if role == TypeRole::Code {
+            s = s.font_family(CODE_FONT_NAME);
+        }
+        s
     }
 }
 
@@ -231,5 +245,20 @@ mod tests {
             t.role(TypeRole::Caption).default_color_role,
             ColorRole::MutedForeground
         );
+    }
+
+    /// M35 T2：Code role 是 normal-weight body-size fg-color，与 Body 仅
+    /// 在 typography() trait apply 时差 font_family（自动加 monospace）。
+    #[test]
+    fn code_role_same_metrics_as_body() {
+        let t = Typography::default();
+        assert_eq!(t.code.size, t.body.size);
+        assert_eq!(t.code.weight, t.body.weight);
+        assert_eq!(t.code.default_color_role, ColorRole::Foreground);
+    }
+
+    #[test]
+    fn code_font_name_is_jetbrains_mono() {
+        assert_eq!(CODE_FONT_NAME, "JetBrainsMono Nerd Font");
     }
 }
