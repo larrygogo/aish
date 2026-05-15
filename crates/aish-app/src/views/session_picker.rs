@@ -11,15 +11,14 @@
 //! M12 重写：外壳换 `aish_ui::Dialog`；session 行保持手画（导航式列表
 //! ↑/↓+Enter 不需要 Select 的下拉语义）。
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
-use aish_types::ConnectionId;
-use aish_ui::{theme, Dialog, TypographyExt};
-use gpui::{
-    div, prelude::*, Context, Entity, IntoElement, MouseButton, MouseDownEvent, SharedString,
-    Window,
-};
+use aish_types::{ConnectionId, SessionId};
+use aish_ui::{theme, Dialog, ListRow, TypographyExt};
+use gpui::{div, prelude::*, px, Context, Entity, IntoElement, Window};
 
+use crate::app::retain_alive_entities;
 use crate::bridge::Bridge;
 use crate::state::{humanize_last_connected, AppState, SessionCommand, SidebarTab, TmuxState};
 
@@ -34,6 +33,9 @@ pub struct SessionPickerView {
     /// 时重置为 0。Enter 触发 handle_pick(sessions[selected_idx])。
     /// session 数量为 0 时无效（render 直接显示"无 session"提示）。
     selected_idx: usize,
+    /// 每个 session 一个 ListRow Entity（hover transition + press feedback）。
+    /// render 前 retain 同步当前 sessions 集合，避免 entity 泄漏。
+    session_rows: HashMap<SessionId, Entity<ListRow>>,
 }
 
 impl SessionPickerView {
@@ -69,6 +71,7 @@ impl SessionPickerView {
             dialog,
             is_open_for: None,
             selected_idx: 0,
+            session_rows: HashMap::new(),
         }
     }
 
@@ -168,103 +171,123 @@ impl SessionPickerView {
 
 impl Render for SessionPickerView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let app = self.state.read(cx);
-        let Some(conn) = app.pending_session_picker else {
-            return self.dialog.clone().into_any_element();
-        };
-        let sessions = match app.tmux_state.get(&conn) {
-            Some(TmuxState::Detected { sessions, .. }) => sessions.clone(),
-            _ => Vec::new(),
+        // ── Phase 0：early return + ensure row entities（独立 cx.new 调用，不嵌套
+        //   read 借用）+ retain 同步 ──
+        let (conn, sessions) = {
+            let app = self.state.read(cx);
+            let Some(conn) = app.pending_session_picker else {
+                return self.dialog.clone().into_any_element();
+            };
+            let sessions = match app.tmux_state.get(&conn) {
+                Some(TmuxState::Detected { sessions, .. }) => sessions.clone(),
+                _ => Vec::new(),
+            };
+            (conn, sessions)
         };
 
-        let t = theme(cx);
-        let (colors, spacing, radius) = (t.colors, t.spacing, t.radius);
+        let alive_sids: std::collections::HashSet<SessionId> =
+            sessions.iter().map(|s| s.id.clone()).collect();
+        retain_alive_entities(&mut self.session_rows, |k| alive_sids.contains(k));
+
+        for s in &sessions {
+            if !self.session_rows.contains_key(&s.id) {
+                let row_id: gpui::ElementId =
+                    gpui::SharedString::from(format!("session-row-{}", s.id)).into();
+                let entity = cx.new(|c| {
+                    let mut r = ListRow::new(row_id, c);
+                    r.padding(px(12.0), px(8.0));
+                    r
+                });
+                self.session_rows.insert(s.id.clone(), entity);
+            }
+        }
 
         let selected_idx = self.selected_idx.min(sessions.len().saturating_sub(1));
-        let rows: Vec<_> = sessions
-            .iter()
-            .enumerate()
-            .map(|(idx, s)| {
-                let sid = s.id.clone();
-                let name = s.name.clone();
-                let windows = s.windows;
-                let activity = s.activity;
-                let is_kb_selected = idx == selected_idx;
-                // M17 一致性：大容器 hover 用 secondary 灰阶（与 Card / TabItem
-                // 同源），不再用 accent 染色（accent 暗绿 #2f6e3e fill 整行
-                // 视觉过冲）。row 之间用 gap 替代 border-b，每行 rounded 让
-                // hover 高亮成块状而不是横条。
-                let hover_bg = colors.secondary_hover;
-                let active_bg = colors.secondary_active;
-                // 键盘选中行用 secondary_hover bg + accent border-l 区分鼠标
-                // hover（防止键盘 + 鼠标同时操作时混淆）。
-                let kb_bg = if is_kb_selected {
-                    colors.secondary_hover
-                } else {
-                    colors.popover
-                };
-                // .active() 要求 stateful div → 必须 .id()，否则 compile 失败
-                div()
-                    .id(SharedString::from(format!("session-row-{}", sid)))
-                    .relative()
-                    .px(spacing.px_3)
-                    .py(spacing.px_2)
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap(spacing.px_3)
-                    .rounded(radius.md)
-                    .bg(kb_bg)
-                    .cursor_pointer()
-                    .hover(move |st| st.bg(hover_bg))
-                    .active(move |st| st.bg(active_bg))
-                    // 键盘选中行：仅 bg 区分（kb_bg 已 set 为 secondary_hover），
-                    // 不画 primary 绿左条 — 与 nav_item / dropdown 同灰阶风。
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
-                            this.handle_pick(conn, sid.clone(), cx);
-                        }),
-                    )
-                    // M26: success 绿点 Micro
-                    .child(
-                        div()
-                            .typography(aish_ui::TypeRole::Micro, t)
-                            .text_color(colors.success)
-                            .child("●"),
-                    )
-                    .child(
-                        // M26: session name → Body (13/400/fg)
-                        div()
-                            .flex_1()
-                            .typography(aish_ui::TypeRole::Body, t)
-                            .child(name),
-                    )
-                    // M26: windows 数 / activity / Enter 提示都用 Caption (12/muted)
-                    .when(windows > 0, |d| {
-                        d.child(
+
+        // ── Phase A：block scope — 读 app + theme，build 每行 body AnyElement ──
+        let (body_phase1, spacing_px_1): (Vec<(SessionId, gpui::AnyElement, bool)>, gpui::Pixels) = {
+            let _app = self.state.read(cx);
+            let t = theme(cx);
+            let colors = t.colors;
+            let spacing = t.spacing;
+
+            let rows: Vec<(SessionId, gpui::AnyElement, bool)> = sessions
+                .iter()
+                .enumerate()
+                .map(|(idx, s)| {
+                    let is_kb_selected = idx == selected_idx;
+                    let inner = div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(spacing.px_3)
+                        .child(
+                            div()
+                                .typography(aish_ui::TypeRole::Micro, t)
+                                .text_color(colors.success)
+                                .child("●"),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .typography(aish_ui::TypeRole::Body, t)
+                                .child(s.name.clone()),
+                        )
+                        .when(s.windows > 0, |d| {
+                            d.child(
+                                div()
+                                    .typography(aish_ui::TypeRole::Caption, t)
+                                    .child(format!("{} win", s.windows)),
+                            )
+                        })
+                        .when(s.activity > 0, |d| {
+                            let last = std::time::UNIX_EPOCH
+                                + std::time::Duration::from_secs(s.activity as u64);
+                            d.child(
+                                div()
+                                    .typography(aish_ui::TypeRole::Caption, t)
+                                    .child(humanize_last_connected(last)),
+                            )
+                        })
+                        .child(
                             div()
                                 .typography(aish_ui::TypeRole::Caption, t)
-                                .child(format!("{} win", windows)),
-                        )
-                    })
-                    .when(activity > 0, |d| {
-                        let last = std::time::UNIX_EPOCH
-                            + std::time::Duration::from_secs(activity as u64);
-                        d.child(
-                            div()
-                                .typography(aish_ui::TypeRole::Caption, t)
-                                .child(humanize_last_connected(last)),
-                        )
-                    })
-                    .child(
-                        div()
-                            .typography(aish_ui::TypeRole::Caption, t)
-                            .child("Enter"),
-                    )
+                                .child("Enter"),
+                        );
+                    (s.id.clone(), inner.into_any_element(), is_kb_selected)
+                })
+                .collect();
+            (rows, spacing.px_1)
+        };
+        // Phase A end — app / theme borrow 释放
+
+        // ── Phase B：entity.update 灌 body / selected / on_click ──
+        let row_entities: Vec<Entity<ListRow>> = body_phase1
+            .into_iter()
+            .map(|(sid, inner, is_kb_selected)| {
+                let entity = self
+                    .session_rows
+                    .get(&sid)
+                    .cloned()
+                    .expect("session_rows 已 ensure for current sessions");
+                let weak = cx.weak_entity();
+                let sid_for_click = sid.clone();
+                entity.update(cx, |r, _| {
+                    r.body(inner)
+                        .selected(is_kb_selected)
+                        .on_click(move |_ev, _w, cx| {
+                            if let Some(this) = weak.upgrade() {
+                                this.update(cx, |this, cx| {
+                                    this.handle_pick(conn, sid_for_click.clone(), cx);
+                                });
+                            }
+                        });
+                });
+                entity
             })
             .collect();
 
+        // ── Phase C：拼装 dialog body ──
         let body: gpui::AnyElement = if sessions.is_empty() {
             // M28 T6: 用 EmptyState 替代 muted 一行文字，dialog 内紧凑场景
             // 不带 action（关闭即可回 raw shell，不需要主 CTA）。
@@ -277,8 +300,8 @@ impl Render for SessionPickerView {
             div()
                 .flex()
                 .flex_col()
-                .gap(spacing.px_1)
-                .children(rows)
+                .gap(spacing_px_1)
+                .children(row_entities)
                 .into_any_element()
         };
 

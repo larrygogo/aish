@@ -8,10 +8,8 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use aish_types::{ConnectionId, HostId};
-use aish_ui::{Button, CardEntity, IconButton, TypographyExt};
-use gpui::{
-    div, prelude::*, px, rgb, Context, Entity, KeyDownEvent, MouseButton, MouseDownEvent, Window,
-};
+use aish_ui::{Button, CardEntity, IconButton, ListRow, TypographyExt};
+use gpui::{div, prelude::*, px, rgb, Context, Entity, KeyDownEvent, MouseDownEvent, Window};
 
 use crate::app::retain_alive_entities;
 use crate::bridge::Bridge;
@@ -57,6 +55,10 @@ pub struct HomeView {
     /// M33: 每张 host card 的 CardEntity（hover transition + press feedback），
     /// 按 HostId 索引。render 顶部 retain + ensure 同 host_card_buttons。
     host_cards: HashMap<HostId, Entity<CardEntity>>,
+    /// Active Sessions 区每行的 ListRow Entity（hover transition + press
+    /// feedback），按 ConnectionId 索引。render 顶部 retain + ensure 同
+    /// session_open_buttons。
+    active_session_rows: HashMap<ConnectionId, Entity<ListRow>>,
 }
 
 /// host 右键菜单 item 数量（编辑 / 复制 / 删除）。与 render 内 items() 匹配。
@@ -138,6 +140,7 @@ impl HomeView {
             host_card_buttons: HashMap::new(),
             session_open_buttons: HashMap::new(),
             host_cards: HashMap::new(),
+            active_session_rows: HashMap::new(),
         }
     }
 
@@ -377,6 +380,7 @@ impl Render for HomeView {
             retain_alive_entities(&mut self.session_open_buttons, |k| conn_ids.contains(k));
             // M33: host_cards 同 host 集合同步
             retain_alive_entities(&mut self.host_cards, |k| host_ids.contains(k));
+            retain_alive_entities(&mut self.active_session_rows, |k| conn_ids.contains(k));
         }
         // ensure entries (lazy create)
         let hosts_snapshot: Vec<HostId> = self.state.read(cx).hosts.iter().map(|h| h.id).collect();
@@ -444,6 +448,25 @@ impl Render for HomeView {
                 });
                 self.session_open_buttons.insert(*conn_id, btn);
             }
+            // active sessions 行的 ListRow Entity（hover transition + press feedback）
+            if !self.active_session_rows.contains_key(conn_id) {
+                let cid = *conn_id;
+                let row_id: gpui::ElementId =
+                    gpui::SharedString::from(format!("active-session-row-{}", cid)).into();
+                let weak = cx.weak_entity();
+                let row = cx.new(move |c| {
+                    let mut r = ListRow::new(row_id, c);
+                    r.padding(gpui::px(16.0), gpui::px(10.0))
+                        .radius(gpui::px(8.0))
+                        .on_click(move |_ev, _w, cx| {
+                            if let Some(this) = weak.upgrade() {
+                                this.update(cx, |this, cx| this.handle_open_session(cid, cx));
+                            }
+                        });
+                    r
+                });
+                self.active_session_rows.insert(*conn_id, row);
+            }
         }
         // M33: ensure host_cards CardEntity for each host
         for id in &hosts_snapshot {
@@ -475,7 +498,8 @@ impl Render for HomeView {
         // final layout（不再借 theme/app）。
         let (
             header_el,
-            active_section_el,
+            active_section_label,
+            active_rows_phase1,
             cards_phase1,
             hosts_section_label_el,
             load_error,
@@ -525,33 +549,29 @@ impl Render for HomeView {
                 })
                 .collect();
 
-            let active_section: Option<gpui::AnyElement> = if active_connections.is_empty() {
-                None
-            } else {
-                let rows: Vec<_> = active_connections
-                    .into_iter()
-                    .map(|(conn_id, label, time_str, is_active)| {
-                        // 左侧状态圆点
-                        let dot_color = if is_active {
-                            colors.success
-                        } else {
-                            colors.muted_foreground
-                        };
-                        let dot = div()
-                            .w(px(8.0))
-                            .h(px(8.0))
-                            .rounded_full()
-                            .bg(dot_color)
-                            .flex_shrink_0();
+            // Phase A: 每行 body 作 AnyElement 收 (conn_id, body)；Phase B 走 entity
+            //   update 灌 body（drop borrow 后做）。
+            let active_rows_phase1: Vec<(ConnectionId, gpui::AnyElement)> = active_connections
+                .into_iter()
+                .map(|(conn_id, label, time_str, is_active)| {
+                    let dot_color = if is_active {
+                        colors.success
+                    } else {
+                        colors.muted_foreground
+                    };
+                    let dot = div()
+                        .w(px(8.0))
+                        .h(px(8.0))
+                        .rounded_full()
+                        .bg(dot_color)
+                        .flex_shrink_0();
 
-                        // label + time
-                        let label_part = div()
+                    let label_part = div()
                         .flex_1()
                         .flex()
                         .flex_row()
                         .items_center()
                         .gap_2()
-                        // M26: active session row → label Body + time Caption
                         .child(
                             div()
                                 .typography(aish_ui::TypeRole::Body, theme)
@@ -563,51 +583,32 @@ impl Render for HomeView {
                                 .child(format!("· {}", time_str)),
                         );
 
-                        // M31: Open 按钮走 session_open_buttons entity（press feedback）
-                        let open_btn = self
-                            .session_open_buttons
-                            .get(&conn_id)
-                            .cloned()
-                            .expect("session_open_buttons 在 render 顶部已 ensure");
+                    let open_btn = self
+                        .session_open_buttons
+                        .get(&conn_id)
+                        .cloned()
+                        .expect("session_open_buttons 在 render 顶部已 ensure");
 
-                        // 整行可点击
-                        div()
-                            .px_4()
-                            .py_2p5()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap_3()
-                            .rounded_lg()
-                            .cursor_pointer()
-                            .hover(|s| s.bg(colors.card))
-                            .on_mouse_down(
-                                MouseButton::Left,
-                                cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
-                                    this.handle_open_session(conn_id, cx);
-                                }),
-                            )
-                            .child(dot)
-                            .child(label_part)
-                            .child(open_btn)
-                    })
-                    .collect();
+                    let body = div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_3()
+                        .child(dot)
+                        .child(label_part)
+                        .child(open_btn);
+                    (conn_id, body.into_any_element())
+                })
+                .collect();
 
+            let active_section_label: Option<gpui::AnyElement> = if active_rows_phase1.is_empty() {
+                None
+            } else {
                 Some(
                     div()
-                        .px_8()
-                        .pb_4()
-                        .flex()
-                        .flex_col()
-                        .gap_1()
-                        .child(
-                            // M26: ACTIVE SESSIONS section divider → Caption (与 HOSTS 同模式)
-                            div()
-                                .pb_2()
-                                .typography(aish_ui::TypeRole::Caption, theme)
-                                .child("ACTIVE SESSIONS"),
-                        )
-                        .children(rows)
+                        .pb_2()
+                        .typography(aish_ui::TypeRole::Caption, theme)
+                        .child("ACTIVE SESSIONS")
                         .into_any_element(),
                 )
             };
@@ -807,7 +808,8 @@ impl Render for HomeView {
             // capture phase A 输出（drop borrow 前必须 own / Copy）
             (
                 header.into_any_element(),
-                active_section,
+                active_section_label,
+                active_rows_phase1,
                 cards_phase1,
                 hosts_section_label.into_any_element(),
                 app.hosts_load_error.clone(),
@@ -820,9 +822,40 @@ impl Render for HomeView {
         };
         // phase A end — app + theme borrow 释放
 
-        // ───── Phase B: cards Vec build with entity.update ─────
-        // 现在 cx mut borrow 可用，调 host_cards entity.update 灌 body_row
-        // 后包 right-click wrap div（context_menu open_at）。
+        // ───── Phase B: active session rows + host cards Vec build ─────
+        // 现在 cx mut borrow 可用，调 active_session_rows / host_cards
+        // entity.update 灌 body / wrap right-click。
+        let active_rows: Vec<gpui::AnyElement> = active_rows_phase1
+            .into_iter()
+            .map(|(conn_id, body_inner)| {
+                let row_entity = self
+                    .active_session_rows
+                    .get(&conn_id)
+                    .cloned()
+                    .expect("active_session_rows 在 render 顶部已 ensure");
+                row_entity.update(cx, |r, _| {
+                    r.body(body_inner);
+                });
+                row_entity.into_any_element()
+            })
+            .collect();
+
+        let active_section_el: Option<gpui::AnyElement> = if active_rows.is_empty() {
+            None
+        } else {
+            Some(
+                div()
+                    .px_8()
+                    .pb_4()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .when_some(active_section_label, |d, l| d.child(l))
+                    .children(active_rows)
+                    .into_any_element(),
+            )
+        };
+
         let cards: Vec<gpui::AnyElement> = cards_phase1
             .into_iter()
             .map(|(id, body_row)| {
