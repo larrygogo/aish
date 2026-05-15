@@ -15,7 +15,7 @@ use gpui::{
     KeyDownEvent, MouseButton, MouseDownEvent, Pixels, SharedString, Window,
 };
 
-use crate::components::IconButton;
+use crate::components::IconButtonEntity;
 use crate::icons::IconName;
 use crate::theme::{animate_or_skip, theme};
 use crate::TypographyExt;
@@ -48,6 +48,8 @@ pub struct Dialog {
     body: Option<AnyElement>,
     width: Pixels,
     on_close: Option<CloseHandler>,
+    /// M31：标题栏右侧 X 关闭按钮升 stateful IconButton（带 press 反馈）。
+    close_btn: gpui::Entity<IconButtonEntity>,
     /// caller 注册的额外 key handler。在 Dialog 处理 Esc 关闭之后调用。
     /// 用于 caller 实现 ↑/↓/Enter 等列表导航（如 SessionPicker）。
     on_key: Option<KeyHandler>,
@@ -63,6 +65,22 @@ pub struct Dialog {
 
 impl Dialog {
     pub fn new(cx: &mut Context<Self>) -> Self {
+        // 把 X 按钮做成 Entity 时需要在新 cx 中创建并 wire weak callback：
+        // weak.update → this.close + fire_close。close_btn 的 on_click handler
+        // 不能直接 reference self（self 不存在），用 weak entity 模式。
+        let weak = cx.weak_entity();
+        let close_btn = cx.new(|cx| {
+            let mut b = IconButtonEntity::new("dialog-close", IconName::X, cx);
+            b.small().on_click(move |_ev, window, cx| {
+                if let Some(this) = weak.upgrade() {
+                    this.update(cx, |this, cx| {
+                        this.close(cx);
+                        this.fire_close(window, cx);
+                    });
+                }
+            });
+            b
+        });
         Self {
             focus_handle: cx.focus_handle(),
             state: OpenState::Closed,
@@ -74,6 +92,7 @@ impl Dialog {
             on_key: None,
             focus_chain: Vec::new(),
             initial_focus: None,
+            close_btn,
         }
     }
 
@@ -377,12 +396,7 @@ impl Dialog {
                                 .typography(crate::TypeRole::Title2, theme(cx))
                                 .child(title),
                         )
-                        .child(IconButton::new("dialog-close", IconName::X).small().on_click(
-                            cx.listener(|this, _ev: &MouseDownEvent, window, cx| {
-                                this.close(cx);
-                                this.fire_close(window, cx);
-                            }),
-                        )),
+                        .child(self.close_btn.clone()),
                 )
                 .child(
                     div()

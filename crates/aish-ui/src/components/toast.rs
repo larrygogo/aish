@@ -4,11 +4,17 @@
 //! - `Toast` 数据结构
 //! - `ToastManager` Entity（队列 + 渲染 + 定时清理）
 //! - `ToastHandle` Global（持有 Entity<ToastManager> 的引用，让任意位置都能 push）
+//!
+//! M31：close X 按钮升 IconButtonEntity stateful，每个 toast 持独立 entity
+//! 让 press feedback 生效。close_buttons HashMap 跟随 toasts vec 增删同步
+//! retain，避免 entity 泄漏。
 
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use gpui::{div, prelude::*, px, App, Context, Entity, IntoElement, Render, SharedString, Window};
 
+use crate::components::IconButtonEntity;
 use crate::icons::{icon, IconName};
 use crate::theme::theme;
 
@@ -43,6 +49,9 @@ pub struct Toast {
 pub struct ToastManager {
     toasts: Vec<Toast>,
     next_id: u64,
+    /// M31：per-toast close X 按钮 entity（key = toast.id）。push 时插入，
+    /// dismiss / cleanup_expired retain 同步清掉过期 entry 防泄漏。
+    close_buttons: HashMap<u64, Entity<IconButtonEntity>>,
 }
 
 impl ToastManager {
@@ -50,6 +59,7 @@ impl ToastManager {
         let this = Self {
             toasts: Vec::new(),
             next_id: 1,
+            close_buttons: HashMap::new(),
         };
         this.start_cleanup_timer(cx);
         this
@@ -65,6 +75,20 @@ impl ToastManager {
             created_at: Instant::now(),
             duration: Duration::from_secs(3),
         });
+
+        // M31：为此 toast 创建 close X button entity，weak callback 触发 dismiss
+        let weak = cx.weak_entity();
+        let btn = cx.new(|cx| {
+            let mut b = IconButtonEntity::new(("toast-close", id as usize), IconName::X, cx);
+            b.small().ghost().on_click(move |_ev, _w, cx| {
+                if let Some(this) = weak.upgrade() {
+                    this.update(cx, |this, cx| this.dismiss(id, cx));
+                }
+            });
+            b
+        });
+        self.close_buttons.insert(id, btn);
+
         cx.notify();
     }
 
@@ -72,6 +96,7 @@ impl ToastManager {
         let before = self.toasts.len();
         self.toasts.retain(|t| t.id != id);
         if self.toasts.len() != before {
+            self.close_buttons.remove(&id);
             cx.notify();
         }
     }
@@ -82,6 +107,9 @@ impl ToastManager {
         self.toasts
             .retain(|t| now.duration_since(t.created_at) < t.duration);
         if self.toasts.len() != before {
+            // 同步 retain close_buttons：仅保留仍存在的 toast id
+            let alive: std::collections::HashSet<u64> = self.toasts.iter().map(|t| t.id).collect();
+            self.close_buttons.retain(|id, _| alive.contains(id));
             cx.notify();
         }
     }
@@ -108,37 +136,36 @@ impl ToastManager {
 
 impl Render for ToastManager {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = theme(cx);
+        // 提前取 token，避免 theme(cx) 借用与 render_toast(cx mut) 的冲突
+        let (right_spacing, col_gap) = {
+            let t = theme(cx);
+            (t.spacing.px_4, t.spacing.px_2)
+        };
         let toasts = self.toasts.clone();
-        let weak = cx.weak_entity();
-        // 位置：右下角。比之前右上角离用户视线焦点（终端 / input bar）更近，
-        // 不被自绘 titlebar / tab bar 遮挡，且不挡终端顶部 prompt。
-        //
-        // bottom = 96px 而非 px_4：terminal 模式下底部有 InputBarView (高 ~88px
-        // = 48 缩略图区 + 40 输入栏)。toast 紧贴底部会盖住 input bar 的 send 按钮。
-        // 96px 让 toast 浮在 input bar 上方约 8px。Home / Settings 模式下无 input
-        // bar，toast 离底边远点也无妨。
-        //
-        // flex_col_reverse 让新 toast 从底部往上叠，最新的总在最下方最显眼。
+        // 位置：右下角。M31：从 close_buttons HashMap 取每条 toast 对应的
+        // close_btn entity，传入 render_toast。
+        let children: Vec<gpui::AnyElement> = toasts
+            .into_iter()
+            .filter_map(|toast| {
+                let btn = self.close_buttons.get(&toast.id).cloned()?;
+                Some(render_toast(toast, btn, cx))
+            })
+            .collect();
         div()
             .absolute()
             .bottom(px(96.0))
-            .right(t.spacing.px_4)
+            .right(right_spacing)
             .flex()
             .flex_col_reverse()
-            .gap(t.spacing.px_2)
-            .children(
-                toasts
-                    .into_iter()
-                    .map(|toast| render_toast(toast, cx, weak.clone())),
-            )
+            .gap(col_gap)
+            .children(children)
     }
 }
 
 fn render_toast(
     toast: Toast,
+    close_btn: Entity<IconButtonEntity>,
     cx: &mut App,
-    weak_mgr: gpui::WeakEntity<ToastManager>,
 ) -> gpui::AnyElement {
     let t = theme(cx);
     let (border_color, fg_color) = match toast.kind {
@@ -149,17 +176,6 @@ fn render_toast(
     };
 
     let toast_id = toast.id;
-    // toast_id 是 u64，目标平台均为 64-bit，as usize 在此场景下永不截断
-    // （ToastManager::next_id 线性增长，单次会话产生量 << u32::MAX）
-    let close_btn =
-        crate::components::IconButton::new(("toast-close", toast_id as usize), IconName::X)
-            .small()
-            .ghost()
-            .on_click(move |_ev, _w, cx| {
-                if let Some(m) = weak_mgr.upgrade() {
-                    m.update(cx, |m, cx| m.dismiss(toast_id, cx));
-                }
-            });
 
     // 视觉：rounded card + 1px kind 色 border + shadow + popover bg。
     // 之前用 absolute 4px 左条强调 kind，但与项目整体灰阶 + indicator 条
