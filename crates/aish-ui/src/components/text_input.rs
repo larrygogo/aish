@@ -1261,11 +1261,9 @@ impl TextInput {
             "c" if event.keystroke.modifiers.control => {
                 self.copy();
             }
-            "x" if event.keystroke.modifiers.control => {
-                if self.cut() {
-                    cx.notify();
-                    self.fire_change(window, cx);
-                }
+            "x" if event.keystroke.modifiers.control && self.cut() => {
+                cx.notify();
+                self.fire_change(window, cx);
             }
             "v" if event.keystroke.modifiers.control => {
                 // paste 三条路径并行处理（不互斥，剪贴板可同时含多种）：
