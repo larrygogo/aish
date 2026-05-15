@@ -10,14 +10,66 @@
 
 ## 当前状态
 
-- **活跃分支**：main（2026-05-15 完成 M22-M33 + M27 + NavItem polish；
-  M33 T2 落地通过 home render split 3 阶段重构）
-- **下一里程碑候选**：TabItem 升 Entity + tab_bar render split / list row hover transition / detach-detect / SSH key passphrase
-- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **268** + aish-app **147** + 其他 crate) 全过
+- **活跃分支**：main（2026-05-15 完成 M22-M34）。M34 batch：detach-detect +
+  SSH key passphrase + TabItem 升 Entity + tab_bar render split
+- **下一里程碑候选**：list row hover transition / Skeleton 业务接入 /
+  hover leave fade-out
+- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **266** +
+  aish-app **153** + aish-secrets **8** + 其他 crate) 全过
 
 ---
 
 ## Milestones（按时间倒序）
+
+### M34 — Batch polish（detach-detect + SSH passphrase + TabItem entity）（2026-05-15）— ✅ 已完成
+
+不开独立 spec — max throughput 一次性合并 3 个 backlog 候选：
+
+**1. detach-detect** (`7749fae`)
+- 远端 tmux client 退出（用户 prefix+d / detach 命令）时输出
+  `[detached (from session XYZ)]` 字符串，actor 监控 channel data 检测
+- 新增 SshEvent::TmuxSessionDetached + AppState.mark_tmux_detached
+- ssh_actor.rs actor 主循环 local `attached_session: Option<SessionId>`，
+  AttachTmux 命令 set，ChannelMsg::Data 内 has_detach_marker 时 emit
+- 抽 has_detach_marker(data: &[u8]) pure fn + 6 单测（typical / short
+  form / no false positive / partial no match / anywhere / empty）
+- aish-app 147 → 153 (+6)
+
+**2. SSH key passphrase** (`c61cee5` + `617d6c0`)
+- aish-types SshAuth::KeyFile 加 `passphrase: String`（skip_serializing
+  不入 hosts.json，同 password 模式存 keyring）
+- aish-secrets 加 set_passphrase / get_passphrase / delete_passphrase，
+  username 用 `{host_id}-passphrase`（与 password 不同 entry）
+- aish-ssh client.rs 传 passphrase 给 russh load_secret_key（空 → None，
+  非空 → Some）
+- ssh_actor connection_task: KeyFile + passphrase=="" 时 SecretStore::get_passphrase
+  填回；NoEntry 不报错（未加密私钥合法 fallback）
+- persistence save_hosts_to 同时处理 password / passphrase 写盘；
+  delete_secret_for 删两份 entry
+- HostFormDraft.into_config: KeyFile 路径 passphrase = self.password.clone()
+- host_form view：KeyFile 模式 render keyfile_row + passphrase field（label
+  "passphrase"，placeholder "passphrase (optional, for encrypted keys)"）；
+  Password 模式仅 password field；runtime .update placeholder 切语义
+- aish-secrets 5 → 8 (+3 passphrase 单测)
+
+**3. TabItem 升 Entity + tab_bar render split** (`9e14a18`)
+- 应用 M33 home render split 通用模板到 tab_bar，让 TabItem 也获得
+  hover transition + press feedback + focus ring fade
+- tab_item.rs RenderOnce → Render Entity (复用 HoverState + fire_press
+  + fire_hover + render 三路 animator wrapper)，active=true 跳过 hover
+- TabBarView 加 tab_items: HashMap<TabId, Entity<TabItem>> + ensure +
+  retain（M31 T5 模式）
+- tab_bar render 3 阶段 split：Phase A enum TabRenderData
+  { Editing(AnyElement), Normal { prefix, title_el, suffix, is_selected,
+  title_for_preview } } collect；Phase B drop borrow + tab_entity.update +
+  wrap div with drag/drop/middle/right listener；Phase C reborrow theme +
+  plus_btn / arrows / final layout
+- aish-ui 268 → 266 (-5 旧 stateless + 3 新 hover 状态机 pure fn)
+
+至此 M30-M34 motion 系统**全套完整收尾**：所有主要交互元素 (Button /
+IconButton / NavItem / TabItem / Card host_card / Dialog / Toast /
+sidebar nav) 都有 hover transition + press feedback；home render split
+通用模板已被 home + tab_bar 双重验证。
 
 ### M33 — Card 升 Entity（2026-05-15）— ✅ T1+T2 完成 / T3-T4 不做（by design）
 - spec：[`specs/2026-05-15-aish-m33-card-stateful-design.md`](specs/2026-05-15-aish-m33-card-stateful-design.md)
@@ -761,11 +813,15 @@
 
 | ID | 描述 | 工作量 | 优先级 |
 |---|---|---|---|
-| detach-detect | tmux conf 注入 `set-hook -g client-detached`；aish 解析后清侧栏 attached 标记。aish-tmux protocol 已有 ParsedEvent::ClientDetached parser，但走 raw attach 路径没启用 control mode — 需要混合模式（attach 时同时 spawn 一个 -C 监听 channel） | ~半天 | 中 |
+| ~~detach-detect~~ | ✅ M34 落地（commit `7749fae`），channel data 监控 `[detached` 简化方案 | — | — |
+| ~~SSH key passphrase~~ | ✅ M34 落地（`c61cee5` + `617d6c0`），SshAuth::KeyFile.passphrase + keyring + UI | — | — |
+| ~~hover-transition (Button/IconButton/NavItem/Card/TabItem)~~ | ✅ M32 + M33 (Card host_card) + NavItem polish + M34 (TabItem) 全部落地 | — | — |
+| ~~tab_bar render split + TabItem entity~~ | ✅ M34 落地（`9e14a18`） | — | — |
+| list row hover transition | session_picker row / active sessions row 升 Entity + retain 模式 | ~1 天 | 中 |
+| hover leave fade-out | 双向 lerp 中断 + 反向 delta 继承（M32 D-1 简化版未做） | ~1 天 | 低 |
+| tab-indicator-slide | TabItem 切换时 indicator 底部 line 横向滑动 150ms（M30 T6 defer） | ~半天 | 低 |
 | mouse-legacy-encoding | X10/UTF8 鼠标编码 fallback（现代默认 SGR，需求弱） | < 1 小时 | 极低 |
-| ~~hover-transition (Button / IconButton)~~ | ✅ M32 落地（commits `a32909f` / `471155c`），Card/NavItem/TabItem/list row 留 M33+ | — | — |
-| tab-indicator-slide | TabItem 切换时 indicator 底部 line 横向滑动 150ms（M30 T6 defer） | ~半天 | 中 |
-| button-entity-test-harness | 引入 gpui::TestApp 给 ButtonEntity 加 entity-level 单测（M31 D-9 留空） | ~1 天 | 低 |
+| button-entity-test-harness | 引入 gpui::TestApp 给 Entity 加真行为单测（M31 D-9 留空） | ~1 天 | 低 |
 | skeleton-business-usecase | 找到一个真实业务场景接 Skeleton（session_picker NotChecked / 远端命令异步等）— M28 留空待业务驱动 | TBD | 中 |
 
 需要做哪条都走 brainstorm → spec → plan → implement，本表只是 backlog。
