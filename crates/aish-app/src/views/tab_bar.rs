@@ -819,7 +819,10 @@ impl Render for TabBarView {
         let active_bg = colors.secondary_active;
         let plus_btn = div()
             .id("tab-new")
-            .h(px(40.0))
+            // h_full 让 plus_btn 占满 tab_bar content area，不强占 border-b
+            // 那 1px（之前 hard-code h(40.0) = tab_bar 总高，hover bg 覆盖
+            // tab_bar.border_b 视觉断线 — fix 见 commit msg）
+            .h_full()
             .w(px(40.0))
             .flex()
             .items_center()
