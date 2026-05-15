@@ -1,9 +1,11 @@
-//! SidebarNav：左侧 48px iconfont 4-tab 导航（M4a 信息架构）。
+//! SidebarNav：左侧 64px iconfont 3-tab 导航（M4a 信息架构）。
 //!
 //! M13 重写为用 aish_ui::NavItem.vertical()，icon 通过 div+font_family 包装传入。
 //! M34: NavItem 升 stateful Entity（hover transition + press feedback），
 //! 持 3 个 `Entity<NavItem>` 字段，render 每帧 `.update(cx, |n, _|
 //! n.icon(...).active(...))` 重设（icon AnyElement 不可 Clone）。
+//! M35 T6: SIDEBAR_WIDTH 48 → 64，加 Caption label 让导航自明（icon-only
+//! 不可识别问题）。Label 用英文与代码 / commit message 风格一致。
 
 use aish_ui::NavItem;
 use gpui::{div, prelude::*, px, Context, Entity, Window};
@@ -11,7 +13,7 @@ use gpui::{div, prelude::*, px, Context, Entity, Window};
 use crate::state::{AppState, SidebarTab};
 use crate::terminal::font::FONT_NAME;
 
-const SIDEBAR_WIDTH: f32 = 48.0;
+const SIDEBAR_WIDTH: f32 = 64.0;
 
 pub struct SidebarNavView {
     state: Entity<AppState>,
@@ -91,14 +93,20 @@ impl Render for SidebarNavView {
             .text_size(px(16.0))
             .child("\u{f013}");
 
+        // M35 T6: 加 .label() — icon + Caption 标签让导航自明
         self.home_item.update(cx, |n, _| {
-            n.icon(home_icon).active(current == SidebarTab::Home);
+            n.icon(home_icon)
+                .label("Home")
+                .active(current == SidebarTab::Home);
         });
         self.terminal_item.update(cx, |n, _| {
-            n.icon(term_icon).active(current == SidebarTab::Terminal);
+            n.icon(term_icon)
+                .label("Terminal")
+                .active(current == SidebarTab::Terminal);
         });
         self.settings_item.update(cx, |n, _| {
             n.icon(settings_icon)
+                .label("Settings")
                 .active(current == SidebarTab::Settings);
         });
 
