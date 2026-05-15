@@ -390,17 +390,10 @@ impl HostFormDraft {
 /// 一个活跃连接的元数据（运行时数据，不持久化）。
 #[derive(Debug, Clone)]
 pub struct Connection {
-    // M35 T7 删除 home Active Sessions section 后，id / opened_at 字段失去
-    // 唯一 caller。保留：
-    // - id 与 HashMap key 重复但 init 时简化（caller 已传 id 不重复查表）
-    // - opened_at 可能未来 reconnect / sort by age 等场景再用
-    // - humanize_opened_at 同上 + 2 个 test 保留覆盖
-    #[allow(dead_code)]
     pub id: ConnectionId,
     pub host_id: HostId,
     /// 显示用，自动生成 `"<host.label> #N"`。N 从 1 开始按 host 内自增。
     pub label: String,
-    #[allow(dead_code)]
     pub opened_at: SystemTime,
 }
 
@@ -501,10 +494,7 @@ pub struct AppState {
 }
 
 impl Connection {
-    /// 返回自 opened_at 到现在的 humanize 字符串。
-    /// M35 T7 起暂无 prod caller（home Active Sessions section 已删）；
-    /// 保留 + 2 测试覆盖供未来 reconnect / age 显示等场景复用。
-    #[allow(dead_code)]
+    /// 返回自 opened_at 到现在的 humanize 字符串，用于 Active Sessions 显示。
     pub fn humanize_opened_at(&self) -> String {
         let secs = self.opened_at.elapsed().unwrap_or_default().as_secs();
         if secs < 60 {

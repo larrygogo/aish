@@ -7,8 +7,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use aish_types::HostId;
-use aish_ui::{CardEntity, IconButton, TypographyExt};
+use aish_types::{ConnectionId, HostId};
+use aish_ui::{Button, CardEntity, IconButton, ListRow, TypographyExt};
 use gpui::{div, prelude::*, px, rgb, Context, Entity, KeyDownEvent, MouseDownEvent, Window};
 
 use crate::app::retain_alive_entities;
@@ -50,9 +50,15 @@ pub struct HomeView {
     /// M31：每张 host card 的 edit + delete IconButton 对，按 HostId 索引。
     /// render 前 retain_alive_entities 同步 host 集合，避免 entity 泄漏。
     host_card_buttons: HashMap<HostId, HostCardButtons>,
+    /// M31：active sessions 列表每行的 "Open ▶" Button，按 ConnectionId 索引。
+    session_open_buttons: HashMap<ConnectionId, Entity<Button>>,
     /// M33: 每张 host card 的 CardEntity（hover transition + press feedback），
     /// 按 HostId 索引。render 顶部 retain + ensure 同 host_card_buttons。
     host_cards: HashMap<HostId, Entity<CardEntity>>,
+    /// Active Sessions 区每行的 ListRow Entity（hover transition + press
+    /// feedback），按 ConnectionId 索引。render 顶部 retain + ensure 同
+    /// session_open_buttons。
+    active_session_rows: HashMap<ConnectionId, Entity<ListRow>>,
 }
 
 /// host 右键菜单 item 数量（编辑 / 复制 / 删除）。与 render 内 items() 匹配。
@@ -132,7 +138,9 @@ impl HomeView {
             empty_add_btn,
             retry_btn,
             host_card_buttons: HashMap::new(),
+            session_open_buttons: HashMap::new(),
             host_cards: HashMap::new(),
+            active_session_rows: HashMap::new(),
         }
     }
 
@@ -299,6 +307,41 @@ impl HomeView {
             }
         });
     }
+
+    fn handle_open_session(&mut self, conn_id: ConnectionId, cx: &mut Context<Self>) {
+        self.state.update(cx, |s, cx| {
+            let tab_id = s
+                .tabs
+                .iter()
+                .find(|t| t.content == TabContent::Connection(conn_id))
+                .map(|t| t.id);
+
+            if let Some(id) = tab_id {
+                s.selected_tab = Some(id);
+            } else {
+                // 默认 title 取 host.label（与 handle_card_click 一致）
+                let host_id = s.connections.get(&conn_id).map(|c| c.host_id);
+                let default_title = host_id
+                    .and_then(|hid| {
+                        s.hosts
+                            .iter()
+                            .find(|h| h.id == hid)
+                            .map(|h| h.label.clone())
+                    })
+                    .unwrap_or_else(|| "connection".into());
+                let tab = Tab {
+                    id: aish_types::TabId::new(),
+                    content: TabContent::Connection(conn_id),
+                    title: default_title,
+                    title_locked: false,
+                };
+                s.tabs.push(tab);
+                s.selected_tab = Some(s.tabs.last().unwrap().id);
+            }
+            s.sidebar = SidebarTab::Terminal;
+            cx.notify();
+        });
+    }
 }
 
 impl Render for HomeView {
@@ -331,9 +374,13 @@ impl Render for HomeView {
             let app = self.state.read(cx);
             let host_ids: std::collections::HashSet<HostId> =
                 app.hosts.iter().map(|h| h.id).collect();
+            let conn_ids: std::collections::HashSet<ConnectionId> =
+                app.connections.keys().copied().collect();
             retain_alive_entities(&mut self.host_card_buttons, |k| host_ids.contains(k));
+            retain_alive_entities(&mut self.session_open_buttons, |k| conn_ids.contains(k));
             // M33: host_cards 同 host 集合同步
             retain_alive_entities(&mut self.host_cards, |k| host_ids.contains(k));
+            retain_alive_entities(&mut self.active_session_rows, |k| conn_ids.contains(k));
         }
         // ensure entries (lazy create)
         let hosts_snapshot: Vec<HostId> = self.state.read(cx).hosts.iter().map(|h| h.id).collect();
@@ -378,6 +425,49 @@ impl Render for HomeView {
                     .insert(host_id, HostCardButtons { edit, delete });
             }
         }
+        let conns_snapshot: Vec<ConnectionId> =
+            self.state.read(cx).connections.keys().copied().collect();
+        for conn_id in &conns_snapshot {
+            if !self.session_open_buttons.contains_key(conn_id) {
+                let cid = *conn_id;
+                let weak_o = cx.weak_entity();
+                let btn = cx.new(move |cx| {
+                    let mut b = Button::new(
+                        gpui::SharedString::from(format!("active-session-open-{}", cid)),
+                        cx,
+                    );
+                    b.label("Open ▶").secondary().on_click(move |_ev, _w, cx| {
+                        if let Some(this) = weak_o.upgrade() {
+                            this.update(cx, |this, cx| {
+                                cx.stop_propagation();
+                                this.handle_open_session(cid, cx);
+                            });
+                        }
+                    });
+                    b
+                });
+                self.session_open_buttons.insert(*conn_id, btn);
+            }
+            // active sessions 行的 ListRow Entity（hover transition + press feedback）
+            if !self.active_session_rows.contains_key(conn_id) {
+                let cid = *conn_id;
+                let row_id: gpui::ElementId =
+                    gpui::SharedString::from(format!("active-session-row-{}", cid)).into();
+                let weak = cx.weak_entity();
+                let row = cx.new(move |c| {
+                    let mut r = ListRow::new(row_id, c);
+                    r.padding(gpui::px(16.0), gpui::px(10.0))
+                        .radius(gpui::px(8.0))
+                        .on_click(move |_ev, _w, cx| {
+                            if let Some(this) = weak.upgrade() {
+                                this.update(cx, |this, cx| this.handle_open_session(cid, cx));
+                            }
+                        });
+                    r
+                });
+                self.active_session_rows.insert(*conn_id, row);
+            }
+        }
         // M33: ensure host_cards CardEntity for each host
         for id in &hosts_snapshot {
             if !self.host_cards.contains_key(id) {
@@ -406,11 +496,11 @@ impl Render for HomeView {
         // block 结束 borrow 释放。phase B 调 host_cards entity.update(cx, ...)
         // 灌 body + build cards wrap Vec。phase C 用 captured values 组装
         // final layout（不再借 theme/app）。
-        // M35 T7: 删除 ACTIVE SESSIONS section（sidebar 展开后「最近连接」list
-        // 提供等价 host-level 入口；当前活跃 connection 由 tab_bar 直接覆盖 —
-        // home 不必再列出 active sessions）。tuple 同步去掉对应字段。
         let (
             header_el,
+            active_section_label,
+            active_rows_phase1,
+            separator_el,
             cards_phase1,
             hosts_section_label_el,
             load_error,
@@ -448,8 +538,85 @@ impl Render for HomeView {
                 )
                 .child(add_btn);
 
-            // M35 T7: ACTIVE SESSIONS 段已删 — sidebar 展开「最近连接」+
-            // tab_bar 共同覆盖原职责（host history + active connection 切换）。
+            // ───── Active Sessions 区 ─────
+            // 收集所有 connection 的快照（避免在闭包里借用 app）
+            let active_connections: Vec<(ConnectionId, String, String, bool)> = app
+                .connections
+                .values()
+                .map(|c| {
+                    let time_str = c.humanize_opened_at();
+                    let is_active = app.is_session_active(c.id);
+                    (c.id, c.label.clone(), time_str, is_active)
+                })
+                .collect();
+
+            // Phase A: 每行 body 作 AnyElement 收 (conn_id, body)；Phase B 走 entity
+            //   update 灌 body（drop borrow 后做）。
+            let active_rows_phase1: Vec<(ConnectionId, gpui::AnyElement)> = active_connections
+                .into_iter()
+                .map(|(conn_id, label, time_str, is_active)| {
+                    let dot_color = if is_active {
+                        colors.success
+                    } else {
+                        colors.muted_foreground
+                    };
+                    let dot = div()
+                        .w(px(8.0))
+                        .h(px(8.0))
+                        .rounded_full()
+                        .bg(dot_color)
+                        .flex_shrink_0();
+
+                    let label_part = div()
+                        .flex_1()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            div()
+                                .typography(aish_ui::TypeRole::Body, theme)
+                                .child(label),
+                        )
+                        .child(
+                            div()
+                                .typography(aish_ui::TypeRole::Caption, theme)
+                                .child(format!("· {}", time_str)),
+                        );
+
+                    let open_btn = self
+                        .session_open_buttons
+                        .get(&conn_id)
+                        .cloned()
+                        .expect("session_open_buttons 在 render 顶部已 ensure");
+
+                    let body = div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_3()
+                        .child(dot)
+                        .child(label_part)
+                        .child(open_btn);
+                    (conn_id, body.into_any_element())
+                })
+                .collect();
+
+            // M35 T4: ACTIVE SESSIONS 改名「继续工作」+ 升 Title3 视觉权重。
+            // 「继续工作」是 verb-driven 引导（用户打开 aish 大概率为恢复
+            // 上次状态而非配置新主机），视觉应在 Home 首位重权重 — 替代
+            // 原 muted Caption divider 模式。
+            let active_section_label: Option<gpui::AnyElement> = if active_rows_phase1.is_empty() {
+                None
+            } else {
+                Some(
+                    div()
+                        .pb_2()
+                        .typography(aish_ui::TypeRole::Title3, theme)
+                        .child("继续工作")
+                        .into_any_element(),
+                )
+            };
 
             // ───── Hosts grid ─────
             // M33 续做：phase 1 cards iter 仅 collect (id, body_row)。phase 2
@@ -658,12 +825,28 @@ impl Render for HomeView {
                         .child("⌘K 搜索"),
                 );
 
-            // M35 T7: ACTIVE SESSIONS 段已删，原 separator (两 section 间)
-            // 同步去掉 — 现在 Home 只剩 header + Hosts grid，无需分隔。
+            // M35 T4: 两 section 间分隔条 — 仅当两 section 都将显示时画。
+            // 视觉作用：明确「继续工作」与「保存的主机」是两类不同 task —
+            // 前者是 verb-driven 恢复，后者是 noun-list 选择。
+            let show_separator = !active_rows_phase1.is_empty() && !app.hosts.is_empty();
+            let separator_el: Option<gpui::AnyElement> = if show_separator {
+                Some(
+                    div()
+                        .px(theme.anatomy.page.outer_px)
+                        .pb_4()
+                        .child(aish_ui::Separator::horizontal())
+                        .into_any_element(),
+                )
+            } else {
+                None
+            };
 
             // capture phase A 输出（drop borrow 前必须 own / Copy）
             (
                 header.into_any_element(),
+                active_section_label,
+                active_rows_phase1,
+                separator_el,
                 cards_phase1,
                 hosts_section_label.into_any_element(),
                 app.hosts_load_error.clone(),
@@ -676,8 +859,40 @@ impl Render for HomeView {
         };
         // phase A end — app + theme borrow 释放
 
-        // ───── Phase B: host cards Vec build ─────
-        // M35 T7: active_session_rows 段已删，本 phase 仅剩 host cards。
+        // ───── Phase B: active session rows + host cards Vec build ─────
+        // 现在 cx mut borrow 可用，调 active_session_rows / host_cards
+        // entity.update 灌 body / wrap right-click。
+        let active_rows: Vec<gpui::AnyElement> = active_rows_phase1
+            .into_iter()
+            .map(|(conn_id, body_inner)| {
+                let row_entity = self
+                    .active_session_rows
+                    .get(&conn_id)
+                    .cloned()
+                    .expect("active_session_rows 在 render 顶部已 ensure");
+                row_entity.update(cx, |r, _| {
+                    r.body(body_inner);
+                });
+                row_entity.into_any_element()
+            })
+            .collect();
+
+        let active_section_el: Option<gpui::AnyElement> = if active_rows.is_empty() {
+            None
+        } else {
+            Some(
+                div()
+                    .px_8()
+                    .pb_4()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .when_some(active_section_label, |d, l| d.child(l))
+                    .children(active_rows)
+                    .into_any_element(),
+            )
+        };
+
         let cards: Vec<gpui::AnyElement> = cards_phase1
             .into_iter()
             .map(|(id, body_row)| {
@@ -746,6 +961,8 @@ impl Render for HomeView {
                     .scrollbar(&self.scrollbar)
                     .flex_1()
                     .child(header_el)
+                    .children(active_section_el)
+                    .children(separator_el)
                     .child(
                         div()
                             .px(anatomy_outer_px)
