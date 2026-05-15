@@ -315,12 +315,10 @@ impl HostFormModal {
 
         match (self.synced_key, current) {
             // modal 关闭：两个 dialog 都关（R5 防双 open）
-            (_, None) => {
-                if self.synced_key != SyncedKey::None {
-                    self.synced_key = SyncedKey::None;
-                    self.dialog.update(cx, |d, cx| d.close(cx));
-                    self.delete_dialog.update(cx, |d, cx| d.close(cx));
-                }
+            (_, None) if self.synced_key != SyncedKey::None => {
+                self.synced_key = SyncedKey::None;
+                self.dialog.update(cx, |d, cx| d.close(cx));
+                self.delete_dialog.update(cx, |d, cx| d.close(cx));
             }
             // modal 切换：根据 next 决定 open 哪个 dialog，close 另一个（R5）
             (prev, Some(next)) if prev != next => {
