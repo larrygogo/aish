@@ -46,6 +46,10 @@ pub struct HostFormModal {
     /// M29 D-3：auth 切换从 Tabs Entity → enum 字段。
     /// 默认 KeyFile（与 M12 Tabs 默认 active=0 等价）。
     auth_kind: AuthKind,
+    /// M35 T10: 单行 `user@host:port` 快速输入。on_change 时 parse 成功就
+    /// 自动 mirror 写入下方 4 个 TextInput（user / host / port）；解析失败
+    /// 不报错，用户可继续在 4 字段填。
+    connection_input: Entity<TextInput>,
     label_input: Entity<TextInput>,
     host_input: Entity<TextInput>,
     port_input: Entity<TextInput>,
@@ -91,6 +95,69 @@ fn validate_port(s: &str) -> Option<&'static str> {
     }
 }
 
+/// M35 T10: 解析单行 SSH 连接字符串 `user@host:port`。
+///
+/// 接受格式：
+/// - `user@host`          → `(user, host, "22")`
+/// - `user@host:port`     → `(user, host, port)`
+/// - `host`               → `("", host, "22")` (无 user — caller 自决填默认值)
+/// - `host:port`          → `("", host, port)`
+/// - `user@[::1]:22`      → IPv6 带方括号格式
+///
+/// 失败（空 / 含空格 / 含多 @ / port 非数字或越界 / host 为空）→ `None`，
+/// caller 不报错，让用户继续在 4 字段表单填。
+pub(crate) fn parse_connection_string(s: &str) -> Option<(String, String, String)> {
+    let s = s.trim();
+    if s.is_empty() || s.contains(char::is_whitespace) {
+        return None;
+    }
+    // 1. 拆 user@rest（rest 不应再含 @）
+    let (user, rest): (String, String) = match s.find('@') {
+        Some(idx) => {
+            let (u, r) = s.split_at(idx);
+            (u.to_string(), r[1..].to_string())
+        }
+        None => (String::new(), s.to_string()),
+    };
+    if rest.contains('@') {
+        return None;
+    }
+
+    // 2. 拆 host:port — IPv6 [::1]:port 优先识别方括号
+    let (host, port) = if let Some(stripped) = rest.strip_prefix('[') {
+        let end_bracket = stripped.find(']')?;
+        let host = format!("[{}]", &stripped[..end_bracket]);
+        let after = &stripped[end_bracket + 1..];
+        if after.is_empty() {
+            (host, "22".to_string())
+        } else {
+            let p = after.strip_prefix(':')?;
+            match p.parse::<u32>() {
+                Ok(n) if (1..=65535).contains(&n) => (host, p.to_string()),
+                _ => return None,
+            }
+        }
+    } else {
+        // 非 IPv6：rfind ':' 取最后一个分隔点 host vs port
+        match rest.rfind(':') {
+            Some(idx) => {
+                let (h, p) = rest.split_at(idx);
+                let p_str = &p[1..];
+                match p_str.parse::<u32>() {
+                    Ok(n) if (1..=65535).contains(&n) => (h.to_string(), p_str.to_string()),
+                    _ => return None,
+                }
+            }
+            None => (rest, "22".to_string()),
+        }
+    };
+
+    if host.is_empty() || host == "[]" {
+        return None;
+    }
+    Some((user, host, port))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SyncedKey {
     None,
@@ -133,9 +200,15 @@ impl HostFormModal {
         });
         // M29 D-3: auth 切换从 Tabs Entity 改 enum 字段，初始 KeyFile
 
+        // M35 T10: 顶部「快速输入」字段，user@host:port 单行格式
+        let connection_input = cx.new(|cx| {
+            let mut i = TextInput::new(cx);
+            i.placeholder("user@host:port");
+            i
+        });
         let label_input = cx.new(|cx| {
             let mut i = TextInput::new(cx);
-            i.placeholder("My Server");
+            i.placeholder("My Server (可选)");
             i
         });
         let host_input = cx.new(|cx| {
@@ -183,6 +256,30 @@ impl HostFormModal {
             let mut i = TextInput::new(cx);
             i.placeholder("root");
             i
+        });
+
+        // M35 T10: connection_input on_change → parse + auto-fill user/host/port
+        let weak_conn = cx.weak_entity();
+        connection_input.update(cx, |i, _cx| {
+            i.on_change(move |text, _w, cx| {
+                if let Some((user, host, port)) = parse_connection_string(text) {
+                    if let Some(this) = weak_conn.upgrade() {
+                        this.update(cx, |this, cx| {
+                            // 仅在 parse 成功时填字段，不覆盖非空字段以外的内容；
+                            // 但用户预期是「typed user@host:port 后字段自动填」，
+                            // 所以强制覆盖（避免半残）。
+                            this.user_input.update(cx, |i, cx| i.set_text(user, cx));
+                            this.host_input.update(cx, |i, cx| i.set_text(host, cx));
+                            this.port_input.update(cx, |i, cx| i.set_text(port, cx));
+                            // 清错误状态（已 valid 不该残留 host_error / port_error）
+                            this.host_error = None;
+                            this.port_error = None;
+                            cx.notify();
+                        });
+                    }
+                }
+                // parse 失败：不报错 / 不清字段，用户继续在 4 字段填
+            });
         });
         let keyfile_input = cx.new(|cx| {
             let mut i = TextInput::new(cx);
@@ -284,6 +381,7 @@ impl HostFormModal {
             host_cancel_btn,
             host_save_btn,
             auth_kind: AuthKind::KeyFile,
+            connection_input,
             label_input,
             host_input,
             port_input,
@@ -384,6 +482,9 @@ impl HostFormModal {
             let key_path = draft.key_path.clone();
             let auth_kind = draft.auth_kind;
 
+            // M35 T10: connection_input 在每次 modal 重新打开时清空（add /
+            // edit 模式都从空白起步，避免上次内容残留）
+            self.connection_input.update(cx, |i, cx| i.clear(cx));
             self.label_input.update(cx, |i, cx| i.set_text(label, cx));
             self.host_input.update(cx, |i, cx| i.set_text(host, cx));
             self.port_input.update(cx, |i, cx| i.set_text(port, cx));
@@ -629,7 +730,13 @@ impl Render for HostFormModal {
             .flex()
             .flex_col()
             .gap(form_field_gap)
-            .child(field_row(cx, "label", self.label_input.clone(), None))
+            // M35 T10: 顶部「快速输入」字段 — user@host:port 一行直填 4 字段
+            .child(field_row(
+                cx,
+                "快速输入",
+                self.connection_input.clone(),
+                None,
+            ))
             .child(field_row(
                 cx,
                 "host",
@@ -698,6 +805,13 @@ impl Render for HostFormModal {
                         .into_any_element()
                 }
             })
+            // M35 T10: label 字段移到底部（90% 用户不填，可选项不该占首位）
+            .child(field_row(
+                cx,
+                "显示名（可选）",
+                self.label_input.clone(),
+                None,
+            ))
             .when_some(err, |d, e| {
                 d.child(
                     // M26 等价 Body + destructive
@@ -853,4 +967,82 @@ fn buttons_row(
                 .child(cancel_btn)
                 .child(save_btn),
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_connection_string;
+
+    #[test]
+    fn parse_typical_user_host_port() {
+        assert_eq!(
+            parse_connection_string("larry@1.2.3.4:22"),
+            Some(("larry".into(), "1.2.3.4".into(), "22".into()))
+        );
+    }
+
+    #[test]
+    fn parse_user_host_default_port() {
+        assert_eq!(
+            parse_connection_string("larry@example.com"),
+            Some(("larry".into(), "example.com".into(), "22".into()))
+        );
+    }
+
+    #[test]
+    fn parse_host_only_no_user() {
+        assert_eq!(
+            parse_connection_string("example.com"),
+            Some((String::new(), "example.com".into(), "22".into()))
+        );
+    }
+
+    #[test]
+    fn parse_host_with_port_no_user() {
+        assert_eq!(
+            parse_connection_string("example.com:2222"),
+            Some((String::new(), "example.com".into(), "2222".into()))
+        );
+    }
+
+    #[test]
+    fn parse_user_with_dashes() {
+        // 含 - 的 user / host 是合法（reverse-game 等典型 user 名）
+        assert_eq!(
+            parse_connection_string("my-user@my-host.com:22"),
+            Some(("my-user".into(), "my-host.com".into(), "22".into()))
+        );
+    }
+
+    #[test]
+    fn parse_ipv6_with_port() {
+        assert_eq!(
+            parse_connection_string("user@[::1]:22"),
+            Some(("user".into(), "[::1]".into(), "22".into()))
+        );
+    }
+
+    #[test]
+    fn parse_empty_returns_none() {
+        assert_eq!(parse_connection_string(""), None);
+        assert_eq!(parse_connection_string("   "), None);
+    }
+
+    #[test]
+    fn parse_invalid_port_returns_none() {
+        assert_eq!(parse_connection_string("user@host:99999"), None);
+        assert_eq!(parse_connection_string("user@host:abc"), None);
+        assert_eq!(parse_connection_string("user@host:0"), None);
+    }
+
+    #[test]
+    fn parse_with_whitespace_returns_none() {
+        assert_eq!(parse_connection_string("user @host"), None);
+        assert_eq!(parse_connection_string("user@ host"), None);
+    }
+
+    #[test]
+    fn parse_double_at_returns_none() {
+        assert_eq!(parse_connection_string("a@b@c"), None);
+    }
 }
