@@ -671,21 +671,30 @@
 
 ---
 
-## 下一步候选（M3d 起）
+## 下一步候选
 
-来自 M3c-post-cc-rework 的"下一步"+ 用户验证后新增：
+### ✅ 已完成（来自 M3c-post-cc-rework 起 backlog）
+
+| ID | 完成于 | 备注 |
+|---|---|---|
+| ~~housekeeping-host-list-rs~~ | 早期清理 | `views/host_list.rs` 已不存在 |
+| ~~collapse-orphan-conn~~ | M3+ | `tab_bar.rs::handle_detach` "折叠到 Home" 右键菜单 + Home Active Sessions 区列出 orphan conn |
+| ~~tab-reorder-keyboard~~ | M18 (`b76965c`/`79d4770`) | Ctrl+Shift+PageUp/Down 已在 `terminal_view.rs` |
+| ~~tab-reorder-drag~~ | M18 (`299f05a`/`2b250a5`) | GPUI on_drag / on_drop / drag_over 实现见 tab_bar |
+| ~~paste~~ | M16 (`70885dc`) | Ctrl+Shift+V text/image paste |
+| ~~mouse-on-detect~~ | M18+ | `ssh_actor.rs::tmux_mouse_check_task` + `SshEvent::TmuxMouseDisabled` + app.rs toast |
+| ~~session-picker-meta~~ | M28+ | session_picker 列表已显示 `windows` count + `activity` humanized |
+
+### 🟡 仍 valid 的候选
 
 | ID | 描述 | 工作量 | 优先级 |
 |---|---|---|---|
-| housekeeping-host-list-rs | 用 `git rm` 删占位 `views/host_list.rs` | < 5 min | 低，下次手工 |
-| collapse-orphan-conn | collapse 后孤儿 connection 在默认页加"恢复"入口 | ~半天 | 中 |
-| tab-reorder-keyboard | Ctrl+Shift+PageUp/Down 重排 tab | ~1 小时 | 低 |
-| tab-reorder-drag | tab 拖拽（GPUI drag/drop API 调研 + 实现） | ~半天 | 低 |
-| paste | Ctrl+Shift+V 粘贴 + bracketed paste mode | ~半天 | 中 |
+| detach-detect | tmux conf 注入 `set-hook -g client-detached`；aish 解析后清侧栏 attached 标记。aish-tmux protocol 已有 ParsedEvent::ClientDetached parser，但走 raw attach 路径没启用 control mode — 需要混合模式（attach 时同时 spawn 一个 -C 监听 channel） | ~半天 | 中 |
 | mouse-legacy-encoding | X10/UTF8 鼠标编码 fallback（现代默认 SGR，需求弱） | < 1 小时 | 极低 |
-| mouse-on-detect | aish 启动时检测/提示远端开 `set -g mouse on` | ~1 小时 | 中 |
-| detach-detect | tmux conf 注入 `set-hook -g client-detached`，aish 解析后清侧栏标记 | ~半天 | 中 |
-| session-picker-meta | session picker 列表加 window 数 + 上次活跃时间 | ~1 小时 | 低 |
+| hover-transition | 17 处 `.hover()` 切色加 80-150ms 过渡（M30 D-3 / M31 D-8 defer 项） | ~1-2 天 | 中（用户感知度高） |
+| tab-indicator-slide | TabItem 切换时 indicator 底部 line 横向滑动 150ms（M30 T6 defer） | ~半天 | 中 |
+| button-entity-test-harness | 引入 gpui::TestApp 给 ButtonEntity 加 entity-level 单测（M31 D-9 留空） | ~1 天 | 低 |
+| skeleton-business-usecase | 找到一个真实业务场景接 Skeleton（session_picker NotChecked / 远端命令异步等）— M28 留空待业务驱动 | TBD | 中 |
 
 需要做哪条都走 brainstorm → spec → plan → implement，本表只是 backlog。
 
