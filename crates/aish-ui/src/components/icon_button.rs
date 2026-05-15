@@ -10,7 +10,7 @@ use gpui::{
     IntoElement, MouseButton, MouseDownEvent, Pixels, Window,
 };
 
-use crate::components::button::{pick_button_colors, press_opacity_at};
+use crate::components::button::{pick_button_colors, press_opacity_at, HoverState};
 use crate::components::ButtonVariant;
 use crate::icons::{icon, IconName};
 use crate::theme::{animate_or_skip, theme};
@@ -38,7 +38,7 @@ impl IconButtonSize {
     }
 }
 
-/// Stateful IconButton — 与 Button 对称（press + focus_animated）。
+/// Stateful IconButton — 与 Button 对称（press + focus_animated + hover）。
 pub struct IconButton {
     id: ElementId,
     icon_name: IconName,
@@ -51,6 +51,10 @@ pub struct IconButton {
     focus_animated: bool,
     was_focused_prev: bool,
     press_count: u64,
+    /// M32: hover 状态机（与 Button 对称，详 button.rs HoverState 定义）
+    hover_state: HoverState,
+    /// M32: hover Entering 时 +1 让 Animation ElementId 唯一
+    hover_anim_count: u64,
 }
 
 impl IconButton {
@@ -67,6 +71,8 @@ impl IconButton {
             focus_animated: false,
             was_focused_prev: false,
             press_count: 0,
+            hover_state: HoverState::Idle,
+            hover_anim_count: 0,
         }
     }
 
@@ -154,6 +160,41 @@ impl IconButton {
         })
         .detach();
     }
+
+    /// M32: hover 状态机推进（与 button.rs::fire_hover 对称）。
+    fn fire_hover(&mut self, hovered: bool, cx: &mut Context<Self>) {
+        if hovered {
+            if matches!(self.hover_state, HoverState::Idle) {
+                let reduced = theme(cx).reduced_motion;
+                if reduced {
+                    self.hover_state = HoverState::Hovered;
+                    cx.notify();
+                } else {
+                    let count = self.hover_anim_count.wrapping_add(1);
+                    self.hover_anim_count = count;
+                    self.hover_state = HoverState::Entering { anim_count: count };
+                    let dur = theme(cx).motion.medium;
+                    cx.spawn(async move |this, cx| {
+                        cx.background_executor().timer(dur).await;
+                        let _ = this.update(cx, |this, cx| {
+                            if matches!(
+                                this.hover_state,
+                                HoverState::Entering { anim_count } if anim_count == count
+                            ) {
+                                this.hover_state = HoverState::Hovered;
+                                cx.notify();
+                            }
+                        });
+                    })
+                    .detach();
+                    cx.notify();
+                }
+            }
+        } else if !matches!(self.hover_state, HoverState::Idle) {
+            self.hover_state = HoverState::Idle;
+            cx.notify();
+        }
+    }
 }
 
 impl gpui::Focusable for IconButton {
@@ -186,8 +227,17 @@ impl Render for IconButton {
 
         let pressing = self.pressing;
         let focus_animating = now_focused && self.focus_animated;
-        let need_anim = pressing || focus_animating;
+        let hover_state = self.hover_state;
+        let hover_entering = matches!(hover_state, HoverState::Entering { .. });
+        let need_anim = pressing || focus_animating || hover_entering;
         let press_count = self.press_count;
+        let hover_anim_count = self.hover_anim_count;
+
+        // M32: hover-aware static bg
+        let base_bg = match hover_state {
+            HoverState::Idle | HoverState::Entering { .. } => idle_bg,
+            HoverState::Hovered => hover_bg,
+        };
 
         let handler = self.on_click.clone();
         let on_press_listener = cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
@@ -195,6 +245,9 @@ impl Render for IconButton {
             if let Some(h) = handler.clone() {
                 h(ev, window, cx);
             }
+        });
+        let on_hover_listener = cx.listener(move |this, &hovered: &bool, _w, cx| {
+            this.fire_hover(hovered, cx);
         });
 
         let mut el = div()
@@ -205,16 +258,17 @@ impl Render for IconButton {
             .items_center()
             .justify_center()
             .rounded(radius_sm)
-            .bg(idle_bg)
+            .bg(base_bg)
             .track_focus(&self.focus_handle)
             .child(icon(self.icon_name).size(isz).text_color(fg));
 
         if !disabled {
+            // M32 D-4: 删 .hover() declarative，自管 bg；保留 .active() 切色
             el = el
                 .cursor_pointer()
-                .hover(move |s| s.bg(hover_bg))
                 .active(move |s| s.bg(active_bg))
-                .on_mouse_down(MouseButton::Left, on_press_listener);
+                .on_mouse_down(MouseButton::Left, on_press_listener)
+                .on_hover(on_hover_listener);
         } else {
             el = el.cursor_not_allowed().opacity(0.6);
         }
@@ -234,7 +288,11 @@ impl Render for IconButton {
         }
 
         let ring_show_static = now_focused && !focus_animating;
-        let anim_id: ElementId = ("motion-icon-btn", press_count as usize).into();
+        let anim_id: ElementId = (
+            "motion-icon-btn",
+            press_count.wrapping_add(hover_anim_count) as usize,
+        )
+            .into();
 
         animate_or_skip(
             el,
@@ -243,6 +301,10 @@ impl Render for IconButton {
             Animation::new(fast_duration).with_easing(move |d| easing(d)),
             move |el, delta| {
                 let mut el = el;
+                // M32: hover Entering 时 bg lerp idle → hover
+                if hover_entering {
+                    el = el.bg(crate::lerp_hsla(idle_bg, hover_bg, delta));
+                }
                 if focus_animating {
                     let mut glow = ring_color;
                     glow.a = 0.4 * delta;

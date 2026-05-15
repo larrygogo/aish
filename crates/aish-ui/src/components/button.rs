@@ -70,7 +70,7 @@ pub struct Button {
 /// - `Entering` + on_hover(false) → `Idle`（leave 中断 enter，instant 切回，D-1）
 /// - `Hovered` + on_hover(false) → `Idle`（instant，D-1）
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum HoverState {
+pub(crate) enum HoverState {
     Idle,
     Entering { anim_count: u64 },
     Hovered,
