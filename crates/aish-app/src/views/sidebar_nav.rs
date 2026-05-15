@@ -199,19 +199,10 @@ impl Render for SidebarNavView {
             }
         }
 
-        // Icon helper：用 SVG IconName 替代 Nerd Font 字符 — SVG viewBox 中心
-        // = visual center，比 font character (advance ≠ glyph center) 可靠
-        // 居中。fix `2bdb482` 的 20×20 wrapper 仅居中了 char advance box，
-        // 字形不对称（home / terminal glyph 左右 bearing 不等）仍偏移。
-        let make_icon = |name: IconName| {
-            div()
-                .w(px(20.0))
-                .h(px(20.0))
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(icon(name).size(px(16.0)))
-        };
+        // Icon helper：SVG IconName 替代 Nerd Font 字符 — SVG viewBox 自身
+        // 已视觉居中，不需 wrapper（之前 2bdb482 的 20×20 wrapper 仅是
+        // font char 时代的 hack，SVG 时代直接 svg().size() 即可）。
+        let make_icon = |name: IconName| icon(name).size(px(18.0));
 
         // ── Phase B：read theme borrow，block scope → build inner body AnyElement ──
         let rows_phase1: Vec<(HostId, gpui::AnyElement)> = {
