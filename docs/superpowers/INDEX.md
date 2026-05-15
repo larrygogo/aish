@@ -26,7 +26,7 @@
 
 ## Milestones（按时间倒序）
 
-### M35 UI/UX 整体提升（2026-05-15 立项 + Phase A/B 主体落地）— 📋 **进行中（Phase A ✅，Phase B 5/6 ✅，Phase C 待定）**
+### M35 UI/UX 整体提升（2026-05-15）— ✅ **主体完成（17/18 task；T16 blocked on SVG 资产）**
 
 - 范围：基于 M22-M34 已建立的 design tokens + motion 系统底子做视觉层级
   与信息密度的密度提升 + 定位明确化。3-phase 11-14 天，18 个 task。
@@ -44,14 +44,20 @@
   - T6 sidebar icon + Caption label，64px (`6c14a2b`)
   - T4 Home 改名「继续工作」/「保存的主机」+ Title3 升级 + separator (`8abb844`)
   - 视觉对齐 icon fix (`2bdb482`)
-- **Phase B（v0.next+1）5/6 主体完成 (2026-05-15)，6 task：**
+- **Phase B（v0.next+1）✅ 完成 6/6 task (2026-05-15)：**
   - **T8 CommandPalette MVP ✅** (`f8a3462`)：fuzzy host search + global
     ⌘K/Ctrl+P trigger，~475 行含 7 单测（fuzzy_score / selection wrap /
     Enter handler）
-  - **T9 Sidebar 220px 双模式 ⛔ revert** (`da9cd8b`)：实施期 borrow 冲突
-    未修完。state 层 sidebar_expanded field + 持久化已落地作 prep，
-    UI 大改延后
-  - **T7 Home 「最近连接」迁移 ⏸** blocked on T9
+  - **T9 Sidebar 220px 双模式 ✅** (`1888c3e` v2)：v1 revert (`da9cd8b`)
+    后重做 — 顶部注释先 trace 5 phase borrow path 再实施。默认折叠 64px
+    保留 muscle memory，toggle 切 220px 含 brand header + nav.horizontal
+    + 「最近连接」list（max 5，按 last_connected 倒序）。偏好持久化
+    app_state.toml.sidebar_expanded
+  - **T7 Home ACTIVE SESSIONS 段删除 ✅** (`b74afb4`)：T9 v2 落地解锁后
+    清理 — sidebar「最近连接」+ tab_bar 共同覆盖原职责。删 home
+    active_session_rows / session_open_buttons / handle_open_session +
+    state.Connection.id/opened_at/humanize_opened_at 标 #[allow(dead_code)]
+    保留作 future API
   - **T10 HostForm 单行 user@host:port ✅** (`bfd07f8`)：parse_connection_string
     + 10 单测（typical/IPv6/边界）+ label 字段移底部
   - **T11 Terminal ConnectionBar (24px) ✅** (`b7a604c`)：tab_bar 与
