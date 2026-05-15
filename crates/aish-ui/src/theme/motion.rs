@@ -6,8 +6,12 @@
 //! |---|---|---|
 //! | `instant` | 0 ms | reduced_motion fallback / 测试 |
 //! | `fast` | 80 ms | press-feedback / focus ring 出现 / icon swap |
-//! | `medium` | 150 ms | dialog / popover open / fade-scale |
+//! | `medium` | 120 ms | dialog / popover open / hover transition / fade-scale |
 //! | `slow` | 250 ms | toast slide-in / page transition |
+//!
+//! M35 T1: medium 150 → 120ms，与 Linear / Warp 微交互区间对齐；密集
+//! 操作（连点 hover 切换）感知不再卡。6 个 stateful entity + Dialog +
+//! Toast 全部受益。
 //!
 //! easing：`easing_standard = ease_out_quint`（启动快收尾慢，UI 主力），
 //! `easing_standard_in = quadratic`（淡出 / 出场用）。
@@ -43,7 +47,7 @@ impl Default for Motion {
         Self {
             instant: Duration::from_millis(0),
             fast: Duration::from_millis(80),
-            medium: Duration::from_millis(150),
+            medium: Duration::from_millis(120),
             slow: Duration::from_millis(250),
             // ease_out_quint 是 fn() -> impl Fn，调用后返回 closure
             easing_standard: Rc::new(ease_out_quint()),
@@ -100,7 +104,7 @@ mod tests {
         let m = Motion::default();
         assert_eq!(m.instant.as_millis(), 0);
         assert_eq!(m.fast.as_millis(), 80);
-        assert_eq!(m.medium.as_millis(), 150);
+        assert_eq!(m.medium.as_millis(), 120);
         assert_eq!(m.slow.as_millis(), 250);
     }
 
