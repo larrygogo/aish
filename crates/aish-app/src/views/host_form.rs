@@ -16,7 +16,7 @@
 use std::sync::Arc;
 
 use aish_types::HostId;
-use aish_ui::{theme, Button, Dialog, Tabs, TextInput, TypographyExt};
+use aish_ui::{theme, Button, Dialog, TextInput, TypographyExt};
 use gpui::{
     div, prelude::*, App, Context, Entity, Focusable, IntoElement, MouseDownEvent,
     PathPromptOptions, SharedString, Window,
@@ -32,7 +32,9 @@ pub struct HostFormModal {
     #[allow(dead_code)]
     tx: tokio::sync::mpsc::Sender<SshEvent>,
     dialog: Entity<Dialog>,
-    auth_tabs: Entity<Tabs>,
+    /// M29 D-3：auth 切换从 Tabs Entity → enum 字段。
+    /// 默认 KeyFile（与 M12 Tabs 默认 active=0 等价）。
+    auth_kind: AuthKind,
     label_input: Entity<TextInput>,
     host_input: Entity<TextInput>,
     port_input: Entity<TextInput>,
@@ -111,10 +113,7 @@ impl HostFormModal {
             });
         });
 
-        let auth_tabs = cx.new(|cx| {
-            let labels: Vec<SharedString> = vec!["Key File".into(), "Password".into()];
-            Tabs::new(labels, cx)
-        });
+        // M29 D-3: auth 切换从 Tabs Entity 改 enum 字段，初始 KeyFile
 
         let label_input = cx.new(|cx| {
             let mut i = TextInput::new(cx);
@@ -185,7 +184,7 @@ impl HostFormModal {
             bridge,
             tx,
             dialog,
-            auth_tabs,
+            auth_kind: AuthKind::KeyFile,
             label_input,
             host_input,
             port_input,
@@ -272,22 +271,15 @@ impl HostFormModal {
                 .update(cx, |i, cx| i.set_text(key_path, cx));
             self.password_input.update(cx, |i, cx| i.clear(cx));
 
-            let active = match auth_kind {
-                AuthKind::KeyFile => 0,
-                AuthKind::Password => 1,
-            };
-            self.auth_tabs.update(cx, |t, cx| t.set_active(active, cx));
+            // M29 D-3：直接 set enum 字段（之前 set Tabs Entity active idx）
+            self.auth_kind = auth_kind;
         }
         // DeleteConfirm 不需要 input 内容
     }
 
-    /// 从 6 个 input + auth_tabs 拼出 HostFormDraft 用于 save。
+    /// 从 6 个 input + auth_kind 拼出 HostFormDraft 用于 save。
     fn collect_draft(&self, cx: &App) -> HostFormDraft {
-        let auth_kind = if self.auth_tabs.read(cx).active() == 0 {
-            AuthKind::KeyFile
-        } else {
-            AuthKind::Password
-        };
+        let auth_kind = self.auth_kind;
         HostFormDraft {
             label: self.label_input.read(cx).text().to_string(),
             host: self.host_input.read(cx).text().to_string(),
@@ -433,7 +425,8 @@ impl Render for HostFormModal {
             let t = theme(cx);
             (t.colors, t.font_size, t.spacing)
         };
-        let active = self.auth_tabs.read(cx).active();
+        // M29 D-3：auth 切换从 Tabs idx → enum 字段
+        let auth_kind = self.auth_kind;
         let is_edit = kind == "edit";
         let is_delete = kind == "delete";
         let title = match kind {
@@ -491,12 +484,44 @@ impl Render for HostFormModal {
                     self.port_error,
                 ))
                 .child(field_row(cx, "user", self.user_input.clone(), None))
-                .child(self.auth_tabs.clone())
-                .child(if active == 0 {
-                    let kf = self.keyfile_input.clone();
-                    keyfile_row(kf, cx).into_any_element()
-                } else {
-                    field_row(cx, "password", self.password_input.clone(), None).into_any_element()
+                // M29 D-3: Radio 横排替代 Tabs Entity
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .gap(spacing.px_3)
+                        .child(
+                            aish_ui::Radio::new("host-form-auth-keyfile")
+                                .label("Key File")
+                                .checked(matches!(auth_kind, AuthKind::KeyFile))
+                                .on_click(cx.listener(
+                                    |this, _ev: &MouseDownEvent, _w, cx| {
+                                        this.auth_kind = AuthKind::KeyFile;
+                                        cx.notify();
+                                    },
+                                )),
+                        )
+                        .child(
+                            aish_ui::Radio::new("host-form-auth-password")
+                                .label("Password")
+                                .checked(matches!(auth_kind, AuthKind::Password))
+                                .on_click(cx.listener(
+                                    |this, _ev: &MouseDownEvent, _w, cx| {
+                                        this.auth_kind = AuthKind::Password;
+                                        cx.notify();
+                                    },
+                                )),
+                        ),
+                )
+                .child(match auth_kind {
+                    AuthKind::KeyFile => {
+                        let kf = self.keyfile_input.clone();
+                        keyfile_row(kf, cx).into_any_element()
+                    }
+                    AuthKind::Password => {
+                        field_row(cx, "password", self.password_input.clone(), None)
+                            .into_any_element()
+                    }
                 })
                 .when_some(err, |d, e| {
                     d.child(
