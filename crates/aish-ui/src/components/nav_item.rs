@@ -262,6 +262,9 @@ impl Render for NavItem {
             NavItemOrientation::Horizontal => el
                 .h(px(32.0))
                 .px(t.spacing.px_3)
+                // active 紫块在 sidebar 220px 宽内不\"全宽条\"，rounded
+                // 让视觉成\"卡片\"型，与 Linear / VS Code sidebar nav 一致
+                .rounded(t.radius.md)
                 .flex()
                 .flex_row()
                 .items_center()

@@ -342,6 +342,8 @@ impl Render for SidebarNavView {
                     }),
                 );
 
+            // 折叠模式 layout：top 直接是 nav (Home / Terminal)，bottom 是
+            // Settings + toggle（toggle 不占首位视觉权重）
             div()
                 .w(px(SIDEBAR_COLLAPSED_WIDTH))
                 .h_full()
@@ -350,7 +352,7 @@ impl Render for SidebarNavView {
                 .bg(colors.background)
                 .border_r_1()
                 .border_color(colors.border)
-                .child(toggle_btn)
+                .pt(spacing.px_2)
                 .child(self.home_item.clone())
                 .child(self.terminal_item.clone())
                 .child(
@@ -359,46 +361,33 @@ impl Render for SidebarNavView {
                         .flex()
                         .flex_col()
                         .justify_end()
-                        .child(self.settings_item.clone()),
+                        .child(self.settings_item.clone())
+                        .child(toggle_btn),
                 )
                 .into_any_element()
         } else {
             // ── 展开模式 220px ──
 
             // 1. header：logo + name + toggle 按钮
+            // 删 logo + \"aish\" 文字 — titlebar 已有同一 brand 视觉，sidebar
+            // 重复显得冗余。header 仅保留右侧 toggle 按钮 + 32px 高度。
             let header = div()
                 .w_full()
                 .px(spacing.px_3)
-                .py(spacing.px_3)
+                .h(px(32.0))
                 .flex()
                 .flex_row()
                 .items_center()
-                .justify_between()
+                .justify_end()
                 .child(
                     div()
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .gap(px(8.0))
-                        .child(gpui::img("aish-icon.png").w(px(22.0)).h(px(22.0)))
-                        .child(
-                            div()
-                                .text_size(px(14.0))
-                                .font_weight(gpui::FontWeight::SEMIBOLD)
-                                .text_color(colors.foreground)
-                                .child("aish"),
-                        ),
-                )
-                .child(
-                    div()
-                        .w(px(28.0))
-                        .h(px(28.0))
+                        .w(px(24.0))
+                        .h(px(24.0))
                         .flex()
                         .items_center()
                         .justify_center()
                         .cursor_pointer()
-                        .text_color(colors.muted_foreground)
-                        .rounded(px(6.0))
+                        .rounded(px(4.0))
                         .hover(|s| s.bg(colors.secondary_hover))
                         .child(
                             icon(toggle_icon_name)
@@ -424,20 +413,24 @@ impl Render for SidebarNavView {
                 .child(self.terminal_item.clone());
 
             // 3. 「最近连接」list（recent_row_entities 来自 Phase C）
+            // section label 用 micro uppercase 风（Linear / Stripe section
+            // divider 同模式），text_color 显式 muted 防 inheritance 异常。
             let recent_section: Option<gpui::AnyElement> = if recent_row_entities.is_empty() {
                 None
             } else {
                 Some(
                     div()
                         .px(spacing.px_3)
-                        .pt(spacing.px_3)
+                        .pt(spacing.px_4)
                         .flex()
                         .flex_col()
-                        .gap(spacing.px_1)
+                        .gap(px(2.0))
                         .child(
                             div()
                                 .pb(spacing.px_1)
-                                .typography(aish_ui::TypeRole::Caption, t)
+                                .text_size(px(11.0))
+                                .font_weight(gpui::FontWeight::MEDIUM)
+                                .text_color(colors.muted_foreground)
                                 .child("最近连接"),
                         )
                         .children(recent_row_entities)
