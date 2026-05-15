@@ -10,13 +10,46 @@
 
 ## 当前状态
 
-- **活跃分支**：main（2026-05-15 完成 M22 / M23 / M24，全在 origin）
-- **下一里程碑**：M25 候选 — Typography 加密度（line_h / padding 收紧）/ icon 风格统一（stroke width） / 动画 micro-interaction
-- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **204** + aish-app **144** + 其他 crate) 全过 — 总 468
+- **活跃分支**：main（2026-05-15 完成 M22 / M23 / M24 / M25 / M26，全在 origin）
+- **下一里程碑**：M27 候选 — Component anatomy 规范（Card / Dialog / List padding rules） / State design (empty / loading / error / skeleton) / icon stroke 统一
+- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **211** + aish-app **144** + 其他 crate) 全过 — 总 475
 
 ---
 
 ## Milestones（按时间倒序）
+
+### M26 — Typography × Information Hierarchy（2026-05-15）— ✅ 已完成
+- spec：[`specs/2026-05-15-aish-m26-typography-hierarchy-design.md`](specs/2026-05-15-aish-m26-typography-hierarchy-design.md)
+- plan：[`plans/2026-05-15-aish-m26-typography-hierarchy.md`](plans/2026-05-15-aish-m26-typography-hierarchy.md)
+- 范围：真正系统化 type hierarchy（M24 仅做颜色 token，骨架未建）
+  - 9 个语义 TypeRole（Micro/Caption/Body/BodyStrong/Label/Title3/2/1/Code）
+    每个 = (size × weight × default_color_role) 三维
+  - 关键设计：body_strong 与 body 仅差 weight，body 与 caption 仅差 color
+    不靠 size 跳跃建立 hierarchy（Linear/Warp/Stripe 风）
+  - 9 个 token 的 Default 实现：11/12/13/14/16/20 + 400/500/600 + fg/muted
+  - `Theme.typography` 字段 + `TypographyExt` trait blanket impl 给所有
+    Styled 元素加 `.typography(role, t)` 一行 API
+  - 旧 FontSize 5 档保留作 fallback，渐进迁移（73 处 text_size 改 ~15 处）
+- 改造范围：
+  - Home / Settings / EmptyTerminal page title → Title1 (统一 20/600)
+  - Settings section_header → Title3 (14/600) + HOSTS section → Caption (12/muted)
+  - host card label/host_text/last_conn → Title3/Body/Caption
+  - settings two_column_row → Label/Body (left weight 500, right 400)
+- 关键 commits：
+  - `4028354` — spec + plan
+  - `0dd18d0` — T1 typography.rs + ext trait + 7 单测
+  - `5c9a957` — T2 page title × 3 view
+  - `ebde241` — T3 section header (settings + home)
+  - `3892829` — T4+T5 host card + settings rows
+- 测试：aish-ui 204 → **211**（+7 typography 单测）
+
+### M25 — Typography 加密度 + Card Elevated shadow（2026-05-15）— ✅ 已完成
+- 范围：M24 推到 M25 的 D-8 typography 加密度初版
+  - NavItem vertical py 14→12 / horizontal h 36→32
+  - DropdownMenu row h 28→26
+  - TabDragPreview shadow 接 elevation_2
+  - Card Elevated 改 elevation_1 shadow + 灰 border 替代 ring 紫 border
+- 关键 commits: `6752886` / `48315ab`
 
 ### M24 — 视觉重塑 Warp/Linear 风（2026-05-15）— ✅ 已完成
 - spec：[`specs/2026-05-15-aish-m24-visual-redesign-design.md`](specs/2026-05-15-aish-m24-visual-redesign-design.md)

@@ -175,3 +175,52 @@ T1 加 token + ext trait。T2-T4 分批改最受益的 view：
 ## 7. Plan 引用
 
 见 [`../plans/2026-05-15-aish-m26-typography-hierarchy.md`](../plans/2026-05-15-aish-m26-typography-hierarchy.md)
+
+---
+
+## 8. 实施记录（2026-05-15 完成）
+
+T1 ~ T5 已实施，T6 文档收尾。
+
+### 实际 commits
+
+| Task | Commit | 内容 |
+|---|---|---|
+| spec + plan | `4028354` | 本文件 + plan 起草 |
+| T1 | `0dd18d0` | typography.rs (9 TypeRole + Typography + TypographyExt trait) + 7 单测 |
+| T2 | `5c9a957` | Home / Settings / EmptyTerminal page title 用 Title1 |
+| T3 | `ebde241` | Settings section_header 用 Title3 + Home HOSTS 用 Caption |
+| T4+T5 | `3892829` | host card 用 Title3/Body/Caption + settings two_column_row 用 Label/Body |
+
+### Risk 实际遇到
+
+- **R1（渐进迁移期不一致）**：T2-T5 改了 ~15 处主要 callsite，剩余 ~58 处
+  hardcoded text_size 保留 fallback。新增代码强制走 `.typography()`，code
+  review 把关。
+- **R2（weight 不渲染）**：实测 GPUI Inter / system Segoe UI 在 Win 上
+  NORMAL(400) / MEDIUM(500) / SEMIBOLD(600) 三档都正确渲染。
+- **R3（trait ext 冲突）**：blanket impl `TypographyExt for E: Styled +
+  Sized` 与 GPUI 内部 trait 无方法名冲突，clippy 0 warning。
+- **R4（caller 误用）**：本批次 commit 严格按 spec D-1 表格 role 映射，
+  下一批新增代码看 review。
+
+### 测试增量
+
+- aish-ui 204 → **211**（+7：typography 单测全 case）
+- aish-app 144 不变（view 改造无新单元逻辑）
+
+### 未做（M27+）
+
+- TextInput 内 line_h hardcoded px(18-20) 仍未跟 typography token
+  对齐（M19 时期定的 20，与 body 13 不太匹配，应该 ~18-19）
+- monospace 字体 font_family 仍各处独立设
+- Toast 内 sm 文字未走 Body role
+- dropdown_menu / session_picker / dialog 内未迁
+- HostForm 各字段 label 未迁（form 内大量 text_size 调用）
+
+### 跨主题验证
+
+dark / light theme 都共享同 Typography::default()，9 个 role 在两套
+color tokens 上自动 cascade（default_color_role 解析到当前 theme 的
+foreground / muted_foreground / secondary_foreground）。手测两套主题
+visual hierarchy 都清晰。
