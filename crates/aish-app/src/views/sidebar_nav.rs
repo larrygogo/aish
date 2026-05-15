@@ -26,7 +26,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use aish_types::{HostId, TabId};
-use aish_ui::{icon, theme, IconName, ListRow, NavItem, Separator, TypographyExt};
+use aish_ui::{icon, theme, IconName, ListRow, NavItem, TypographyExt};
 use gpui::{div, prelude::*, px, Context, Entity, MouseButton, MouseDownEvent, Window};
 
 use crate::app::retain_alive_entities;
@@ -279,22 +279,23 @@ impl Render for SidebarNavView {
                     .active(current == SidebarTab::Settings);
             });
         } else {
+            // 折叠模式：no_label() icon-only + horizontal rounded card 视觉
             self.home_item.update(cx, |n, _| {
                 n.icon(home_icon)
-                    .label("Home")
-                    .vertical()
+                    .no_label()
+                    .horizontal()
                     .active(current == SidebarTab::Home);
             });
             self.terminal_item.update(cx, |n, _| {
                 n.icon(term_icon)
-                    .label("Terminal")
-                    .vertical()
+                    .no_label()
+                    .horizontal()
                     .active(current == SidebarTab::Terminal);
             });
             self.settings_item.update(cx, |n, _| {
                 n.icon(settings_icon)
-                    .label("Settings")
-                    .vertical()
+                    .no_label()
+                    .horizontal()
                     .active(current == SidebarTab::Settings);
             });
         }
@@ -305,119 +306,65 @@ impl Render for SidebarNavView {
         let spacing = t.spacing;
 
         // toggle 按钮 icon — chevron-left (展开 → 收起) / chevron-right (折叠 → 展开)
-        // 用 SVG IconName 替代 Nerd Font character（同 sidebar 主 icon 修正模式）
         let toggle_icon_name = if expanded {
             IconName::ChevronLeft
         } else {
             IconName::ChevronRight
         };
 
-        if !expanded {
-            // ── 折叠模式 64px ──
-            let toggle_btn = div()
-                .w_full()
-                .py(px(8.0))
-                .flex()
-                .items_center()
-                .justify_center()
-                .cursor_pointer()
-                .text_color(colors.muted_foreground)
-                .child(
-                    div()
-                        .w(px(20.0))
-                        .h(px(20.0))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .child(
-                            icon(toggle_icon_name)
-                                .size(px(12.0))
-                                .text_color(colors.muted_foreground),
-                        ),
-                )
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
-                        this.toggle_expanded(cx);
-                    }),
-                );
+        // toggle_btn helper — 两种模式共用，sidebar 底部 settings 下方。
+        // 位置一致让用户切折叠 / 展开后 toggle 不\"跳位\"。
+        let toggle_btn = div()
+            .w_full()
+            .h(px(32.0))
+            .flex()
+            .items_center()
+            .justify_center()
+            .cursor_pointer()
+            .rounded(px(6.0))
+            .hover(|s| s.bg(colors.secondary_hover))
+            .child(
+                icon(toggle_icon_name)
+                    .size(px(12.0))
+                    .text_color(colors.muted_foreground),
+            )
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
+                    this.toggle_expanded(cx);
+                }),
+            );
 
-            // 折叠模式 layout：top 直接是 nav (Home / Terminal)，bottom 是
-            // Settings + toggle（toggle 不占首位视觉权重）
-            div()
-                .w(px(SIDEBAR_COLLAPSED_WIDTH))
-                .h_full()
-                .flex()
-                .flex_col()
-                .bg(colors.background)
-                .border_r_1()
-                .border_color(colors.border)
-                .pt(spacing.px_2)
-                .child(self.home_item.clone())
-                .child(self.terminal_item.clone())
-                .child(
-                    div()
-                        .flex_1()
-                        .flex()
-                        .flex_col()
-                        .justify_end()
-                        .child(self.settings_item.clone())
-                        .child(toggle_btn),
-                )
-                .into_any_element()
+        // settings + toggle 同区，两种模式共用 layout
+        let bottom_section = div()
+            .px(spacing.px_2)
+            .pb(spacing.px_2)
+            .flex()
+            .flex_col()
+            .gap(px(2.0))
+            .child(self.settings_item.clone())
+            .child(toggle_btn);
+
+        // nav section — 两种模式都用 horizontal NavItem（rounded card 视觉），
+        // 折叠模式 NavItem.no_label() icon-only + justify_center
+        let nav_section = div()
+            .px(spacing.px_2)
+            .pt(spacing.px_2)
+            .flex()
+            .flex_col()
+            .gap(px(2.0))
+            .child(self.home_item.clone())
+            .child(self.terminal_item.clone());
+
+        let width = if expanded {
+            SIDEBAR_EXPANDED_WIDTH
         } else {
-            // ── 展开模式 220px ──
+            SIDEBAR_COLLAPSED_WIDTH
+        };
 
-            // 1. header：logo + name + toggle 按钮
-            // 删 logo + \"aish\" 文字 — titlebar 已有同一 brand 视觉，sidebar
-            // 重复显得冗余。header 仅保留右侧 toggle 按钮 + 32px 高度。
-            let header = div()
-                .w_full()
-                .px(spacing.px_3)
-                .h(px(32.0))
-                .flex()
-                .flex_row()
-                .items_center()
-                .justify_end()
-                .child(
-                    div()
-                        .w(px(24.0))
-                        .h(px(24.0))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .cursor_pointer()
-                        .rounded(px(4.0))
-                        .hover(|s| s.bg(colors.secondary_hover))
-                        .child(
-                            icon(toggle_icon_name)
-                                .size(px(12.0))
-                                .text_color(colors.muted_foreground),
-                        )
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
-                                this.toggle_expanded(cx);
-                            }),
-                        ),
-                );
-
-            // 2. nav 3 items
-            let nav_section = div()
-                .px(spacing.px_2)
-                .pt(spacing.px_1)
-                .flex()
-                .flex_col()
-                .gap(px(2.0))
-                .child(self.home_item.clone())
-                .child(self.terminal_item.clone());
-
-            // 3. 「最近连接」list（recent_row_entities 来自 Phase C）
-            // section label 用 micro uppercase 风（Linear / Stripe section
-            // divider 同模式），text_color 显式 muted 防 inheritance 异常。
-            let recent_section: Option<gpui::AnyElement> = if recent_row_entities.is_empty() {
-                None
-            } else {
+        // 「最近连接」list（仅展开模式显示 — 折叠 64px 无空间放 host label）
+        let recent_section: Option<gpui::AnyElement> =
+            if expanded && !recent_row_entities.is_empty() {
                 Some(
                     div()
                         .px(spacing.px_3)
@@ -426,6 +373,8 @@ impl Render for SidebarNavView {
                         .flex_col()
                         .gap(px(2.0))
                         .child(
+                            // 11px MEDIUM muted — Linear / Stripe section divider 风。
+                            // 显式 text_color 防 typography Caption inheritance 异常。
                             div()
                                 .pb(spacing.px_1)
                                 .text_size(px(11.0))
@@ -436,29 +385,22 @@ impl Render for SidebarNavView {
                         .children(recent_row_entities)
                         .into_any_element(),
                 )
+            } else {
+                None
             };
 
-            // 4. settings 推到底部
-            let settings_section = div()
-                .px(spacing.px_2)
-                .pb(spacing.px_2)
-                .child(self.settings_item.clone());
-
-            div()
-                .w(px(SIDEBAR_EXPANDED_WIDTH))
-                .h_full()
-                .flex()
-                .flex_col()
-                .bg(colors.background)
-                .border_r_1()
-                .border_color(colors.border)
-                .child(header)
-                .child(Separator::horizontal())
-                .child(nav_section)
-                .children(recent_section)
-                .child(div().flex_1())
-                .child(settings_section)
-                .into_any_element()
-        }
+        div()
+            .w(px(width))
+            .h_full()
+            .flex()
+            .flex_col()
+            .bg(colors.background)
+            .border_r_1()
+            .border_color(colors.border)
+            .child(nav_section)
+            .children(recent_section)
+            .child(div().flex_1())
+            .child(bottom_section)
+            .into_any_element()
     }
 }

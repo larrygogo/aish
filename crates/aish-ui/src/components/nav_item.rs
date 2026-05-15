@@ -71,6 +71,15 @@ impl NavItem {
         self
     }
 
+    /// 明确清除 label（用于 sidebar 折叠模式 icon-only 渲染）。
+    /// NavItem entity 长期复用，update 不调 .label() 会保留上次 set 的 value，
+    /// 必须显式 no_label() 清除。horizontal mode 在 label is None 时自动
+    /// justify_center 让 icon 居中。
+    pub fn no_label(&mut self) -> &mut Self {
+        self.label = None;
+        self
+    }
+
     pub fn active(&mut self, a: bool) -> &mut Self {
         self.active = a;
         self
@@ -203,7 +212,11 @@ impl Render for NavItem {
         let idle_bg = gpui::transparent_black();
         let hover_bg = t.colors.secondary_hover;
         let press_bg_color = t.colors.secondary_active;
-        let selected_bg = t.colors.accent;
+        // active selected bg 改 secondary_hover（与 hover 同色）— 让 active
+        // 视觉克制不喧宾。之前 accent (深紫) 在 sidebar 220px 横排 NavItem
+        // fill 整宽显得 \"喧宾\"。subtle bg + 圆角卡片是 VS Code / Linear
+        // sidebar 风。
+        let selected_bg = t.colors.secondary_hover;
         let medium = t.motion.medium;
         let easing = t.motion.easing_standard.clone();
         let typography_t = t;
@@ -250,6 +263,9 @@ impl Render for NavItem {
             .bg(base_bg)
             .cursor_pointer();
 
+        // horizontal 模式 icon-only（label is None）自动 justify_center 让
+        // icon 居中（sidebar 折叠模式用）；有 label 时 left align icon + label
+        let has_label = self.label.is_some();
         el = match orientation {
             NavItemOrientation::Vertical => el
                 .w_full()
@@ -259,16 +275,22 @@ impl Render for NavItem {
                 .items_center()
                 .justify_center()
                 .gap(px(4.0)),
-            NavItemOrientation::Horizontal => el
-                .h(px(32.0))
-                .px(t.spacing.px_3)
-                // active 紫块在 sidebar 220px 宽内不\"全宽条\"，rounded
-                // 让视觉成\"卡片\"型，与 Linear / VS Code sidebar nav 一致
-                .rounded(t.radius.md)
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap(t.spacing.px_2),
+            NavItemOrientation::Horizontal => {
+                let mut e = el
+                    .h(px(32.0))
+                    .px(t.spacing.px_3)
+                    // rounded card 视觉 — Linear / VS Code sidebar nav 风
+                    .rounded(t.radius.md)
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(t.spacing.px_2);
+                if !has_label {
+                    // icon-only 时让 icon 在容器内居中（折叠模式 sidebar 用）
+                    e = e.justify_center();
+                }
+                e
+            }
         };
 
         // press declarative active modifier 仅 !active 时挂（保留 stateless
