@@ -35,6 +35,14 @@ pub struct TabItem {
     press_count: u64,
     hover_state: HoverState,
     hover_anim_count: u64,
+    /// active indicator fade-in 动画。active false → true 时启动 150ms
+    /// opacity 0→1 渐显（强调"切换到本 tab"的视觉反馈）。active true → false
+    /// 不 fade out（instant 消失，让用户清晰看到失活）。
+    active_fading_in: bool,
+    /// active_fading_in 的 anim_count 幂等 check — 与 press_count 同模式。
+    active_anim_count: u64,
+    /// 上帧 active 值，用于 render head detect active 0→1 跳变启动 fade。
+    was_active_prev: bool,
 }
 
 impl TabItem {
@@ -53,6 +61,9 @@ impl TabItem {
             press_count: 0,
             hover_state: HoverState::Idle,
             hover_anim_count: 0,
+            active_fading_in: false,
+            active_anim_count: 0,
+            was_active_prev: false,
         }
     }
 
@@ -208,6 +219,32 @@ impl Render for TabItem {
         }
         self.was_focused_prev = now_focused;
 
+        // active 0→1 跳变 → 启动 indicator fade-in。reduced_motion 跳过动画。
+        // active 1→0 不 fade out（instant 消失，让用户清晰看到失活）。
+        if !self.was_active_prev && self.active {
+            let reduced = theme(cx).reduced_motion;
+            if !reduced {
+                self.active_fading_in = true;
+                self.active_anim_count = self.active_anim_count.wrapping_add(1);
+                let expected = self.active_anim_count;
+                let dur = theme(cx).motion.medium;
+                cx.spawn(async move |this, cx| {
+                    cx.background_executor().timer(dur).await;
+                    let _ = this.update(cx, |this, cx| {
+                        if this.active_anim_count == expected && this.active_fading_in {
+                            this.active_fading_in = false;
+                            cx.notify();
+                        }
+                    });
+                })
+                .detach();
+            }
+        } else if self.was_active_prev && !self.active {
+            // 失活 instant — 取消任何残留 fade
+            self.active_fading_in = false;
+        }
+        self.was_active_prev = self.active;
+
         let t = theme(cx);
         let active = self.active;
         let selected_bg = t.colors.background;
@@ -227,9 +264,12 @@ impl Render for TabItem {
         let focus_animating = now_focused && self.focus_animated;
         let hover_entering = !active && matches!(hover_state, HoverState::Entering { .. });
         let hover_leaving = !active && matches!(hover_state, HoverState::Leaving { .. });
-        let need_anim = pressing || focus_animating || hover_entering || hover_leaving;
+        let active_fading_in = self.active_fading_in;
+        let need_anim =
+            pressing || focus_animating || hover_entering || hover_leaving || active_fading_in;
         let press_count = self.press_count;
         let hover_anim_count = self.hover_anim_count;
+        let active_anim_count = self.active_anim_count;
 
         let base_bg = if active {
             selected_bg
@@ -294,19 +334,20 @@ impl Render for TabItem {
         });
         el = el.when_some(suffix, |d, s| d.child(s));
 
-        if active {
-            el = el.child(
-                div()
-                    .absolute()
-                    .bottom_0()
-                    .left_0()
-                    .right_0()
-                    .h(px(2.0))
-                    .bg(primary),
-            );
-        }
-
+        // 非动画 path 内 active 直接画 indicator(opacity=1)；动画 path 内
+        // 走 closure 用 delta 控 opacity（active_fading_in 时 0→1，否则 1）。
         if !need_anim {
+            if active {
+                el = el.child(
+                    div()
+                        .absolute()
+                        .bottom_0()
+                        .left_0()
+                        .right_0()
+                        .h(px(2.0))
+                        .bg(primary),
+                );
+            }
             if now_focused {
                 let mut glow = ring_color;
                 glow.a = 0.4;
@@ -323,7 +364,9 @@ impl Render for TabItem {
         let ring_show_static = now_focused && !focus_animating;
         let anim_id: ElementId = (
             "motion-tab-item",
-            press_count.wrapping_add(hover_anim_count) as usize,
+            press_count
+                .wrapping_add(hover_anim_count)
+                .wrapping_add(active_anim_count) as usize,
         )
             .into();
 
@@ -361,6 +404,21 @@ impl Render for TabItem {
                 }
                 if pressing {
                     el = el.opacity(press_opacity_at(delta));
+                }
+                // active indicator: active_fading_in 时 opacity=delta（0→1）；
+                // 否则 active=true 都画 opacity=1。non-active 不画。
+                if active {
+                    let indicator_opacity = if active_fading_in { delta } else { 1.0 };
+                    el = el.child(
+                        div()
+                            .absolute()
+                            .bottom_0()
+                            .left_0()
+                            .right_0()
+                            .h(px(2.0))
+                            .bg(primary)
+                            .opacity(indicator_opacity),
+                    );
                 }
                 el
             },
@@ -405,5 +463,50 @@ mod tests {
     fn inactive_hovered_to_idle_on_leave() {
         let s = next_hover_when_active(false, false, HoverState::Hovered);
         assert_eq!(s, HoverState::Idle);
+    }
+
+    /// active indicator fade-in detect 纯逻辑：was_active=false 且 now_active=true
+    /// → 启动 fade-in；其它组合不启动。
+    fn should_start_indicator_fade_in(was_active: bool, now_active: bool) -> bool {
+        !was_active && now_active
+    }
+
+    #[test]
+    fn fade_in_starts_on_inactive_to_active() {
+        assert!(should_start_indicator_fade_in(false, true));
+    }
+
+    #[test]
+    fn fade_in_no_start_on_active_to_inactive() {
+        assert!(!should_start_indicator_fade_in(true, false));
+    }
+
+    #[test]
+    fn fade_in_no_start_on_steady_state() {
+        assert!(!should_start_indicator_fade_in(true, true));
+        assert!(!should_start_indicator_fade_in(false, false));
+    }
+
+    /// indicator opacity 选择：active_fading_in=true 用 delta，否则 1.0
+    /// （non-active 不进入这个 branch）。
+    fn indicator_opacity_at(active_fading_in: bool, delta: f32) -> f32 {
+        if active_fading_in {
+            delta
+        } else {
+            1.0
+        }
+    }
+
+    #[test]
+    fn indicator_opacity_lerps_when_fading() {
+        assert_eq!(indicator_opacity_at(true, 0.0), 0.0);
+        assert_eq!(indicator_opacity_at(true, 0.5), 0.5);
+        assert_eq!(indicator_opacity_at(true, 1.0), 1.0);
+    }
+
+    #[test]
+    fn indicator_opacity_full_when_not_fading() {
+        assert_eq!(indicator_opacity_at(false, 0.0), 1.0);
+        assert_eq!(indicator_opacity_at(false, 0.5), 1.0);
     }
 }
