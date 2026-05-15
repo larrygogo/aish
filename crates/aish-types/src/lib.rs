@@ -163,7 +163,15 @@ pub enum SshAuth {
         password: String,
     },
     /// 私钥文件：只存路径，不读内容。
-    KeyFile { path: PathBuf },
+    /// `passphrase` 用于解密加密私钥（如 OpenSSH 默认 -P 加密的 id_rsa）。
+    /// 同 password 模式：序列化时跳过（不入 hosts.json），存 OS keyring；
+    /// 加载时 passphrase == ""，由 ssh_actor 在 connect 前从 SecretStore::get_passphrase
+    /// 填回。未加密私钥则保持 "" 即可。
+    KeyFile {
+        path: PathBuf,
+        #[serde(default, skip_serializing)]
+        passphrase: String,
+    },
     /// 委托给 ssh-agent / Pageant / 1Password Agent。
     Agent,
 }
@@ -261,6 +269,7 @@ mod tests {
             user: "larry".to_string(),
             auth: SshAuth::KeyFile {
                 path: PathBuf::from("/home/larry/.ssh/id_ed25519"),
+                passphrase: String::new(),
             },
             env_profile: Some(ProfileId::new("default")),
             os_kind: None,
@@ -279,6 +288,7 @@ mod tests {
         let agent = serde_json::to_string(&SshAuth::Agent).unwrap();
         let key = serde_json::to_string(&SshAuth::KeyFile {
             path: PathBuf::from("/tmp/k"),
+            passphrase: String::new(),
         })
         .unwrap();
         assert!(pwd.contains("password"));
@@ -327,6 +337,7 @@ mod tests {
     fn key_file_unchanged_compat() {
         let original = SshAuth::KeyFile {
             path: PathBuf::from("/home/larry/.ssh/id_ed25519"),
+            passphrase: String::new(),
         };
         let json = serde_json::to_string(&original).unwrap();
         let parsed: SshAuth = serde_json::from_str(&json).unwrap();

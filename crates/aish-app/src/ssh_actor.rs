@@ -50,35 +50,64 @@ pub(crate) async fn connection_task(
     // 链路：本地 → SSH → 远端 PTY → tmux server → tmux client → pane shell）。
 
     // 0. 如果是 Password auth 且 password 为空（来自 hosts.json），从 keyring 取
+    //    KeyFile auth 且 passphrase 为空 → 尝试从 keyring 取 passphrase（可选，
+    //    NoEntry 不报错 — 表示未加密私钥）
     let mut effective_config = config.clone();
-    if let SshAuth::Password { password } = &mut effective_config.auth {
-        if password.is_empty() {
-            match SecretStore::get(host_id) {
-                Ok(p) => {
-                    *password = p;
-                }
-                Err(SecretError::NoEntry) => {
-                    let _ = event_tx
-                        .send(SshEvent::Error {
-                            conn,
-                            kind: SshErrorKind::AuthFailed,
-                            msg: "keyring 中没有该 host 的密码（请重新在 GUI 中输入并保存）".into(),
-                        })
-                        .await;
-                    return;
-                }
-                Err(e) => {
-                    let _ = event_tx
-                        .send(SshEvent::Error {
-                            conn,
-                            kind: SshErrorKind::AuthFailed,
-                            msg: format!("从 keyring 读取密码失败: {}", e),
-                        })
-                        .await;
-                    return;
+    match &mut effective_config.auth {
+        SshAuth::Password { password } => {
+            if password.is_empty() {
+                match SecretStore::get(host_id) {
+                    Ok(p) => {
+                        *password = p;
+                    }
+                    Err(SecretError::NoEntry) => {
+                        let _ = event_tx
+                            .send(SshEvent::Error {
+                                conn,
+                                kind: SshErrorKind::AuthFailed,
+                                msg: "keyring 中没有该 host 的密码（请重新在 GUI 中输入并保存）"
+                                    .into(),
+                            })
+                            .await;
+                        return;
+                    }
+                    Err(e) => {
+                        let _ = event_tx
+                            .send(SshEvent::Error {
+                                conn,
+                                kind: SshErrorKind::AuthFailed,
+                                msg: format!("从 keyring 读取密码失败: {}", e),
+                            })
+                            .await;
+                        return;
+                    }
                 }
             }
         }
+        SshAuth::KeyFile { passphrase, .. } => {
+            if passphrase.is_empty() {
+                // KeyFile passphrase 是可选的：未加密私钥 → keyring 无 entry → 保持 ""
+                // 加密私钥 → keyring 有 entry → 取出。NoEntry 不报错，让 russh
+                // load_secret_key 自己 fail with 解密错误（用户能从 error 信息
+                // 知道需要 passphrase）。
+                match SecretStore::get_passphrase(host_id) {
+                    Ok(p) => {
+                        *passphrase = p;
+                    }
+                    Err(SecretError::NoEntry) => {
+                        // 没存 passphrase — 大概是未加密私钥，保持 "" 即可
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            ?conn,
+                            ?e,
+                            "从 keyring 读取 passphrase 失败 — 当未加密私钥处理"
+                        );
+                    }
+                }
+            }
+        }
+        SshAuth::Agent => {}
     }
 
     // 1. 连接 + 认证

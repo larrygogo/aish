@@ -65,9 +65,15 @@ impl SshClient {
 
         // 认证
         match &cfg.auth {
-            SshAuth::KeyFile { path } => {
+            SshAuth::KeyFile { path, passphrase } => {
                 // load_secret_key 内部自行读文件 + 解析，无需手动 fs::read
-                let key_pair = russh::keys::load_secret_key(path, None).map_err(|source| {
+                // passphrase 空 → None（未加密私钥）；非空 → Some(passphrase) 解密
+                let pass_opt = if passphrase.is_empty() {
+                    None
+                } else {
+                    Some(passphrase.as_str())
+                };
+                let key_pair = russh::keys::load_secret_key(path, pass_opt).map_err(|source| {
                     // 先判断是否是 IO（文件不可读）
                     if let russh_keys::Error::IO(ref io_err) = source {
                         SshError::KeyFileRead {
@@ -323,6 +329,7 @@ mod tests {
     async fn connect_with_missing_key_file_returns_error() {
         let cfg = mk_cfg(SshAuth::KeyFile {
             path: PathBuf::from("/nonexistent/key/path/aish_test"),
+            passphrase: String::new(),
         });
         let result =
             tokio::time::timeout(std::time::Duration::from_secs(5), SshClient::connect(&cfg)).await;

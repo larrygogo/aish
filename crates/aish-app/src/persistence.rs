@@ -58,13 +58,22 @@ pub fn save_hosts(hosts: &[HostConfig]) -> Result<(), SaveError> {
 
 /// 测试用：保存到指定 path。除了 IO 部分，keyring 行为和 save_hosts 一致。
 pub fn save_hosts_to(path: &Path, hosts: &[HostConfig]) -> Result<(), SaveError> {
-    // Step 1: 把每个 Password host 的密码写 keyring
+    // Step 1: 把每个 Password host 的密码 / KeyFile host 的 passphrase 写 keyring
     for host in hosts {
-        if let SshAuth::Password { password } = &host.auth {
-            if !password.is_empty() {
-                SecretStore::set(host.id, password).map_err(SaveError::Secret)?;
+        match &host.auth {
+            SshAuth::Password { password } => {
+                if !password.is_empty() {
+                    SecretStore::set(host.id, password).map_err(SaveError::Secret)?;
+                }
+                // password.is_empty() = 编辑时未改密码 → 不动 keyring
             }
-            // password.is_empty() = 编辑时未改密码 → 不动 keyring
+            SshAuth::KeyFile { passphrase, .. } => {
+                if !passphrase.is_empty() {
+                    SecretStore::set_passphrase(host.id, passphrase).map_err(SaveError::Secret)?;
+                }
+                // passphrase.is_empty() = 未加密私钥 / 编辑未改 → 不动 keyring
+            }
+            SshAuth::Agent => {}
         }
     }
 
@@ -85,6 +94,13 @@ pub fn save_hosts_to(path: &Path, hosts: &[HostConfig]) -> Result<(), SaveError>
 /// 删除指定 host 在 keyring 里的 entry。NoEntry 视为成功（idempotent）。
 /// 其他错误打 warn 但不阻塞调用方（删除流程已不可回退，仅记录）。
 pub fn delete_secret_for(host_id: HostId) {
+    // 同时删 password + passphrase 两 entry（host 删除时清干净两份凭证）。
+    // passphrase delete error 静默（同 password 模式）。
+    if let Err(e) = SecretStore::delete_passphrase(host_id) {
+        if !matches!(e, SecretError::NoEntry) {
+            tracing::warn!(?host_id, ?e, "delete_passphrase 失败");
+        }
+    }
     if let Err(e) = SecretStore::delete(host_id) {
         if !matches!(e, SecretError::NoEntry) {
             tracing::warn!(?host_id, "failed to delete keyring entry: {}", e);
@@ -131,6 +147,7 @@ mod tests {
             user: "root".into(),
             auth: SshAuth::KeyFile {
                 path: PathBuf::from("/home/me/.ssh/id_ed25519"),
+                passphrase: String::new(),
             },
             env_profile: None,
             os_kind: None,

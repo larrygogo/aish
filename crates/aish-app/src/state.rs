@@ -308,7 +308,7 @@ impl HostFormDraft {
     /// 不从 keyring 预读密码（最小化内存暴露 + 编辑保存空 = 不动 keyring）。
     pub fn from_config(cfg: &HostConfig) -> Self {
         let (auth_kind, key_path) = match &cfg.auth {
-            aish_types::SshAuth::KeyFile { path } => {
+            aish_types::SshAuth::KeyFile { path, .. } => {
                 (AuthKind::KeyFile, path.display().to_string())
             }
             aish_types::SshAuth::Password { .. } => (AuthKind::Password, String::new()),
@@ -360,7 +360,13 @@ impl HostFormDraft {
                 if !key_pathbuf.exists() {
                     return Err(format!("key 文件不存在: {}", key_path));
                 }
-                aish_types::SshAuth::KeyFile { path: key_pathbuf }
+                // passphrase 复用 self.password 字段（KeyFile 模式下当 passphrase；
+                // 未加密私钥则保持 ""）。语义同 Password 模式：空表示不改 keyring
+                // 已存 passphrase（编辑场景）；新建时空表示明文未加密私钥。
+                aish_types::SshAuth::KeyFile {
+                    path: key_pathbuf,
+                    passphrase: self.password.clone(),
+                }
             }
             AuthKind::Password => {
                 // 新建模式：必须填密码
@@ -922,6 +928,7 @@ mod tests {
             user: "larry".into(),
             auth: SshAuth::KeyFile {
                 path: PathBuf::from("/tmp/k"),
+                passphrase: String::new(),
             },
             env_profile: None,
             os_kind: None,

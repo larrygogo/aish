@@ -71,6 +71,69 @@ impl SecretStore {
             }
         }
     }
+
+    // ==========================================================================
+    // SSH key passphrase 系列（加密私钥解密用）。
+    //
+    // username key 用 `{host_id}-passphrase`，与 password (host_id) 在 keyring
+    // 内不同 entry，互不冲突。一个 host 理论上可以同时存 password (回退用) +
+    // passphrase (KeyFile 解密用)，但实际 SshAuth 是 enum 互斥，单 host 只
+    // 用一个。
+    // ==========================================================================
+
+    fn passphrase_username(host_id: HostId) -> String {
+        format!("{}-passphrase", host_id)
+    }
+
+    pub fn set_passphrase(host_id: HostId, passphrase: &str) -> Result<(), SecretError> {
+        let user = Self::passphrase_username(host_id);
+        #[cfg(test)]
+        {
+            tests::mock_set(user, passphrase.to_string());
+            Ok(())
+        }
+        #[cfg(not(test))]
+        {
+            let entry = Entry::new(SERVICE, &user)?;
+            entry.set_password(passphrase)?;
+            Ok(())
+        }
+    }
+
+    pub fn get_passphrase(host_id: HostId) -> Result<String, SecretError> {
+        let user = Self::passphrase_username(host_id);
+        #[cfg(test)]
+        {
+            tests::mock_get(&user).ok_or(SecretError::NoEntry)
+        }
+        #[cfg(not(test))]
+        {
+            let entry = Entry::new(SERVICE, &user)?;
+            match entry.get_password() {
+                Ok(p) => Ok(p),
+                Err(keyring::Error::NoEntry) => Err(SecretError::NoEntry),
+                Err(e) => Err(SecretError::Keyring(e)),
+            }
+        }
+    }
+
+    pub fn delete_passphrase(host_id: HostId) -> Result<(), SecretError> {
+        let user = Self::passphrase_username(host_id);
+        #[cfg(test)]
+        {
+            tests::mock_delete(&user);
+            Ok(())
+        }
+        #[cfg(not(test))]
+        {
+            let entry = Entry::new(SERVICE, &user)?;
+            match entry.delete_credential() {
+                Ok(()) => Ok(()),
+                Err(keyring::Error::NoEntry) => Ok(()),
+                Err(e) => Err(SecretError::Keyring(e)),
+            }
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -155,5 +218,43 @@ mod tests {
         SecretStore::set(host, "old").unwrap();
         SecretStore::set(host, "new").unwrap();
         assert_eq!(SecretStore::get(host).unwrap(), "new");
+    }
+
+    // SSH key passphrase 系列
+
+    #[test]
+    fn passphrase_set_then_get() {
+        setup();
+        let host = HostId::new();
+        SecretStore::set_passphrase(host, "phr@s3").unwrap();
+        let got = SecretStore::get_passphrase(host).unwrap();
+        assert_eq!(got, "phr@s3");
+    }
+
+    #[test]
+    fn passphrase_independent_from_password() {
+        // 同 host 的 password 与 passphrase 在 keyring 不同 entry，互不干扰
+        setup();
+        let host = HostId::new();
+        SecretStore::set(host, "pw").unwrap();
+        SecretStore::set_passphrase(host, "phrase").unwrap();
+        assert_eq!(SecretStore::get(host).unwrap(), "pw");
+        assert_eq!(SecretStore::get_passphrase(host).unwrap(), "phrase");
+    }
+
+    #[test]
+    fn passphrase_delete_independent() {
+        setup();
+        let host = HostId::new();
+        SecretStore::set(host, "pw").unwrap();
+        SecretStore::set_passphrase(host, "phrase").unwrap();
+        SecretStore::delete_passphrase(host).unwrap();
+        // password 仍在
+        assert_eq!(SecretStore::get(host).unwrap(), "pw");
+        // passphrase 已删
+        assert!(matches!(
+            SecretStore::get_passphrase(host),
+            Err(SecretError::NoEntry)
+        ));
     }
 }

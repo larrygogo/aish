@@ -1199,6 +1199,7 @@ mod tests {
             user: "root".into(),
             auth: aish_types::SshAuth::KeyFile {
                 path: std::path::PathBuf::from("/tmp/k"),
+                passphrase: String::new(),
             },
             env_profile: None,
             os_kind: None,
