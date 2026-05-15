@@ -36,15 +36,14 @@ impl Default for SettingsView {
     }
 }
 
-/// section card 的 header：粗体 14px + px/py 一致内边距 + 底部 border。
-fn section_header(title: &'static str, colors: ColorTokens, fs: FontSize) -> AnyElement {
+/// section card 的 header：Title3 (14/SEMIBOLD/fg) + px/py + 底部 border。
+fn section_header(title: &'static str, t: &Theme) -> AnyElement {
     div()
         .px_4()
         .py_3()
-        .text_size(fs.sm)
-        .text_color(colors.foreground)
+        .typography(aish_ui::TypeRole::Title3, t)
         .border_b_1()
-        .border_color(colors.border)
+        .border_color(t.colors.border)
         .child(title)
         .into_any_element()
 }
@@ -167,7 +166,7 @@ impl Render for SettingsView {
 
         let appearance_card = Card::new("settings-appearance")
             .outlined()
-            .header(section_header("Appearance", colors, fs))
+            .header(section_header("Appearance", t))
             .body(div().flex().flex_col().child(control_row(
                 "Dark mode",
                 None,
@@ -181,7 +180,7 @@ impl Render for SettingsView {
         // 接管；Ctrl+W / Ctrl+T / Ctrl+Tab 走 terminal_view focused 路径。
         let shortcuts_card = Card::new("settings-shortcuts")
             .outlined()
-            .header(section_header("Keyboard Shortcuts", colors, fs))
+            .header(section_header("Keyboard Shortcuts", t))
             .body(
                 div()
                     .flex()
@@ -230,7 +229,7 @@ impl Render for SettingsView {
 
         let about_card = Card::new("settings-about")
             .outlined()
-            .header(section_header("About", colors, fs))
+            .header(section_header("About", t))
             .body(
                 div()
                     .flex()

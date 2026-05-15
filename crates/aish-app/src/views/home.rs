@@ -643,10 +643,11 @@ impl Render for HomeView {
             None
         };
 
+        // M26 T3: HOSTS 是 list-section divider label（Stripe/Linear 风），
+        // 用 Caption (12/400/muted) — 之前 xs (10px) 偏小不清晰
         let hosts_section_label = div()
             .pb_2()
-            .text_color(colors.muted_foreground)
-            .text_size(font_size.xs)
+            .typography(aish_ui::TypeRole::Caption, theme)
             .child("HOSTS");
 
         // ScrollPage 内部封装了 wheel + scrollbar + flex_1/min_h(0) layout。
