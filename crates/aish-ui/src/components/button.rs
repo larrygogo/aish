@@ -57,23 +57,32 @@ pub struct Button {
     hover_anim_count: u64,
 }
 
-/// M32: Button / IconButton 的 hover transition 状态机（D-2）。
+/// M32 + M34 v2: Button / IconButton 的 hover transition 状态机。
 ///
 /// - `Idle`: mouse 不在 element 内，render bg = idle_bg
 /// - `Entering`: mouse enter 后 150ms 过渡期，render 走 animate path
 ///   lerp(idle_bg, hover_bg, delta)
 /// - `Hovered`: 过渡期完结的稳态，render bg = hover_bg
+/// - `Leaving`（**M34 v2 加**）: mouse leave Hovered 后 150ms 过渡期，render
+///   走 animate path lerp(hover_bg, idle_bg, delta)；timer 后切 Idle 真正
+///   unmount hover 状态
 ///
-/// transitions:
-/// - `Idle` + on_hover(true) → `Entering`（reduced_motion 时直接 `Hovered`）
+/// transitions (M34 v2 更新)：
+/// - `Idle` + on_hover(true) → `Entering` (reduced_motion → Hovered)
+/// - `Leaving` + on_hover(true) → `Entering`（中断 leave 反方向重启 enter，
+///   简化版不继承 delta 反向）
 /// - `Entering` + on_hover(true) → 不变（防快速重复触发）
-/// - `Entering` + on_hover(false) → `Idle`（leave 中断 enter，instant 切回，D-1）
-/// - `Hovered` + on_hover(false) → `Idle`（instant，D-1）
+/// - `Hovered` + on_hover(false) → `Leaving` (reduced_motion → Idle)
+/// - `Entering` + on_hover(false) → `Idle`（中断 enter，**仍 instant** —
+///   enter 没跑完就跳过 leave 动画，避免在 < 150ms 内 enter-leave 来回
+///   闪烁 visual jitter）
+/// - `Leaving` + on_hover(false) → 不变
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum HoverState {
     Idle,
     Entering { anim_count: u64 },
     Hovered,
+    Leaving { anim_count: u64 },
 }
 
 impl Button {
@@ -178,43 +187,78 @@ impl Button {
         .detach();
     }
 
-    /// M32: hover 状态机推进。GPUI `on_hover` callback 调用入口。
+    /// M32 + M34 v2: hover 状态机推进（含 Leaving 反向 lerp 路径）。
     /// 见 `HoverState` 文档关于 transition 表。
     fn fire_hover(&mut self, hovered: bool, cx: &mut Context<Self>) {
         if hovered {
-            if matches!(self.hover_state, HoverState::Idle) {
-                let reduced = theme(cx).reduced_motion;
-                if reduced {
-                    // reduced_motion：跳过 Entering 直接稳态（D-7）
-                    self.hover_state = HoverState::Hovered;
-                    cx.notify();
-                } else {
-                    let count = self.hover_anim_count.wrapping_add(1);
-                    self.hover_anim_count = count;
-                    self.hover_state = HoverState::Entering { anim_count: count };
-                    let dur = theme(cx).motion.medium;
-                    cx.spawn(async move |this, cx| {
-                        cx.background_executor().timer(dur).await;
-                        let _ = this.update(cx, |this, cx| {
-                            // 幂等 check：anim_count 一致才推进；leave-enter
-                            // 期间 count 变化时本 timer 不动（防 stale）
-                            if matches!(
-                                this.hover_state,
-                                HoverState::Entering { anim_count } if anim_count == count
-                            ) {
-                                this.hover_state = HoverState::Hovered;
-                                cx.notify();
-                            }
-                        });
-                    })
-                    .detach();
+            // 进入 hover：Idle / Leaving → Entering（Leaving 中断反向重启 enter）
+            match self.hover_state {
+                HoverState::Idle | HoverState::Leaving { .. } => {
+                    let reduced = theme(cx).reduced_motion;
+                    if reduced {
+                        self.hover_state = HoverState::Hovered;
+                        cx.notify();
+                    } else {
+                        let count = self.hover_anim_count.wrapping_add(1);
+                        self.hover_anim_count = count;
+                        self.hover_state = HoverState::Entering { anim_count: count };
+                        let dur = theme(cx).motion.medium;
+                        cx.spawn(async move |this, cx| {
+                            cx.background_executor().timer(dur).await;
+                            let _ = this.update(cx, |this, cx| {
+                                if matches!(
+                                    this.hover_state,
+                                    HoverState::Entering { anim_count } if anim_count == count
+                                ) {
+                                    this.hover_state = HoverState::Hovered;
+                                    cx.notify();
+                                }
+                            });
+                        })
+                        .detach();
+                        cx.notify();
+                    }
+                }
+                HoverState::Entering { .. } | HoverState::Hovered => {} // no-op
+            }
+        } else {
+            // 离开 hover：Hovered → Leaving 走反向 lerp 动画
+            //              Entering → Idle instant（中断 enter，避免 < 150ms
+            //              快速 enter-leave 视觉抖动）
+            //              Idle / Leaving → 不变
+            match self.hover_state {
+                HoverState::Hovered => {
+                    let reduced = theme(cx).reduced_motion;
+                    if reduced {
+                        self.hover_state = HoverState::Idle;
+                        cx.notify();
+                    } else {
+                        let count = self.hover_anim_count.wrapping_add(1);
+                        self.hover_anim_count = count;
+                        self.hover_state = HoverState::Leaving { anim_count: count };
+                        let dur = theme(cx).motion.medium;
+                        cx.spawn(async move |this, cx| {
+                            cx.background_executor().timer(dur).await;
+                            let _ = this.update(cx, |this, cx| {
+                                if matches!(
+                                    this.hover_state,
+                                    HoverState::Leaving { anim_count } if anim_count == count
+                                ) {
+                                    this.hover_state = HoverState::Idle;
+                                    cx.notify();
+                                }
+                            });
+                        })
+                        .detach();
+                        cx.notify();
+                    }
+                }
+                HoverState::Entering { .. } => {
+                    self.hover_state = HoverState::Idle;
                     cx.notify();
                 }
+                HoverState::Idle | HoverState::Leaving { .. } => {}
             }
-        } else if !matches!(self.hover_state, HoverState::Idle) {
-            // 任意 → Idle（instant，D-1）
-            self.hover_state = HoverState::Idle;
-            cx.notify();
         }
     }
 }
@@ -254,19 +298,19 @@ impl Render for Button {
         let pressing = self.pressing;
         let focus_animating = now_focused && self.focus_animated;
         let hover_state = self.hover_state;
-        // M32: hover Entering 也走 animate path
+        // M32 + M34 v2：hover Entering / Leaving 都走 animate path
         let hover_entering = matches!(hover_state, HoverState::Entering { .. });
-        let need_anim = pressing || focus_animating || hover_entering;
+        let hover_leaving = matches!(hover_state, HoverState::Leaving { .. });
+        let need_anim = pressing || focus_animating || hover_entering || hover_leaving;
         let press_count = self.press_count;
         let hover_anim_count = self.hover_anim_count;
         let variant = self.variant;
 
-        // M32: hover-aware static bg — Idle 用 idle_bg，Hovered 用 hover_bg，
-        // Entering 在 animator 内通过 lerp 输出中间色（base 仍设 idle_bg
-        // 作为 fallback / 入场起点）。
+        // base bg：Idle/Entering → idle_bg；Hovered → hover_bg；
+        // Leaving → hover_bg（lerp 起点；animator 内反向 lerp 到 idle_bg）
         let base_bg = match hover_state {
             HoverState::Idle | HoverState::Entering { .. } => idle_bg,
-            HoverState::Hovered => hover_bg,
+            HoverState::Hovered | HoverState::Leaving { .. } => hover_bg,
         };
 
         // base Div — 不依赖闭包，直接用值构造。两个分支后续各自决定 wrap。
@@ -338,8 +382,13 @@ impl Render for Button {
             move |el, delta| {
                 let mut el = el;
                 // M32: hover Entering 时 bg lerp idle → hover
+                // M34 v2: hover Leaving 时 bg lerp hover → idle（反向 — 用
+                // hover_bg_at 传 reversed args 即可，Ghost variant 仍走 alpha-only）
                 if hover_entering {
                     el = el.bg(hover_bg_at(variant, idle_bg, hover_bg, delta));
+                } else if hover_leaving {
+                    // 反向 lerp：从 hover_bg → idle_bg
+                    el = el.bg(hover_bg_at(variant, hover_bg, idle_bg, delta));
                 }
                 if focus_animating {
                     let mut glow = ring_color;

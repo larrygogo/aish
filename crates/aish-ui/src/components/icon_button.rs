@@ -161,38 +161,73 @@ impl IconButton {
         .detach();
     }
 
-    /// M32: hover 状态机推进（与 button.rs::fire_hover 对称）。
+    /// M32 + M34 v2: hover 状态机推进（含 Leaving 反向 lerp，与
+    /// button.rs::fire_hover 对称）。
     fn fire_hover(&mut self, hovered: bool, cx: &mut Context<Self>) {
         if hovered {
-            if matches!(self.hover_state, HoverState::Idle) {
-                let reduced = theme(cx).reduced_motion;
-                if reduced {
-                    self.hover_state = HoverState::Hovered;
-                    cx.notify();
-                } else {
-                    let count = self.hover_anim_count.wrapping_add(1);
-                    self.hover_anim_count = count;
-                    self.hover_state = HoverState::Entering { anim_count: count };
-                    let dur = theme(cx).motion.medium;
-                    cx.spawn(async move |this, cx| {
-                        cx.background_executor().timer(dur).await;
-                        let _ = this.update(cx, |this, cx| {
-                            if matches!(
-                                this.hover_state,
-                                HoverState::Entering { anim_count } if anim_count == count
-                            ) {
-                                this.hover_state = HoverState::Hovered;
-                                cx.notify();
-                            }
-                        });
-                    })
-                    .detach();
+            match self.hover_state {
+                HoverState::Idle | HoverState::Leaving { .. } => {
+                    let reduced = theme(cx).reduced_motion;
+                    if reduced {
+                        self.hover_state = HoverState::Hovered;
+                        cx.notify();
+                    } else {
+                        let count = self.hover_anim_count.wrapping_add(1);
+                        self.hover_anim_count = count;
+                        self.hover_state = HoverState::Entering { anim_count: count };
+                        let dur = theme(cx).motion.medium;
+                        cx.spawn(async move |this, cx| {
+                            cx.background_executor().timer(dur).await;
+                            let _ = this.update(cx, |this, cx| {
+                                if matches!(
+                                    this.hover_state,
+                                    HoverState::Entering { anim_count } if anim_count == count
+                                ) {
+                                    this.hover_state = HoverState::Hovered;
+                                    cx.notify();
+                                }
+                            });
+                        })
+                        .detach();
+                        cx.notify();
+                    }
+                }
+                HoverState::Entering { .. } | HoverState::Hovered => {}
+            }
+        } else {
+            match self.hover_state {
+                HoverState::Hovered => {
+                    let reduced = theme(cx).reduced_motion;
+                    if reduced {
+                        self.hover_state = HoverState::Idle;
+                        cx.notify();
+                    } else {
+                        let count = self.hover_anim_count.wrapping_add(1);
+                        self.hover_anim_count = count;
+                        self.hover_state = HoverState::Leaving { anim_count: count };
+                        let dur = theme(cx).motion.medium;
+                        cx.spawn(async move |this, cx| {
+                            cx.background_executor().timer(dur).await;
+                            let _ = this.update(cx, |this, cx| {
+                                if matches!(
+                                    this.hover_state,
+                                    HoverState::Leaving { anim_count } if anim_count == count
+                                ) {
+                                    this.hover_state = HoverState::Idle;
+                                    cx.notify();
+                                }
+                            });
+                        })
+                        .detach();
+                        cx.notify();
+                    }
+                }
+                HoverState::Entering { .. } => {
+                    self.hover_state = HoverState::Idle;
                     cx.notify();
                 }
+                HoverState::Idle | HoverState::Leaving { .. } => {}
             }
-        } else if !matches!(self.hover_state, HoverState::Idle) {
-            self.hover_state = HoverState::Idle;
-            cx.notify();
         }
     }
 }
@@ -229,15 +264,16 @@ impl Render for IconButton {
         let focus_animating = now_focused && self.focus_animated;
         let hover_state = self.hover_state;
         let hover_entering = matches!(hover_state, HoverState::Entering { .. });
-        let need_anim = pressing || focus_animating || hover_entering;
+        let hover_leaving = matches!(hover_state, HoverState::Leaving { .. });
+        let need_anim = pressing || focus_animating || hover_entering || hover_leaving;
         let press_count = self.press_count;
         let hover_anim_count = self.hover_anim_count;
         let variant = self.variant;
 
-        // M32: hover-aware static bg
+        // base bg: M32 + M34 v2 — Leaving 与 Hovered 同起点 (hover_bg)
         let base_bg = match hover_state {
             HoverState::Idle | HoverState::Entering { .. } => idle_bg,
-            HoverState::Hovered => hover_bg,
+            HoverState::Hovered | HoverState::Leaving { .. } => hover_bg,
         };
 
         let handler = self.on_click.clone();
@@ -302,10 +338,12 @@ impl Render for IconButton {
             Animation::new(fast_duration).with_easing(move |d| easing(d)),
             move |el, delta| {
                 let mut el = el;
-                // M32: hover Entering 时 bg lerp idle → hover（Ghost variant
-                // 走 alpha-only lerp 避开 hue 圆环紫粉色 bug，详 hover_bg_at）
+                // M32: hover Entering 时 bg lerp idle → hover
+                // M34 v2: hover Leaving 时反向 lerp hover → idle
                 if hover_entering {
                     el = el.bg(hover_bg_at(variant, idle_bg, hover_bg, delta));
+                } else if hover_leaving {
+                    el = el.bg(hover_bg_at(variant, hover_bg, idle_bg, delta));
                 }
                 if focus_animating {
                     let mut glow = ring_color;

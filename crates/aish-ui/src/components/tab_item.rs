@@ -116,6 +116,7 @@ impl TabItem {
         .detach();
     }
 
+    /// M34 v2: hover 状态机推进（含 Leaving 反向 lerp）。
     /// active=true 时跳过 hover 状态机推进（active selected 视觉保持稳态）—
     /// 同 NavItem 模式。
     fn fire_hover(&mut self, hovered: bool, cx: &mut Context<Self>) {
@@ -123,35 +124,69 @@ impl TabItem {
             return;
         }
         if hovered {
-            if matches!(self.hover_state, HoverState::Idle) {
-                let reduced = theme(cx).reduced_motion;
-                if reduced {
-                    self.hover_state = HoverState::Hovered;
-                    cx.notify();
-                } else {
-                    let count = self.hover_anim_count.wrapping_add(1);
-                    self.hover_anim_count = count;
-                    self.hover_state = HoverState::Entering { anim_count: count };
-                    let dur = theme(cx).motion.medium;
-                    cx.spawn(async move |this, cx| {
-                        cx.background_executor().timer(dur).await;
-                        let _ = this.update(cx, |this, cx| {
-                            if matches!(
-                                this.hover_state,
-                                HoverState::Entering { anim_count } if anim_count == count
-                            ) {
-                                this.hover_state = HoverState::Hovered;
-                                cx.notify();
-                            }
-                        });
-                    })
-                    .detach();
+            match self.hover_state {
+                HoverState::Idle | HoverState::Leaving { .. } => {
+                    let reduced = theme(cx).reduced_motion;
+                    if reduced {
+                        self.hover_state = HoverState::Hovered;
+                        cx.notify();
+                    } else {
+                        let count = self.hover_anim_count.wrapping_add(1);
+                        self.hover_anim_count = count;
+                        self.hover_state = HoverState::Entering { anim_count: count };
+                        let dur = theme(cx).motion.medium;
+                        cx.spawn(async move |this, cx| {
+                            cx.background_executor().timer(dur).await;
+                            let _ = this.update(cx, |this, cx| {
+                                if matches!(
+                                    this.hover_state,
+                                    HoverState::Entering { anim_count } if anim_count == count
+                                ) {
+                                    this.hover_state = HoverState::Hovered;
+                                    cx.notify();
+                                }
+                            });
+                        })
+                        .detach();
+                        cx.notify();
+                    }
+                }
+                HoverState::Entering { .. } | HoverState::Hovered => {}
+            }
+        } else {
+            match self.hover_state {
+                HoverState::Hovered => {
+                    let reduced = theme(cx).reduced_motion;
+                    if reduced {
+                        self.hover_state = HoverState::Idle;
+                        cx.notify();
+                    } else {
+                        let count = self.hover_anim_count.wrapping_add(1);
+                        self.hover_anim_count = count;
+                        self.hover_state = HoverState::Leaving { anim_count: count };
+                        let dur = theme(cx).motion.medium;
+                        cx.spawn(async move |this, cx| {
+                            cx.background_executor().timer(dur).await;
+                            let _ = this.update(cx, |this, cx| {
+                                if matches!(
+                                    this.hover_state,
+                                    HoverState::Leaving { anim_count } if anim_count == count
+                                ) {
+                                    this.hover_state = HoverState::Idle;
+                                    cx.notify();
+                                }
+                            });
+                        })
+                        .detach();
+                        cx.notify();
+                    }
+                }
+                HoverState::Entering { .. } => {
+                    self.hover_state = HoverState::Idle;
                     cx.notify();
                 }
+                HoverState::Idle | HoverState::Leaving { .. } => {}
             }
-        } else if !matches!(self.hover_state, HoverState::Idle) {
-            self.hover_state = HoverState::Idle;
-            cx.notify();
         }
     }
 }
@@ -191,7 +226,8 @@ impl Render for TabItem {
         let pressing = self.pressing;
         let focus_animating = now_focused && self.focus_animated;
         let hover_entering = !active && matches!(hover_state, HoverState::Entering { .. });
-        let need_anim = pressing || focus_animating || hover_entering;
+        let hover_leaving = !active && matches!(hover_state, HoverState::Leaving { .. });
+        let need_anim = pressing || focus_animating || hover_entering || hover_leaving;
         let press_count = self.press_count;
         let hover_anim_count = self.hover_anim_count;
 
@@ -200,7 +236,7 @@ impl Render for TabItem {
         } else {
             match hover_state {
                 HoverState::Idle | HoverState::Entering { .. } => idle_bg,
-                HoverState::Hovered => hover_bg,
+                HoverState::Hovered | HoverState::Leaving { .. } => hover_bg,
             }
         };
 
@@ -300,6 +336,9 @@ impl Render for TabItem {
                 let mut el = el;
                 if hover_entering {
                     el = el.bg(crate::lerp_hsla(idle_bg, hover_bg, delta));
+                } else if hover_leaving {
+                    // M34 v2: 反向 lerp hover → idle
+                    el = el.bg(crate::lerp_hsla(hover_bg, idle_bg, delta));
                 }
                 if focus_animating {
                     let mut glow = ring_color;
