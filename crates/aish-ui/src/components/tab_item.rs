@@ -291,10 +291,7 @@ impl Render for TabItem {
         let mut el = div()
             .id(self.id.clone())
             .relative()
-            // h_full 让 TabItem 适配 tab_bar content area（自动让 1px
-            // border-b 给容器），防 hover bg / active selected_bg 覆盖
-            // tab_bar.border_b 视觉断线（同 plus_btn fix 模式）。
-            .h_full()
+            .h(px(40.0))
             .max_w(px(200.0))
             .overflow_hidden()
             .flex_shrink_0()

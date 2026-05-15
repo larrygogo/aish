@@ -819,10 +819,7 @@ impl Render for TabBarView {
         let active_bg = colors.secondary_active;
         let plus_btn = div()
             .id("tab-new")
-            // h_full 让 plus_btn 占满 tab_bar content area，不强占 border-b
-            // 那 1px（之前 hard-code h(40.0) = tab_bar 总高，hover bg 覆盖
-            // tab_bar.border_b 视觉断线 — fix 见 commit msg）
-            .h_full()
+            .h(px(40.0))
             .w(px(40.0))
             .flex()
             .items_center()
@@ -904,46 +901,60 @@ impl Render for TabBarView {
                     .text_color(colors.muted_foreground),
             );
 
+        // 重构（fix tab_bar border-b 被 hover bg 盖断）：
+        // 之前 outer 是单 row 含 .border_b_1()，children 的 hover bg
+        // (plus_btn / TabItem) 撑满 40px 把 border 那 1px 也覆盖了。
+        // 现改 flex_col wrap：内层 40px row 含所有 tab content（children bg
+        // 在该 row 内填满都不越界），外层底部用 sibling 1px div 当 border
+        // line — 真正独立的元素，children bg 永远不可能盖到它。
         div()
-            .track_focus(&self.focus_handle)
             .w_full()
             .flex()
-            .flex_row()
-            .items_center()
-            .bg(colors.card)
-            .border_b_1()
-            .border_color(colors.border)
-            .h(px(40.0))
-            .when(show_left, |d| d.child(arrow_left))
+            .flex_col()
             .child(
                 div()
-                    .id("tab-bar-scroll")
-                    .flex_1()
-                    // flex item 默认 min_width=auto 拒绝 shrink → tab_items
-                    // 撑大容器让 overflow_x_scroll 失效。min_w(0) 强制允许
-                    // 压缩到 0，flex_1 才取父 div 剩余空间，溢出的 tab 滚动。
-                    .min_w(px(0.0))
-                    .h_full()
+                    .track_focus(&self.focus_handle)
+                    .w_full()
                     .flex()
                     .flex_row()
                     .items_center()
-                    // overflow_hidden 而非 overflow_x_scroll：
-                    // GPUI 内置 wheel handler 仅在 overflow.x == Overflow::Scroll
-                    // 时触发（div.rs:2690 if overflow.x == Scroll {...}），用
-                    // Hidden 让它不跑，我的 on_scroll_wheel 唯一接管。
-                    // track_scroll 不依赖 overflow，仍然让 ScrollHandle 同步
-                    // offset 让 children 按 offset transform paint（实现滚动
-                    // 视觉效果）。
-                    .overflow_hidden()
-                    .track_scroll(&self.scroll_handle)
-                    // 自己的 wheel handler：固定 60px/tick，详见 handle_wheel
-                    .on_scroll_wheel(cx.listener(|this, ev: &ScrollWheelEvent, _w, cx| {
-                        this.handle_wheel(ev, cx);
-                    }))
-                    .children(tab_items),
+                    .bg(colors.card)
+                    .h(px(40.0))
+                    .when(show_left, |d| d.child(arrow_left))
+                    .child(
+                        div()
+                            .id("tab-bar-scroll")
+                            .flex_1()
+                            // flex item 默认 min_width=auto 拒绝 shrink → tab_items
+                            // 撑大容器让 overflow_x_scroll 失效。min_w(0) 强制允许
+                            // 压缩到 0，flex_1 才取父 div 剩余空间，溢出的 tab 滚动。
+                            .min_w(px(0.0))
+                            .h_full()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            // overflow_hidden 而非 overflow_x_scroll：
+                            // GPUI 内置 wheel handler 仅在 overflow.x == Overflow::Scroll
+                            // 时触发（div.rs:2690 if overflow.x == Scroll {...}），用
+                            // Hidden 让它不跑，我的 on_scroll_wheel 唯一接管。
+                            // track_scroll 不依赖 overflow，仍然让 ScrollHandle 同步
+                            // offset 让 children 按 offset transform paint（实现滚动
+                            // 视觉效果）。
+                            .overflow_hidden()
+                            .track_scroll(&self.scroll_handle)
+                            // 自己的 wheel handler：固定 60px/tick，详见 handle_wheel
+                            .on_scroll_wheel(cx.listener(|this, ev: &ScrollWheelEvent, _w, cx| {
+                                this.handle_wheel(ev, cx);
+                            }))
+                            .children(tab_items),
+                    )
+                    .when(show_right, |d| d.child(arrow_right))
+                    .child(plus_btn),
             )
-            .when(show_right, |d| d.child(arrow_right))
-            .child(plus_btn)
+            .child(
+                // 独立 1px 高 border line — sibling 而非 outer.border_b
+                div().h(px(1.0)).w_full().bg(colors.border),
+            )
         // context_menu entity 不在这 mount —— RootView 在 root 顶层 mount
         // 让 absolute backdrop / anchored 浮层盖在 terminal / session_picker
         // 之上（tab_bar 在下游 view 之前 paint，自己 mount 会被盖）。
