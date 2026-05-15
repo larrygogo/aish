@@ -10,13 +10,42 @@
 
 ## 当前状态
 
-- **活跃分支**：main（2026-05-15 完成 M22-M29 + M27，全在 origin；M30 spec 待实施）
-- **下一里程碑**：M30 (animation tokens + spinner/skeleton 动画落地)
-- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **242** + aish-app **145** + 其他 crate) 全过
+- **活跃分支**：main（2026-05-15 完成 M22-M30 + M27，全在 origin）
+- **下一里程碑候选**：M31 (Button stateful entity + press feedback / TabItem indicator slide / focus ring fade — M30 defer 项)
+- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **261** + aish-app **147** + 其他 crate) 全过
 
 ---
 
 ## Milestones（按时间倒序）
+
+### M30 — 动画 / micro-interaction 体系（2026-05-15）— ✅ 主线完成（T5/T6 defer M31）
+- spec：[`specs/2026-05-15-aish-m30-animation-design.md`](specs/2026-05-15-aish-m30-animation-design.md)
+- plan：[`plans/2026-05-15-aish-m30-animation.md`](plans/2026-05-15-aish-m30-animation.md)
+- 范围：建立 motion token + reduced_motion 偏好系统，落地 Dialog / Toast 入场动画
+  - **基础设施**：Motion struct (4 档 Duration: instant 0 / fast 80 / medium 150 / slow 250 ms)
+    + 2 个 EasingFn (ease_out_quint / quadratic) + animate_or_skip helper (reduced_motion 时跳过 with_animation)
+  - **lerp 工具**：lerp_hsla(a, b, t) + lerp_px(a, b, t) 给 caller 自驱属性插值
+  - **Dialog**：open: bool 升级为 OpenState 4 态机器（Closed/Opening/Open/Closing），
+    Opening/Closing 期 medium 150ms ease_out_quint opacity 0→1 / 1→0，schedule_state_transition
+    spawn timer 幂等切换状态
+  - **Toast**：每条 enter 动画 slow 250ms opacity 0→1（GPUI div 不支持 transform translate，
+    spec 原方案 slide-in 简化为 fade-in）
+  - **Settings**：Appearance section 加 \"减少动画\" Switch，写盘 + 启动回灌 Theme.reduced_motion；
+    dark mode toggle 同步修：切主题时 preserve reduced_motion 偏好
+- 关键 commits：
+  - `857f456` — T2 Motion token + animate_or_skip + lerp helper（aish-ui +10）
+  - `b88b7bd` — T3 Dialog 4 态机器 + fade 动画（aish-ui +9）
+  - `e696d29` — T4 Toast enter opacity 0→1
+  - `41807c4` — T7 reduced_motion toggle + 持久化（aish-app +2）
+- 测试：aish-ui 242 → **261**（+19），aish-app 145 → **147**（+2）
+- **Defer 到 M31**：
+  - T5 — Button / IconButton press feedback：Button stateless 组件无法持 timer，
+    需先重构为 stateful Entity
+  - T6 — TabItem active indicator slide：跨 element 关联工程量超 M30
+- 已知边界：
+  - GPUI div 不支持 translate / transform，所有 motion 限 opacity / 色值 / position 已有属性
+  - hover transition 不做（spec D-3，依然 GPUI `.hover()` instant 切色）
+  - Closing 期 dialog 仍占屏 150ms，键鼠 listener 禁用避免竞态
 
 ### M29 — HostForm Dialog 视觉重设计（2026-05-15）— ✅ 已完成
 - spec：[`specs/2026-05-15-aish-m29-host-form-redesign-design.md`](specs/2026-05-15-aish-m29-host-form-redesign-design.md)

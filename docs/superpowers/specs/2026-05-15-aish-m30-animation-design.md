@@ -410,4 +410,61 @@ GPUI 内置 Animation + easing 已够覆盖 D-1 ~ D-6 全场景。
 
 ## 9. 实施记录
 
-（待 T1-T6 实施完成后回填）
+### Commits
+
+| Task | Commit | 摘要 |
+|---|---|---|
+| T1 | （无 commit） | GPUI Animation 调研沉淀进 spec §2，PoC 验证 API 可用 |
+| T2 | `857f456` | Motion token + animate_or_skip helper + lerp_hsla/px |
+| T3 | `b88b7bd` | Dialog open/close 4 态机器 + fade 动画 |
+| T4 | `e696d29` | Toast enter 动画 opacity 0→1 slow 250ms |
+| T5 | **defer M31** | Button press feedback — stateless 限制无法持 timer，详见下文 |
+| T6 | **defer M31** | TabItem active indicator slide — spec 已 mark optional |
+| T7 | `41807c4` | Settings 减少动画 toggle + app_state 持久化 |
+
+### 实际遇到的 Risk / 限制
+
+- **R-spec L4 + R4 落地 — GPUI transform 不可用**：spec L4 说 transform translate
+  "理论可用"；实施 T4 时验证 GPUI div **不**支持 `.translate_x/y` /
+  `.with_transformation`（仅 svg 有）。Toast 原方案 opacity + translate 简化
+  为 opacity-only。视觉上手测 250ms ease_out_quint 仍够 subtle。
+- **R-T3 状态机 race condition**：Dialog 4 态机器引入 `schedule_state_transition`
+  helper，timer fire 时做幂等 check（state == expected_prev 才推进），
+  覆盖了 close→open→close 短间隔的 stale timer 场景。Self-Review 单测
+  8 case 全 pass。Closing 期间禁用键鼠 listener 避免再次 close 进入死循环。
+- **R-T5 stateless 组件限制（spec 未充分预料）**：Button / IconButton 是
+  `#[derive(IntoElement)]` stateless 组件，无 Entity 持 `pressing: bool` +
+  spawn timer。GPUI `.active()` 是 declarative style refinement，**不**支持
+  嵌套 `with_animation`。要做 press scale 反馈必须把 Button 重构成 stateful
+  Entity，工程量超 M30 — defer M31。
+- **R-T6 跨 element 关联难度**：TabItem indicator slide 需要 TabBar 顶层
+  维护 active_index_animated + 绝对定位 indicator，需要 prepaint canvas
+  写入每 tab bounds 全局 map。spec 已 mark optional，按 spike 评估
+  defer M31。
+
+### 测试增量
+
+| 文件 | 新增单测 |
+|---|---|
+| `theme/motion.rs` | 5（duration 默认 / 有序 / easing 单调 / quadratic 端点 / Rc clone 安全） |
+| `animation.rs` | 5（lerp_hsla 端点+中点+clamp / lerp_px 端点+clamp） |
+| `components/dialog.rs` | 9（M30 transition table 8 case + reduced_motion path） |
+| `crates/aish-app/src/app_state_file.rs` | 2（reduced_motion roundtrip / default None） |
+
+aish-ui: 242 → **261**（+19）
+aish-app: 145 → **147**（+2）
+
+### 视觉 / 行为差异（手测）
+
+- **Dialog**：HostForm / SessionPicker open 时 backdrop + content 150ms 淡入；
+  close 时同样淡出（之前 instant snap）
+- **Toast**：右下角新 toast 250ms 淡入；多 toast 同时推时各自独立 enter
+  动画 ID 不冲突
+- **reduced_motion ON**：所有动画跳过，视觉等于现在的 instant snap；
+  下次 cold start 也保留偏好
+
+### Defer 到 M31 的 task
+
+- T5：Button / IconButton press feedback（含 focus ring fade）— 需先把
+  Button 重构成 stateful Entity，或换 GPUI 升级路径
+- T6：TabItem active indicator slide — 跨 element 关联工程量超 M30
