@@ -49,7 +49,9 @@ fn section_header(title: &'static str, t: &Theme) -> AnyElement {
 }
 
 /// 两列行：左 200px 固定，右自然宽。用于 shortcut / info pair。
-fn two_column_row(left: &str, right: &str, colors: ColorTokens, fs: FontSize) -> AnyElement {
+fn two_column_row(left: &str, right: &str, t: &Theme) -> AnyElement {
+    // M26 T5: 左 Label (13/500/fg) + secondary_fg override 弱化（让 right
+    // 是主信息）；右 Body (13/400/fg)。语义：left 是字段名，right 是值。
     div()
         .flex()
         .flex_row()
@@ -59,15 +61,14 @@ fn two_column_row(left: &str, right: &str, colors: ColorTokens, fs: FontSize) ->
         .child(
             div()
                 .w(px(200.0))
-                .text_size(fs.sm)
-                .text_color(colors.secondary_foreground)
+                .typography(aish_ui::TypeRole::Label, t)
+                .text_color(t.colors.secondary_foreground)
                 .child(SharedString::from(left.to_string())),
         )
         .child(
             div()
                 .flex_1()
-                .text_size(fs.sm)
-                .text_color(colors.foreground)
+                .typography(aish_ui::TypeRole::Body, t)
                 .child(SharedString::from(right.to_string())),
         )
         .into_any_element()
@@ -185,12 +186,12 @@ impl Render for SettingsView {
                 div()
                     .flex()
                     .flex_col()
-                    .child(two_column_row("Ctrl+Shift+V", "粘贴", colors, fs))
-                    .child(two_column_row("Ctrl+W", "关闭 tab", colors, fs))
-                    .child(two_column_row("Ctrl+T", "新 tab", colors, fs))
-                    .child(two_column_row("Ctrl+1", "Home", colors, fs))
-                    .child(two_column_row("Ctrl+2", "Terminal", colors, fs))
-                    .child(two_column_row("Ctrl+3", "Settings", colors, fs)),
+                    .child(two_column_row("Ctrl+Shift+V", "粘贴", t))
+                    .child(two_column_row("Ctrl+W", "关闭 tab", t))
+                    .child(two_column_row("Ctrl+T", "新 tab", t))
+                    .child(two_column_row("Ctrl+1", "Home", t))
+                    .child(two_column_row("Ctrl+2", "Terminal", t))
+                    .child(two_column_row("Ctrl+3", "Settings", t)),
             );
 
         // ───── About（版本信息 + 实际可点交互按钮）─────
@@ -234,15 +235,10 @@ impl Render for SettingsView {
                 div()
                     .flex()
                     .flex_col()
-                    .child(two_column_row("Version", &version_str, colors, fs))
-                    .child(two_column_row("Build date", build_date, colors, fs))
-                    .child(two_column_row(
-                        "Repository",
-                        "github.com/larrygogo/aish",
-                        colors,
-                        fs,
-                    ))
-                    .child(two_column_row("License", "MIT", colors, fs))
+                    .child(two_column_row("Version", &version_str, t))
+                    .child(two_column_row("Build date", build_date, t))
+                    .child(two_column_row("Repository", "github.com/larrygogo/aish", t))
+                    .child(two_column_row("License", "MIT", t))
                     .child(actions_row),
             );
 

@@ -570,31 +570,29 @@ impl Render for HomeView {
                                     .gap_2()
                                     .items_center()
                                     .child(
-                                        // D2: label 改 xl + semibold，让 host 名作为主信息
-                                        // 突出（之前 lg 与下方 host_text sm 字号差不大，
-                                        // hierarchy 弱）
+                                        // M26 T4: host label 用 Title3 (14/600/fg)
+                                        // 之前 xl(18) + 手工 SEMIBOLD 偏大抢眼；
+                                        // Title3 让 label 视觉略强于 body 但不超过
+                                        // page title (Title1 20)，hierarchy 清晰
                                         div()
-                                            .text_color(colors.foreground)
-                                            .text_size(font_size.xl)
-                                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                                            .typography(aish_ui::TypeRole::Title3, theme)
                                             .child(label),
                                     )
                                     .child(chip)
                                     .children(active_chip),
                             )
                             .child(
+                                // M26 T4: host_text user@addr:port → Body
                                 div()
+                                    .typography(aish_ui::TypeRole::Body, theme)
                                     .text_color(colors.secondary_foreground)
-                                    .text_size(font_size.sm)
                                     .child(host_text),
                             )
-                            // 始终渲染一行让所有 host 卡片高度一致 —— 未连接过时
-                            // 显示"未连接"占位，避免新卡片比已连接卡片矮一行的视觉
-                            // 跳变。muted_fg 同色弱化，不抢主信息。
+                            // M26 T5: 上次连接 / 未连接 meta → Caption
+                            // (12/400/muted) 替代 hardcoded px(11)
                             .child(
                                 div()
-                                    .text_color(colors.muted_foreground)
-                                    .text_size(px(11.0))
+                                    .typography(aish_ui::TypeRole::Caption, theme)
                                     .child(match last_conn_str {
                                         Some(s) => format!("上次连接 {}", s),
                                         None => "未连接".to_string(),
