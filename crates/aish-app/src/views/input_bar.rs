@@ -460,7 +460,12 @@ impl Render for InputBarView {
             i.disabled(is_uploading);
         });
 
+        let muted_fg = colors.muted_foreground;
         let progress_row = upload_progress.map(|(done, total)| {
+            // M26 progress hint: 等价 Micro role (11px / NORMAL / muted_fg)
+            // 这里不用 typography ext 因 input_bar render 的 cx 已被 mut
+            // borrow 链占用（defer_clear_input / spinner timer）— inline 三行
+            // 等价。
             div()
                 .flex()
                 .flex_row()
@@ -469,7 +474,7 @@ impl Render for InputBarView {
                 .px(px(8.0))
                 .py(px(4.0))
                 .text_size(px(11.0))
-                .text_color(colors.muted_foreground)
+                .text_color(muted_fg)
                 .child(format!("上传中  {}/{}", done, total))
         });
 

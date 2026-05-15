@@ -13,7 +13,7 @@
 //! Ctrl+W / Ctrl+T / Ctrl+Tab / Ctrl+Shift+V 在 terminal_view focused 时生效
 //! （tab 操作 + 终端粘贴）。
 
-use aish_ui::theme::{ColorTokens, FontSize, ThemeKind};
+use aish_ui::theme::ThemeKind;
 use aish_ui::{theme, Card, Switch, Theme, TypographyExt};
 use gpui::{div, prelude::*, px, AnyElement, Context, IntoElement, SharedString, Window};
 
@@ -81,26 +81,16 @@ fn control_row(
     label: &'static str,
     helper: Option<&'static str>,
     control: AnyElement,
-    colors: ColorTokens,
-    fs: FontSize,
+    t: &Theme,
 ) -> AnyElement {
+    // M26: label = Label (13/500/fg) / helper = Caption (12/muted)
     let left = div()
         .flex()
         .flex_col()
         .gap_0p5()
-        .child(
-            div()
-                .text_size(fs.sm)
-                .text_color(colors.foreground)
-                .child(label),
-        )
+        .child(div().typography(aish_ui::TypeRole::Label, t).child(label))
         .when_some(helper, |d, h| {
-            d.child(
-                div()
-                    .text_size(fs.xs)
-                    .text_color(colors.muted_foreground)
-                    .child(h),
-            )
+            d.child(div().typography(aish_ui::TypeRole::Caption, t).child(h))
         });
     div()
         .flex()
@@ -127,7 +117,6 @@ impl Render for SettingsView {
         };
         let t = theme(cx);
         let colors = t.colors;
-        let fs = t.font_size;
         // 当前主题种类从 global Theme 读 —— 切换后 set_global + refresh_windows
         // 让所有 view 重新 render 拿新 theme。Switch 的 checked 状态直接反映
         // global 真值，不再用 self.dark_mode 镜像（之前 镜像 + disabled 是因为
@@ -168,13 +157,12 @@ impl Render for SettingsView {
         let appearance_card = Card::new("settings-appearance")
             .outlined()
             .header(section_header("Appearance", t))
-            .body(div().flex().flex_col().child(control_row(
-                "Dark mode",
-                None,
-                dark_switch,
-                colors,
-                fs,
-            )));
+            .body(
+                div()
+                    .flex()
+                    .flex_col()
+                    .child(control_row("Dark mode", None, dark_switch, t)),
+            );
 
         // ───── Keyboard Shortcuts ─────
         // Ctrl+1=Home / Ctrl+2=Terminal / Ctrl+3=Settings 由 RootView 全局

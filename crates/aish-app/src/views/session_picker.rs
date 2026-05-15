@@ -14,7 +14,7 @@
 use std::sync::Arc;
 
 use aish_types::ConnectionId;
-use aish_ui::{theme, Dialog};
+use aish_ui::{theme, Dialog, TypographyExt};
 use gpui::{
     div, prelude::*, Context, Entity, IntoElement, MouseButton, MouseDownEvent, SharedString,
     Window,
@@ -187,10 +187,8 @@ impl Render for SessionPickerView {
             _ => Vec::new(),
         };
 
-        let (colors, font_size, spacing, radius) = {
-            let t = theme(cx);
-            (t.colors, t.font_size, t.spacing, t.radius)
-        };
+        let t = theme(cx);
+        let (colors, spacing, radius) = (t.colors, t.spacing, t.radius);
 
         let selected_idx = self.selected_idx.min(sessions.len().saturating_sub(1));
         let rows: Vec<_> = sessions
@@ -238,54 +236,50 @@ impl Render for SessionPickerView {
                             this.handle_pick(conn, sid.clone(), cx);
                         }),
                     )
-                    // success 绿点缩小到 xs，避免与 row hover 颜色互相干扰
+                    // M26: success 绿点 Micro
                     .child(
                         div()
+                            .typography(aish_ui::TypeRole::Micro, t)
                             .text_color(colors.success)
-                            .text_size(font_size.xs)
                             .child("●"),
                     )
                     .child(
+                        // M26: session name → Body (13/400/fg)
                         div()
                             .flex_1()
-                            .text_size(font_size.sm)
-                            .text_color(colors.foreground)
+                            .typography(aish_ui::TypeRole::Body, t)
                             .child(name),
                     )
-                    // windows 数（tmux 1.6+ 字段）。0 = 未知，不显示。
+                    // M26: windows 数 / activity / Enter 提示都用 Caption (12/muted)
                     .when(windows > 0, |d| {
                         d.child(
                             div()
-                                .text_size(font_size.xs)
-                                .text_color(colors.muted_foreground)
+                                .typography(aish_ui::TypeRole::Caption, t)
                                 .child(format!("{} win", windows)),
                         )
                     })
-                    // 上次活跃时间（humanize 成 "5m ago" / "2h ago"）。activity == 0
-                    // = 旧 tmux 不支持该字段；不显示。
                     .when(activity > 0, |d| {
                         let last = std::time::UNIX_EPOCH
                             + std::time::Duration::from_secs(activity as u64);
                         d.child(
                             div()
-                                .text_size(font_size.xs)
-                                .text_color(colors.muted_foreground)
+                                .typography(aish_ui::TypeRole::Caption, t)
                                 .child(humanize_last_connected(last)),
                         )
                     })
                     .child(
                         div()
-                            .text_size(font_size.xs)
-                            .text_color(colors.muted_foreground)
+                            .typography(aish_ui::TypeRole::Caption, t)
                             .child("Enter"),
                     )
             })
             .collect();
 
         let body: gpui::AnyElement = if sessions.is_empty() {
+            // M26: empty state 用 Body (13/400) + muted_fg override
             div()
                 .py(spacing.px_4)
-                .text_size(font_size.sm)
+                .typography(aish_ui::TypeRole::Body, t)
                 .text_color(colors.muted_foreground)
                 .child("(无 session — 关闭弹窗回到 raw shell)")
                 .into_any_element()

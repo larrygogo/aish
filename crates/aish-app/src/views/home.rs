@@ -341,16 +341,15 @@ impl Render for HomeView {
                         .flex_row()
                         .items_center()
                         .gap_2()
+                        // M26: active session row → label Body + time Caption
                         .child(
                             div()
-                                .text_color(colors.foreground)
-                                .text_size(font_size.sm)
+                                .typography(aish_ui::TypeRole::Body, theme)
                                 .child(label),
                         )
                         .child(
                             div()
-                                .text_color(colors.muted_foreground)
-                                .text_size(font_size.xs)
+                                .typography(aish_ui::TypeRole::Caption, theme)
                                 .child(format!("· {}", time_str)),
                         );
 
@@ -399,10 +398,10 @@ impl Render for HomeView {
                     .flex_col()
                     .gap_1()
                     .child(
+                        // M26: ACTIVE SESSIONS section divider → Caption (与 HOSTS 同模式)
                         div()
                             .pb_2()
-                            .text_color(colors.muted_foreground)
-                            .text_size(font_size.xs)
+                            .typography(aish_ui::TypeRole::Caption, theme)
                             .child("ACTIVE SESSIONS"),
                     )
                     .children(rows)
@@ -630,11 +629,12 @@ impl Render for HomeView {
 
         let empty_hint = if app.hosts.is_empty() {
             Some(
+                // M26 empty state: Body + muted_fg override
                 div()
                     .px_4()
                     .py_8()
+                    .typography(aish_ui::TypeRole::Body, theme)
                     .text_color(colors.muted_foreground)
-                    .text_size(font_size.sm)
                     .child("还没有保存的连接 — 点上方 + 添加 host 开始"),
             )
         } else {
