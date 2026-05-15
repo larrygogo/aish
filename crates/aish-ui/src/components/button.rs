@@ -259,6 +259,7 @@ impl Render for Button {
         let need_anim = pressing || focus_animating || hover_entering;
         let press_count = self.press_count;
         let hover_anim_count = self.hover_anim_count;
+        let variant = self.variant;
 
         // M32: hover-aware static bg — Idle 用 idle_bg，Hovered 用 hover_bg，
         // Entering 在 animator 内通过 lerp 输出中间色（base 仍设 idle_bg
@@ -338,7 +339,7 @@ impl Render for Button {
                 let mut el = el;
                 // M32: hover Entering 时 bg lerp idle → hover
                 if hover_entering {
-                    el = el.bg(crate::lerp_hsla(idle_bg, hover_bg, delta));
+                    el = el.bg(hover_bg_at(variant, idle_bg, hover_bg, delta));
                 }
                 if focus_animating {
                     let mut glow = ring_color;
@@ -420,6 +421,33 @@ pub(crate) fn pick_button_colors(
             t.colors.secondary_strongest,
             t.colors.foreground,
         ),
+    }
+}
+
+/// M32 v2: hover Entering 期间的 bg 颜色 lerp helper。
+///
+/// 大多数 variant (Primary / Secondary / Destructive) 用 `lerp_hsla` 在 idle
+/// 和 hover 之间过渡 — 这些 variant 的两端 bg 都是实色，HSL lerp 中间值视
+/// 觉自然。
+///
+/// **Ghost 特殊处理**：idle_bg = `transparent_black`（h=0, s=0, l=0, a=0），
+/// hover_bg = `secondary_active`（实色 hsla）。`lerp_hsla` 会让 hue 从 0
+/// 经中间色 (h ≈ 0.3 紫粉色) 到 0.65 (blue)，动画期间瞬间出现"奇怪的紫粉
+/// 色"视觉 bug。改用 alpha-only lerp：bg = hover_bg with a=delta，让 hover_bg
+/// 从透明逐渐显现实色，避开 hue 圆环中间值。
+pub(crate) fn hover_bg_at(
+    variant: ButtonVariant,
+    idle_bg: gpui::Hsla,
+    hover_bg: gpui::Hsla,
+    delta: f32,
+) -> gpui::Hsla {
+    let d = delta.clamp(0.0, 1.0);
+    if matches!(variant, ButtonVariant::Ghost) {
+        let mut bg = hover_bg;
+        bg.a = d;
+        bg
+    } else {
+        crate::lerp_hsla(idle_bg, hover_bg, d)
     }
 }
 
@@ -636,5 +664,36 @@ mod tests {
         // leave 后 timer fire（用户已 leave）→ Idle 状态不变
         let s = timer_advance_entering(HoverState::Idle, 1);
         assert_eq!(s, HoverState::Idle);
+    }
+
+    /// M32 v2: hover_bg_at 对 Ghost vs 非 Ghost variant 输出不同。
+    #[test]
+    fn hover_bg_ghost_alpha_only_at_endpoints() {
+        use gpui::hsla;
+        // Ghost: idle = transparent (a=0)，hover = 实色（a=1）
+        let idle = hsla(0.0, 0.0, 0.0, 0.0);
+        let hover = hsla(0.65, 0.05, 0.26, 1.0);
+        let r0 = hover_bg_at(ButtonVariant::Ghost, idle, hover, 0.0);
+        let r_half = hover_bg_at(ButtonVariant::Ghost, idle, hover, 0.5);
+        let r1 = hover_bg_at(ButtonVariant::Ghost, idle, hover, 1.0);
+        // Ghost：仅 alpha 变化，其他分量保持 hover_bg
+        assert!((r0.a - 0.0).abs() < 1e-6, "delta=0 → alpha=0");
+        assert!((r_half.a - 0.5).abs() < 1e-6, "delta=0.5 → alpha=0.5");
+        assert!((r1.a - 1.0).abs() < 1e-6, "delta=1 → alpha=1");
+        // h/s/l 保持 hover_bg 的值（不经过 lerp_hsla 中间 hue）
+        assert!((r_half.h - hover.h).abs() < 1e-6, "ghost hue 不变");
+        assert!((r_half.s - hover.s).abs() < 1e-6, "ghost saturation 不变");
+        assert!((r_half.l - hover.l).abs() < 1e-6, "ghost lightness 不变");
+    }
+
+    #[test]
+    fn hover_bg_non_ghost_uses_lerp_hsla() {
+        use gpui::hsla;
+        // Primary 等非 Ghost variant 用 lerp_hsla 全分量插值
+        let idle = hsla(0.5, 0.5, 0.3, 1.0);
+        let hover = hsla(0.5, 0.5, 0.5, 1.0);
+        let r_half = hover_bg_at(ButtonVariant::Primary, idle, hover, 0.5);
+        // 中点 lightness 应在 (0.3 + 0.5) / 2 = 0.4 附近
+        assert!((r_half.l - 0.4).abs() < 1e-6);
     }
 }

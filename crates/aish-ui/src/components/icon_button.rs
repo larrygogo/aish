@@ -10,7 +10,7 @@ use gpui::{
     IntoElement, MouseButton, MouseDownEvent, Pixels, Window,
 };
 
-use crate::components::button::{pick_button_colors, press_opacity_at, HoverState};
+use crate::components::button::{hover_bg_at, pick_button_colors, press_opacity_at, HoverState};
 use crate::components::ButtonVariant;
 use crate::icons::{icon, IconName};
 use crate::theme::{animate_or_skip, theme};
@@ -232,6 +232,7 @@ impl Render for IconButton {
         let need_anim = pressing || focus_animating || hover_entering;
         let press_count = self.press_count;
         let hover_anim_count = self.hover_anim_count;
+        let variant = self.variant;
 
         // M32: hover-aware static bg
         let base_bg = match hover_state {
@@ -301,9 +302,10 @@ impl Render for IconButton {
             Animation::new(fast_duration).with_easing(move |d| easing(d)),
             move |el, delta| {
                 let mut el = el;
-                // M32: hover Entering 时 bg lerp idle → hover
+                // M32: hover Entering 时 bg lerp idle → hover（Ghost variant
+                // 走 alpha-only lerp 避开 hue 圆环紫粉色 bug，详 hover_bg_at）
                 if hover_entering {
-                    el = el.bg(crate::lerp_hsla(idle_bg, hover_bg, delta));
+                    el = el.bg(hover_bg_at(variant, idle_bg, hover_bg, delta));
                 }
                 if focus_animating {
                     let mut glow = ring_color;
