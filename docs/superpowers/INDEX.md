@@ -10,13 +10,34 @@
 
 ## 当前状态
 
-- **活跃分支**：main（2026-05-15 完成 M22 / M23 / M24 / M25 / M26，全在 origin）
-- **下一里程碑**：M27 候选 — Component anatomy 规范（Card / Dialog / List padding rules） / State design (empty / loading / error / skeleton) / icon stroke 统一
-- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **211** + aish-app **144** + 其他 crate) 全过 — 总 475
+- **活跃分支**：main（2026-05-15 完成 M22-M28，全在 origin；M27/M29/M30 spec 已起草待实施）
+- **下一里程碑**：按用户选定顺序 M27 (anatomy) → M29 (host_form 重设计) → M30 (animation)
+- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **222** + aish-app **145** + 其他 crate) 全过 — 总 487
 
 ---
 
 ## Milestones（按时间倒序）
+
+### M28 — State Design（EmptyState / ErrorState / Skeleton）（2026-05-15）— ✅ 已完成
+- spec：[`specs/2026-05-15-aish-m28-state-design-design.md`](specs/2026-05-15-aish-m28-state-design-design.md)
+- plan：[`plans/2026-05-15-aish-m28-state-design.md`](plans/2026-05-15-aish-m28-state-design.md)
+- 范围：补齐 happy path 之外的 state 视觉规范
+  - 5 个新 lucide icon（Inbox/Server/WifiOff/FileQuestion/Loader）
+  - `EmptyState::new(id)` / `ErrorState::new(id)` 工厂返回 `StatusView`
+    4-slot anatomy（icon 32×32 circle / Title3 / Body muted desc max-w 320 / action）
+  - `Skeleton::block()` / `circle()` 原语 + `.w/.h/.size/.with_shimmer` builder
+  - AppState 加 `hosts_load_error: Option<String>` 修隐藏 silent fail bug
+- 改造范围：
+  - home: 空 hosts → EmptyState(Inbox + add btn) / load 失败 → ErrorState(FileQuestion + 重试 btn)
+  - empty_terminal: EmptyState(Server + 回 Home btn) 替代 `>_` 自绘
+  - session_picker: 空 sessions → EmptyState 不带 action
+- 关键 commits：
+  - `fd5526c` — T1 5 个 lucide SVG + IconName 扩展
+  - `b59105c` — T2 EmptyState/ErrorState + StatusView 4-slot
+  - `f83e08b` — T3 Skeleton block/circle 原语
+  - `283b07c` — T4-T7 home/empty_terminal/session_picker 接入 + hosts_load_error 字段
+- 测试：aish-ui 211 → **222**（+6 EmptyState +5 Skeleton），aish-app 144 → **145**（+1 hosts_load_error 默认）
+- 已知边界：shimmer 实现是 v1 stub（无动画），M30 animation 落地后接入
 
 ### M26 — Typography × Information Hierarchy（2026-05-15）— ✅ 已完成
 - spec：[`specs/2026-05-15-aish-m26-typography-hierarchy-design.md`](specs/2026-05-15-aish-m26-typography-hierarchy-design.md)

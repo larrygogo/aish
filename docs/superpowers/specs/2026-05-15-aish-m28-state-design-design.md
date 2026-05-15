@@ -328,3 +328,38 @@ state 加一个字段 `hosts_load_error: Option<String>`，启动 load_hosts 失
 
 留待 T1-T7 完成后回填（参考 M26 模板：commits 表 + Risk 实际遇到 + 测试
 增量 + 未做/跨主题验证 几节）。
+
+---
+
+## 7. 实施记录（2026-05-15 完成）
+
+T1-T7 全部实施，T8 文档收尾。
+
+### 实际 commits
+
+| Task | Commit | 内容 |
+|---|---|---|
+| spec + plan | `e12c967` | 4 个并行 spec 一波合 |
+| T1 | `fd5526c` | 5 个 lucide SVG (Inbox/Server/WifiOff/FileQuestion/Loader) + IconName 扩展 |
+| T2 | `b59105c` | StatusView 4-slot anatomy + EmptyState/ErrorState 工厂 + 6 单测 |
+| T3 | `f83e08b` | Skeleton block/circle 原语 + 5 单测 |
+| T4-T7 | `283b07c` | home/empty_terminal/session_picker 接入 + hosts_load_error 字段 + 1 单测 |
+| T8 | (本次) | spec 实施记录 + INDEX 加 M28 entry |
+
+### Risk 实际命中
+
+- **D-7 改造范围** 严格按预期 — 3 view + 1 error path，无 scope creep
+- 没遇到 spec R 节列出的 risk（无 trait 冲突 / 无渲染 layout 飘移）
+- Skeleton shimmer 暂留 stub（v1 静态），M30 接入后再补
+
+### 测试增量实际
+
+- aish-ui 211 → **222** (+11 = 6 EmptyState + 5 Skeleton)
+- aish-app 144 → **145** (+1 hosts_load_error 默认)
+
+### 未做（后续 milestone）
+
+- shimmer 动画（依赖 M30）
+- 其他 view 的 Loading state（SSH Connecting overlay 已成熟，不重写；
+  SFTP 上传 spinner 现状 OK）
+- onboarding 引导插画（spec D-5 明示 out of scope）
