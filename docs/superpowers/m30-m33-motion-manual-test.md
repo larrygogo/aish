@@ -1,8 +1,10 @@
-# M30-M33 Motion 系统手测 Checklist
+# M30-M34 + hover leave Motion 系统手测 Checklist
 
-**目的**：实地验证 M30 (Dialog/Toast 入场) / M31 (Button press+focus) /
-M32 (Button/IconButton hover) / NavItem polish (sidebar hover) /
-M33 (Card hover for host card) 的实际视觉效果。
+**目的**：实地验证完整 motion 系统：
+- M30 (Dialog/Toast 入场) / M31 (Button press+focus) / M32 (Button/IconButton
+  hover) / NavItem polish (sidebar hover) / M33 (Card hover for host card)
+- M34 batch (detach-detect / SSH passphrase / TabItem entity)
+- hover leave fade-out (5 组件反向 lerp 补完)
 
 **前置**：
 ```bash
@@ -129,7 +131,82 @@ cargo run --bin aish
 
 ---
 
-## 10. 边界情况测试
+## 10. M34 batch — TabItem hover / detach-detect / SSH passphrase
+
+### TabItem hover (top tab bar)
+
+**前置**：至少 1 个 host 已连接，tab bar 有 connection tab
+
+**操作**：mouse hover 非选中的 tab；切 active tab；mouse_down 任一 tab
+
+**期望**：
+- [ ] 非 active tab mouse 移入 → 150ms bg lerp（idle card → secondary_hover）
+- [ ] 非 active tab mouse 移出 → 150ms 反向 lerp（**hover leave fade-out**）
+- [ ] active tab 完全不响应 hover（selected 视觉稳态）
+- [ ] mouse_down 任一 tab → 150ms 0.7→1.0 opacity press feedback
+
+### detach-detect
+
+**前置**：连进远端 host + attach 一个 tmux session
+
+**操作**：在 tmux 内按 `Ctrl+B d`（detach prefix+d）
+
+**期望**：
+- [ ] tmux 输出 `[detached (from session XYZ)]` 到 raw shell
+- [ ] aish sidebar 该 session 的 attached 标记**自动清除**（绿色 attached
+  圆点变灰，与未 attached 状态视觉一致）
+
+**之前行为对比**：用户 detach 后 aish 不感知，sidebar 仍显示"已 attach"
+标记，需重新点 attach 才同步状态。
+
+### SSH key passphrase
+
+**前置**：用 OpenSSH 创建加密私钥（带 passphrase）：
+```bash
+ssh-keygen -t ed25519 -f /tmp/aish-test-key -P "mypass123"
+ssh-copy-id -i /tmp/aish-test-key.pub user@yourhost
+```
+
+**操作**：HostForm add 模式 → 选 Key File auth → 填路径 `/tmp/aish-test-key`
+→ passphrase 字段填 `mypass123` → Save → 点 host 连接
+
+**期望**：
+- [ ] HostForm 在 Key File 模式下显示 `passphrase` 字段（label "passphrase"，
+  placeholder "passphrase (optional, for encrypted keys)"）
+- [ ] passphrase 字段是 masked input（• 显示），右侧眼睛 toggle 可见
+- [ ] Save 后 keyring 写入 `{host_id}-passphrase` entry（系统 keychain 可查）
+- [ ] 连接成功（aish 用 passphrase 解密私钥 → russh 认证通过）
+
+**测试未加密私钥**：passphrase 字段留空 → save → 连接 → 仍工作（fallback
+路径：SecretStore::get_passphrase NoEntry → russh load_secret_key 传 None）
+
+---
+
+## 11. hover leave fade-out（**新**）
+
+**M34 hover leave 反向 lerp 补完**：所有已 entity 化组件的 hover 状态
+退出时不再是 instant 切回 idle，而是 150ms 反向渐变。
+
+**操作**：依次在 5 个组件上 mouse-hover 然后 mouse-leave
+
+**期望**：
+- [ ] Home **+ 添加 host** Button：mouse leave → 150ms primary_hover →
+  primary 反向渐变
+- [ ] Host card **edit / X** IconButton (Ghost variant)：mouse leave →
+  150ms 实色 → 透明 alpha 反向渐变（M32 v2 fix 同样适用于 leave 方向）
+- [ ] Host card 整张：mouse leave → 150ms secondary_hover → card 反向
+- [ ] Sidebar NavItem：mouse leave → 150ms 反向 fg + bg 双渐变
+- [ ] Tab bar TabItem (非 active)：mouse leave → 150ms secondary_hover → card 反向
+
+**快速 enter-leave-enter 边界测试**：
+- [ ] mouse 移入 button 立即移出（< 50ms）：触发 Entering → Leaving 中断
+  → instant Idle（D-1 v2 防视觉抖动 — 不走 leave 动画）
+- [ ] mouse 移入 button + 等 150ms 完成 enter 后立即移出：触发 Leaving
+  150ms 反向 lerp（完整 enter-leave 周期）
+
+---
+
+## 12. 边界情况测试
 
 - [ ] **快速 hover-leave-hover** Button 5 次：hover_state 不卡顿，hover_anim_count 幂等 check 防 stale timer 工作
 - [ ] **连点 Button 5 次**：press feedback 每次都播 + 不死锁（press_count++ 模式）

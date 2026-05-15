@@ -10,16 +10,32 @@
 
 ## 当前状态
 
-- **活跃分支**：main（2026-05-15 完成 M22-M34）。M34 batch：detach-detect +
-  SSH key passphrase + TabItem 升 Entity + tab_bar render split
-- **下一里程碑候选**：list row hover transition / Skeleton 业务接入 /
-  hover leave fade-out
+- **活跃分支**：main（2026-05-15 完成 M22-M34 + hover leave fade-out）
+- **motion 系统状态**：✅ **完整收尾**（M30 入场 + M31 press+focus + M32-M34
+  hover enter + hover leave fade-out 全套，5 个 entity 组件 Button /
+  IconButton / Card / NavItem / TabItem + Dialog + Toast 全部 motion 覆盖）
+- **下一里程碑候选**：list row hover (ROI 不足 defer) / Skeleton 业务接入
+  (UX 风险 defer) / **方向自选**（无新强需求 — motion + SSH 实用能力都
+  完整）
 - **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **266** +
   aish-app **153** + aish-secrets **8** + 其他 crate) 全过
 
 ---
 
 ## Milestones（按时间倒序）
+
+### hover leave fade-out (motion 系统补完)（2026-05-15）— ✅ 已完成
+- 范围：M30-M34 motion 系统最后补完 — 5 个 entity 组件（Button /
+  IconButton / Card / NavItem / TabItem）的 hover leave 从 instant 改
+  150ms 反向 lerp，与 hover enter timing 对称
+- HoverState v2 enum 加 `Leaving { anim_count: u64 }` 状态
+- transition 表更新：Idle/Leaving + on_hover(true) → Entering（leave 中断
+  反方向重启 enter）；Hovered + on_hover(false) → Leaving + 150ms timer
+  切 Idle；Entering + on_hover(false) → Idle instant（防 < 150ms 快速
+  enter-leave 视觉抖动）
+- 5 组件 fire_hover + render base_bg match + animator 反向 lerp 全套更新
+- 关键 commit: `96ad9a2`
+- 测试：aish-ui 266 / aish-app 153 / aish-secrets 8 不变
 
 ### M34 — Batch polish（detach-detect + SSH passphrase + TabItem entity）（2026-05-15）— ✅ 已完成
 
