@@ -26,13 +26,12 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use aish_types::{HostId, TabId};
-use aish_ui::{theme, ListRow, NavItem, Separator, TypographyExt};
+use aish_ui::{icon, theme, IconName, ListRow, NavItem, Separator, TypographyExt};
 use gpui::{div, prelude::*, px, Context, Entity, MouseButton, MouseDownEvent, Window};
 
 use crate::app::retain_alive_entities;
 use crate::bridge::Bridge;
 use crate::state::{humanize_last_connected, AppState, SidebarTab, SshEvent, Tab, TabContent};
-use crate::terminal::font::FONT_NAME;
 
 const SIDEBAR_COLLAPSED_WIDTH: f32 = 64.0;
 const SIDEBAR_EXPANDED_WIDTH: f32 = 220.0;
@@ -200,15 +199,18 @@ impl Render for SidebarNavView {
             }
         }
 
-        // Icon helper（不持 cx 借用）— 同 fix 2bdb482 的 20×20 wrapper 居中
-        let make_icon = |ch: &'static str| {
+        // Icon helper：用 SVG IconName 替代 Nerd Font 字符 — SVG viewBox 中心
+        // = visual center，比 font character (advance ≠ glyph center) 可靠
+        // 居中。fix `2bdb482` 的 20×20 wrapper 仅居中了 char advance box，
+        // 字形不对称（home / terminal glyph 左右 bearing 不等）仍偏移。
+        let make_icon = |name: IconName| {
             div()
                 .w(px(20.0))
                 .h(px(20.0))
                 .flex()
                 .items_center()
                 .justify_center()
-                .child(div().font_family(FONT_NAME).text_size(px(16.0)).child(ch))
+                .child(icon(name).size(px(16.0)))
         };
 
         // ── Phase B：read theme borrow，block scope → build inner body AnyElement ──
@@ -263,9 +265,9 @@ impl Render for SidebarNavView {
             .collect();
 
         // NavItem entity.update — orientation 由 expanded 决定
-        let home_icon = make_icon("\u{f015}");
-        let term_icon = make_icon("\u{f120}");
-        let settings_icon = make_icon("\u{f013}");
+        let home_icon = make_icon(IconName::Home);
+        let term_icon = make_icon(IconName::Terminal);
+        let settings_icon = make_icon(IconName::Settings);
         if expanded {
             self.home_item.update(cx, |n, _| {
                 n.icon(home_icon)
@@ -311,8 +313,13 @@ impl Render for SidebarNavView {
         let colors = t.colors;
         let spacing = t.spacing;
 
-        // toggle 按钮 glyph — chevron-left (展开 → 收起) / chevron-right (折叠 → 展开)
-        let toggle_glyph = if expanded { "\u{f053}" } else { "\u{f054}" };
+        // toggle 按钮 icon — chevron-left (展开 → 收起) / chevron-right (折叠 → 展开)
+        // 用 SVG IconName 替代 Nerd Font character（同 sidebar 主 icon 修正模式）
+        let toggle_icon_name = if expanded {
+            IconName::ChevronLeft
+        } else {
+            IconName::ChevronRight
+        };
 
         if !expanded {
             // ── 折叠模式 64px ──
@@ -331,12 +338,7 @@ impl Render for SidebarNavView {
                         .flex()
                         .items_center()
                         .justify_center()
-                        .child(
-                            div()
-                                .font_family(FONT_NAME)
-                                .text_size(px(12.0))
-                                .child(toggle_glyph),
-                        ),
+                        .child(icon(toggle_icon_name).size(px(12.0))),
                 )
                 .on_mouse_down(
                     MouseButton::Left,
@@ -403,12 +405,7 @@ impl Render for SidebarNavView {
                         .text_color(colors.muted_foreground)
                         .rounded(px(6.0))
                         .hover(|s| s.bg(colors.secondary_hover))
-                        .child(
-                            div()
-                                .font_family(FONT_NAME)
-                                .text_size(px(12.0))
-                                .child(toggle_glyph),
-                        )
+                        .child(icon(toggle_icon_name).size(px(12.0)))
                         .on_mouse_down(
                             MouseButton::Left,
                             cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
