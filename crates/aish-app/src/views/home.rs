@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use aish_types::{ConnectionId, HostId};
+use aish_ui::TypographyExt;
 use gpui::{
     div, prelude::*, px, rgb, Context, Entity, KeyDownEvent, MouseButton, MouseDownEvent, Window,
 };
@@ -295,9 +296,9 @@ impl Render for HomeView {
             .items_center()
             .justify_between()
             .child(
+                // M26 T2: page title 用 Title1 (20/600/fg) 替代 xl size-only
                 div()
-                    .text_color(colors.foreground)
-                    .text_size(font_size.xl)
+                    .typography(aish_ui::TypeRole::Title1, theme)
                     .child("Home"),
             )
             .child(add_btn);

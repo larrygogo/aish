@@ -14,7 +14,7 @@
 //! （tab 操作 + 终端粘贴）。
 
 use aish_ui::theme::{ColorTokens, FontSize, ThemeKind};
-use aish_ui::{theme, Card, Switch, Theme};
+use aish_ui::{theme, Card, Switch, Theme, TypographyExt};
 use gpui::{div, prelude::*, px, AnyElement, Context, IntoElement, SharedString, Window};
 
 pub struct SettingsView {
@@ -135,10 +135,11 @@ impl Render for SettingsView {
         let dark = matches!(t.kind, ThemeKind::Dark);
 
         // ───── 页面标题 ─────
+        // M26 T2: page title 用 Title1 (20/600/fg)；之前 hardcoded 24px
+        // size-only，与 home page title 不一致
         let page_title = div()
             .pb_6()
-            .text_size(px(24.0))
-            .text_color(colors.foreground)
+            .typography(aish_ui::TypeRole::Title1, t)
             .child("Settings");
 
         // ───── Appearance ─────
