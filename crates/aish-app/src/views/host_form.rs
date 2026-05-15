@@ -16,10 +16,10 @@
 use std::sync::Arc;
 
 use aish_types::HostId;
-use aish_ui::{theme, Button, Dialog, TextInput, TypographyExt};
+use aish_ui::{theme, ButtonEntity, Dialog, TextInput, TypographyExt};
 use gpui::{
-    div, prelude::*, AnyElement, App, Context, Entity, FocusHandle, Focusable, IntoElement,
-    MouseDownEvent, PathPromptOptions, SharedString, Window,
+    div, prelude::*, AnyElement, App, Context, Entity, Focusable, IntoElement, MouseDownEvent,
+    PathPromptOptions, SharedString, Window,
 };
 
 use crate::bridge::Bridge;
@@ -36,9 +36,15 @@ pub struct HostFormModal {
     /// 与 add/edit dialog 独立 open/close，避免共用 body 时分支爆炸。
     delete_dialog: Entity<Dialog>,
     /// M29 D-9：delete_dialog 默认 focus 的 Cancel button focus handle。
-    /// Cancel button 注入此 handle，delete_dialog.initial_focus 也指向它，
-    /// 确保 dialog open 时 Cancel 默认聚焦，Enter 触发 Cancel 而非 删除（R10）。
-    delete_cancel_focus: FocusHandle,
+    /// M31：直接从 delete_cancel_btn entity 的 focus_handle() 取（每次 sync
+    /// 时调），不再独立维护 FocusHandle 字段 — entity 已内置且唯一。
+    /// M31：6 个 button 升 stateful entity，全部带 press feedback。
+    delete_cancel_btn: Entity<ButtonEntity>,
+    delete_confirm_btn: Entity<ButtonEntity>,
+    pick_keyfile_btn: Entity<ButtonEntity>,
+    host_delete_btn: Entity<ButtonEntity>,
+    host_cancel_btn: Entity<ButtonEntity>,
+    host_save_btn: Entity<ButtonEntity>,
     /// M29 D-3：auth 切换从 Tabs Entity → enum 字段。
     /// 默认 KeyFile（与 M12 Tabs 默认 active=0 等价）。
     auth_kind: AuthKind,
@@ -132,8 +138,6 @@ impl HostFormModal {
                 }
             });
         });
-        let delete_cancel_focus = cx.focus_handle();
-
         // M29 D-3: auth 切换从 Tabs Entity 改 enum 字段，初始 KeyFile
 
         let label_input = cx.new(|cx| {
@@ -200,13 +204,93 @@ impl HostFormModal {
             i
         });
 
+        // M31: 6 个 button entity，weak.upgrade callback 透传 self method
+        let weak_dc = cx.weak_entity();
+        let delete_cancel_btn = cx.new(|cx| {
+            let mut b = ButtonEntity::new("delete-cancel", cx);
+            b.label("Cancel").on_click(move |_ev, _w, cx| {
+                if let Some(this) = weak_dc.upgrade() {
+                    this.update(cx, |this, cx| this.cancel(cx));
+                }
+            });
+            b
+        });
+        let weak_df = cx.weak_entity();
+        let delete_confirm_btn = cx.new(|cx| {
+            let mut b = ButtonEntity::new("delete-confirm", cx);
+            b.label("删除").destructive().on_click(move |_ev, _w, cx| {
+                if let Some(this) = weak_df.upgrade() {
+                    this.update(cx, |this, cx| this.save(cx));
+                }
+            });
+            b
+        });
+        let weak_pk = cx.weak_entity();
+        let pick_keyfile_btn = cx.new(|cx| {
+            let mut b = ButtonEntity::new("pick-keyfile", cx);
+            b.label("…").secondary().on_click(move |_ev, _w, cx| {
+                if let Some(this) = weak_pk.upgrade() {
+                    this.update(cx, |this, cx| this.pick_keyfile(cx));
+                }
+            });
+            b
+        });
+        let weak_hd = cx.weak_entity();
+        let host_delete_btn = cx.new(|cx| {
+            let mut b = ButtonEntity::new("host-delete", cx);
+            b.label("Delete")
+                .destructive()
+                .on_click(move |_ev, _w, cx| {
+                    if let Some(this) = weak_hd.upgrade() {
+                        this.update(cx, |this, cx| {
+                            // 从 Editing 切到 DeleteConfirm
+                            this.state.update(cx, |s, cx| {
+                                if let Some(HostFormState::Editing { id, draft }) = &s.modal {
+                                    s.modal = Some(HostFormState::DeleteConfirm {
+                                        id: *id,
+                                        label: draft.label.clone(),
+                                    });
+                                    cx.notify();
+                                }
+                            });
+                        });
+                    }
+                });
+            b
+        });
+        let weak_hc = cx.weak_entity();
+        let host_cancel_btn = cx.new(|cx| {
+            let mut b = ButtonEntity::new("host-cancel", cx);
+            b.label("Cancel").on_click(move |_ev, _w, cx| {
+                if let Some(this) = weak_hc.upgrade() {
+                    this.update(cx, |this, cx| this.cancel(cx));
+                }
+            });
+            b
+        });
+        let weak_hs = cx.weak_entity();
+        let host_save_btn = cx.new(|cx| {
+            let mut b = ButtonEntity::new("host-save", cx);
+            b.label("Save").primary().on_click(move |_ev, _w, cx| {
+                if let Some(this) = weak_hs.upgrade() {
+                    this.update(cx, |this, cx| this.save(cx));
+                }
+            });
+            b
+        });
+
         Self {
             state,
             bridge,
             tx,
             dialog,
             delete_dialog,
-            delete_cancel_focus,
+            delete_cancel_btn,
+            delete_confirm_btn,
+            pick_keyfile_btn,
+            host_delete_btn,
+            host_cancel_btn,
+            host_save_btn,
             auth_kind: AuthKind::KeyFile,
             label_input,
             host_input,
@@ -246,8 +330,9 @@ impl HostFormModal {
                         // 切到 delete confirm：先关 add/edit dialog，再开 delete_dialog
                         // M29 D-9 / R10：initial_focus 给 Cancel button，
                         // Enter 触发 Cancel 而非 删除（避免误删）
+                        // M31：cancel button focus_handle 直接从 entity 取
                         self.dialog.update(cx, |d, cx| d.close(cx));
-                        let cancel_fh = self.delete_cancel_focus.clone();
+                        let cancel_fh = self.delete_cancel_btn.read(cx).focus_handle();
                         self.delete_dialog.update(cx, |d, cx| {
                             d.initial_focus(cancel_fh);
                             d.open(cx);
@@ -450,12 +535,12 @@ impl HostFormModal {
 impl HostFormModal {
     /// 构造 delete_dialog 的 body（label / 提示 / Cancel + 删除）。
     /// M29 D-6：从 add/edit dialog 的 body 分支拆出，独立 dialog 380 窄。
+    /// M31：Cancel + 删除 button 走 entity clone，press feedback 自动生效。
     fn build_delete_body(&self, label: String, cx: &mut Context<Self>) -> AnyElement {
         let (colors, font_size, spacing) = {
             let t = theme(cx);
             (t.colors, t.font_size, t.spacing)
         };
-        let cancel_focus = self.delete_cancel_focus.clone();
         div()
             .flex()
             .flex_col()
@@ -475,28 +560,14 @@ impl HostFormModal {
                     .child("Esc 取消"),
             )
             .child(
-                // footer：Cancel（focus 默认） + 删除（destructive）
+                // footer：Cancel（focus 默认 — dialog.initial_focus 已 set） + 删除
                 div()
                     .flex()
                     .flex_row()
                     .justify_end()
                     .gap(spacing.px_2)
-                    .child(
-                        Button::new("delete-cancel")
-                            .label("Cancel")
-                            .focus_handle(cancel_focus)
-                            .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
-                                this.cancel(cx);
-                            })),
-                    )
-                    .child(
-                        Button::new("delete-confirm")
-                            .label("删除")
-                            .destructive()
-                            .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
-                                this.save(cx);
-                            })),
-                    ),
+                    .child(self.delete_cancel_btn.clone())
+                    .child(self.delete_confirm_btn.clone()),
             )
             .into_any_element()
     }
@@ -611,7 +682,7 @@ impl Render for HostFormModal {
             .child(match auth_kind {
                 AuthKind::KeyFile => {
                     let kf = self.keyfile_input.clone();
-                    keyfile_row(kf, cx).into_any_element()
+                    keyfile_row(kf, self.pick_keyfile_btn.clone(), cx).into_any_element()
                 }
                 AuthKind::Password => field_row(cx, "password", self.password_input.clone(), None)
                     .into_any_element(),
@@ -625,7 +696,15 @@ impl Render for HostFormModal {
                         .child(e),
                 )
             })
-            .child(buttons_row(primary_label, is_edit, save_disabled, cx))
+            .child(buttons_row(
+                primary_label,
+                is_edit,
+                save_disabled,
+                self.host_delete_btn.clone(),
+                self.host_cancel_btn.clone(),
+                self.host_save_btn.clone(),
+                cx,
+            ))
             .into_any_element();
 
         self.dialog.update(cx, |d, _cx| {
@@ -675,9 +754,11 @@ fn field_row(
 
 fn keyfile_row(
     keyfile_input: Entity<TextInput>,
+    pick_btn: Entity<ButtonEntity>,
     cx: &mut Context<HostFormModal>,
 ) -> impl IntoElement {
     // M29 D-1: label-on-top + input/picker 横排
+    // M31：pick_btn 走 entity，press feedback 自动生效
     let (inline_gap, label_gap) = {
         let t = theme(cx);
         (t.anatomy.form.inline_gap, t.spacing.px_2)
@@ -700,14 +781,7 @@ fn keyfile_row(
                 .items_center()
                 .gap(label_gap)
                 .child(div().flex_1().child(keyfile_input))
-                .child(
-                    Button::new("pick-keyfile")
-                        .label("…")
-                        .secondary()
-                        .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
-                            this.pick_keyfile(cx);
-                        })),
-                ),
+                .child(pick_btn),
         )
 }
 
@@ -723,8 +797,15 @@ fn buttons_row(
     primary_label: &'static str,
     show_delete: bool,
     save_disabled: bool,
+    delete_btn: Entity<ButtonEntity>,
+    cancel_btn: Entity<ButtonEntity>,
+    save_btn: Entity<ButtonEntity>,
     cx: &mut Context<HostFormModal>,
 ) -> impl IntoElement {
+    // M31: save_btn label / disabled 状态每帧 update（其他 button 静态配置在 new() 已 set）
+    save_btn.update(cx, |b, _| {
+        b.label(primary_label).disabled(save_disabled);
+    });
     let (spacing_px_2, spacing_px_3, border_color, form_footer_gap) = {
         let t = theme(cx);
         (
@@ -737,22 +818,7 @@ fn buttons_row(
 
     // 左侧：edit 模式 Delete，其它情况空 div（保持 justify_between 布局占位）
     let left: AnyElement = if show_delete {
-        Button::new("host-delete")
-            .label("Delete")
-            .destructive()
-            .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
-                // 从 Editing 切到 DeleteConfirm（sync_from_state 会切到 delete_dialog）
-                this.state.update(cx, |s, cx| {
-                    if let Some(HostFormState::Editing { id, draft }) = &s.modal {
-                        s.modal = Some(HostFormState::DeleteConfirm {
-                            id: *id,
-                            label: draft.label.clone(),
-                        });
-                        cx.notify();
-                    }
-                });
-            }))
-            .into_any_element()
+        delete_btn.into_any_element()
     } else {
         div().into_any_element()
     };
@@ -773,21 +839,7 @@ fn buttons_row(
                 .flex()
                 .flex_row()
                 .gap(spacing_px_2)
-                .child(
-                    Button::new("host-cancel")
-                        .label("Cancel")
-                        .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
-                            this.cancel(cx);
-                        })),
-                )
-                .child(
-                    Button::new("host-save")
-                        .label(primary_label)
-                        .primary()
-                        .disabled(save_disabled)
-                        .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
-                            this.save(cx);
-                        })),
-                ),
+                .child(cancel_btn)
+                .child(save_btn),
         )
 }
