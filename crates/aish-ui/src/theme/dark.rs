@@ -43,9 +43,12 @@ impl Theme {
                 // ── Destructive 真红（替代 Tokyo Night 粉红）────────────
                 destructive: hex(0xe5484d),
                 destructive_foreground: hex(0xffffff),
-                // ── Border / Input — border = L7 = L4 同色 ──────────────
+                // ── Border / Input ──────────────────────────────────────
+                // M35 T3: border 从 L4 (0x26282d) → L5+ (0x33363c) 提亮，与
+                // card L1 (0x101113) 的 ΔL 从 8 → 14，让 Outlined Card 边框
+                // 在 dark theme 下真的可见（之前几乎看不见）。
                 // input bg 与 card 同 (L1)，比 background 略亮"凸出"感
-                border: hex(0x26282d),
+                border: hex(0x33363c),
                 input: hex(0x101113),
                 // focus ring = primary（accent 系），caller 加 alpha 实现 glow
                 ring: hex(0x5e6ad2),
@@ -164,5 +167,18 @@ mod tests {
         let t = Theme::dark();
         // M18：secondary_strongest 比 active 再亮一档（Ghost button 按下反馈）
         assert!(t.colors.secondary_strongest.l > t.colors.secondary_active.l);
+    }
+
+    /// M35 T3：border 与 card 的 ΔL ≥ 0.05 — Outlined Card 在 dark theme
+    /// 下边框必须可见，否则失去 outlined 视觉意图。
+    #[test]
+    fn dark_border_visible_against_card() {
+        let t = Theme::dark();
+        let delta_l = (t.colors.border.l - t.colors.card.l).abs();
+        assert!(
+            delta_l >= 0.05,
+            "border / card ΔL = {} < 0.05，border 不可见",
+            delta_l
+        );
     }
 }
