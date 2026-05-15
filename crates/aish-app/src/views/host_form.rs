@@ -16,7 +16,7 @@
 use std::sync::Arc;
 
 use aish_types::HostId;
-use aish_ui::{theme, Button, Dialog, Tabs, TextInput};
+use aish_ui::{theme, Button, Dialog, Tabs, TextInput, TypographyExt};
 use gpui::{
     div, prelude::*, App, Context, Entity, Focusable, IntoElement, MouseDownEvent,
     PathPromptOptions, SharedString, Window,
@@ -424,6 +424,11 @@ impl Render for HostFormModal {
 
         // 提前拷贝 token，避免 theme(cx) 的不可变借用跨整个 render（与下面
         // keyfile_row(cx)/buttons_row(cx) 的可变借用冲突）。
+        //
+        // M26 note: host_form 整 render 内大量 cx mut borrow chain
+        // (keyfile_row / buttons_row / cx.listener 等)，无法稳定持 &Theme，
+        // 因此本 view 内文字仍 inline `.text_size + .text_color`，等价 typography
+        // role (Body/Caption/Label) 但不走 .typography() ext。
         let (colors, font_size, spacing) = {
             let t = theme(cx);
             (t.colors, t.font_size, t.spacing)
@@ -446,12 +451,14 @@ impl Render for HostFormModal {
                 .flex_col()
                 .gap(spacing.px_3)
                 .child(
+                    // M26 等价 Body (13/400/fg)
                     div()
                         .text_size(font_size.sm)
                         .text_color(colors.foreground)
                         .child(format!("将永久删除 host：{}", label)),
                 )
                 .child(
+                    // M26 等价 Caption (12/400/muted)
                     div()
                         .text_size(font_size.xs)
                         .text_color(colors.muted_foreground)
@@ -493,6 +500,7 @@ impl Render for HostFormModal {
                 })
                 .when_some(err, |d, e| {
                     d.child(
+                        // M26 等价 Body + destructive
                         div()
                             .text_size(font_size.sm)
                             .text_color(colors.destructive)
@@ -514,9 +522,10 @@ impl Render for HostFormModal {
 
 fn field_label(cx: &App, text: &'static str) -> impl IntoElement {
     let t = theme(cx);
+    // M26 form field label: Label (13/500/fg) + secondary_fg override 弱化
     div()
         .w(gpui::px(80.0))
-        .text_size(t.font_size.sm)
+        .typography(aish_ui::TypeRole::Label, t)
         .text_color(t.colors.secondary_foreground)
         .child(text)
 }
@@ -552,9 +561,10 @@ fn field_row(
                     .gap(t.spacing.px_3)
                     .child(div().w(gpui::px(80.0)))
                     .child(
+                        // M26 inline error: Caption (12/muted) + destructive override
                         div()
                             .flex_1()
-                            .text_size(t.font_size.xs)
+                            .typography(aish_ui::TypeRole::Caption, t)
                             .text_color(t.colors.destructive)
                             .child(msg),
                     ),
