@@ -1,25 +1,48 @@
 //! Dialog — 居中 modal。
 //!
 //! M12 简化版：Esc + backdrop click 关闭。Tab 循环 focus trap 留 M13 加固。
+//!
+//! M30：升级 `open: bool` 为 `state: OpenState`（Closed/Opening/Open/Closing），
+//! Opening / Closing 期间用 `animate_or_skip` 跑 opacity 0→1 / 1→0
+//! medium 150ms ease_out_quint。Closing 期间 dialog **仍渲染**（保持挂在
+//! 元素树上播 exit 动画），timer 到时切 Closed 真正 unmount。
 
 use std::rc::Rc;
+use std::time::Duration;
 
 use gpui::{
-    div, prelude::*, AnyElement, App, Context, FocusHandle, Focusable, IntoElement, KeyDownEvent,
-    MouseButton, MouseDownEvent, Pixels, SharedString, Window,
+    div, prelude::*, Animation, AnyElement, App, Context, FocusHandle, Focusable, IntoElement,
+    KeyDownEvent, MouseButton, MouseDownEvent, Pixels, SharedString, Window,
 };
 
 use crate::components::IconButton;
 use crate::icons::IconName;
-use crate::theme::theme;
+use crate::theme::{animate_or_skip, theme};
 use crate::TypographyExt;
+
+/// M30：Dialog 开关动画状态机。
+///
+/// Transition：
+/// - open(): Closed | Closing → Opening；Opening | Open → 无变（保留 timer）
+/// - close(): Open | Opening → Closing；Closing | Closed → 无变
+///
+/// `Opening` / `Closing` 是过渡帧，timer fire 后切 `Open` / `Closed`。
+/// reduced_motion=true 时不进过渡态，open() 直接 Open，close() 直接 Closed。
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum OpenState {
+    Closed,
+    Opening,
+    Open,
+    Closing,
+}
 
 type CloseHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
 type KeyHandler = Rc<dyn Fn(&KeyDownEvent, &mut Window, &mut App) + 'static>;
 
 pub struct Dialog {
     focus_handle: FocusHandle,
-    open: bool,
+    /// M30 升级：原 `open: bool` 替换为 4 态机器（Closed/Opening/Open/Closing）。
+    state: OpenState,
     needs_focus: bool,
     title: SharedString,
     body: Option<AnyElement>,
@@ -42,7 +65,7 @@ impl Dialog {
     pub fn new(cx: &mut Context<Self>) -> Self {
         Self {
             focus_handle: cx.focus_handle(),
-            open: false,
+            state: OpenState::Closed,
             needs_focus: false,
             title: SharedString::default(),
             body: None,
@@ -103,24 +126,51 @@ impl Dialog {
         self
     }
 
+    /// 用户视角的"open"：含 Opening / Open / Closing。Closing 期间仍占屏，
+    /// 但 caller 通常关心"有没有 modal 在显示"。
     pub fn is_open(&self) -> bool {
-        self.open
+        !matches!(self.state, OpenState::Closed)
     }
 
-    /// 打开 dialog。聚焦在下一帧 render 时通过 needs_focus 标记驱动。
+    /// 打开 dialog。state machine 进 Opening（reduced_motion 时直接 Open）。
+    /// 聚焦在下一帧 render 时通过 needs_focus 标记驱动。
     pub fn open(&mut self, cx: &mut Context<Self>) {
-        if !self.open {
-            self.open = true;
-            self.needs_focus = true;
-            cx.notify();
+        let prev = self.state;
+        if matches!(prev, OpenState::Opening | OpenState::Open) {
+            return;
         }
+        let (reduced, dur) = {
+            let t = theme(cx);
+            (t.reduced_motion, t.motion.medium)
+        };
+        self.needs_focus = true;
+        if reduced {
+            self.state = OpenState::Open;
+        } else {
+            self.state = OpenState::Opening;
+            schedule_state_transition(cx, dur, OpenState::Opening, OpenState::Open);
+        }
+        cx.notify();
     }
 
+    /// 关闭 dialog。state machine 进 Closing（reduced_motion 时直接 Closed）。
+    /// Closing 期间 dialog 仍渲染播 exit 动画，timer 后真正 unmount。
     pub fn close(&mut self, cx: &mut Context<Self>) {
-        if self.open {
-            self.open = false;
-            cx.notify();
+        let prev = self.state;
+        if matches!(prev, OpenState::Closing | OpenState::Closed) {
+            return;
         }
+        let (reduced, dur) = {
+            let t = theme(cx);
+            (t.reduced_motion, t.motion.medium)
+        };
+        if reduced {
+            self.state = OpenState::Closed;
+        } else {
+            self.state = OpenState::Closing;
+            schedule_state_transition(cx, dur, OpenState::Closing, OpenState::Closed);
+        }
+        cx.notify();
     }
 
     fn fire_close(&self, window: &mut Window, cx: &mut App) {
@@ -128,7 +178,30 @@ impl Dialog {
             h(window, cx);
         }
     }
+}
 
+/// 在 `duration` 后把 dialog 状态从 `expected_prev` 切到 `next`。
+/// 幂等 check：若期间状态被 open()/close() 改变（如 close→open
+/// 50ms 内），timer fire 时 state != expected_prev，本次 timer 不动。
+fn schedule_state_transition(
+    cx: &mut Context<Dialog>,
+    duration: Duration,
+    expected_prev: OpenState,
+    next: OpenState,
+) {
+    cx.spawn(async move |this, cx| {
+        cx.background_executor().timer(duration).await;
+        let _ = this.update(cx, |this, cx| {
+            if this.state == expected_prev {
+                this.state = next;
+                cx.notify();
+            }
+        });
+    })
+    .detach();
+}
+
+impl Dialog {
     fn handle_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         if event.keystroke.key.as_str() == "escape" {
             self.close(cx);
@@ -170,7 +243,7 @@ impl Focusable for Dialog {
 
 impl Render for Dialog {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if !self.open {
+        if self.state == OpenState::Closed {
             return div().into_any_element();
         }
 
@@ -186,12 +259,61 @@ impl Render for Dialog {
             self.needs_focus = false;
         }
 
+        // M30：Closing 期间禁用键鼠 — 用户已经触发关闭，避免再次输入产生竞态
+        let interactive = matches!(self.state, OpenState::Opening | OpenState::Open);
+        let backdrop = self.build_backdrop(interactive, cx);
+
+        // 按 state 选包装：
+        // - Open：直接渲染（无动画）
+        // - Opening：opacity 0→1 ease_out_quint medium 150ms
+        // - Closing：opacity 1→0 ease_out_quint medium 150ms
+        let t = theme(cx);
+        let dur = t.motion.medium;
+        let easing_rc = t.motion.easing_standard.clone();
+        match self.state {
+            OpenState::Closed => unreachable!(),
+            OpenState::Open => backdrop.into_any_element(),
+            OpenState::Opening => {
+                let easing = easing_rc.clone();
+                animate_or_skip(
+                    backdrop,
+                    t,
+                    "motion-dialog-enter",
+                    Animation::new(dur).with_easing(move |d| easing(d)),
+                    |el, delta| el.opacity(delta),
+                )
+            }
+            OpenState::Closing => {
+                let easing = easing_rc.clone();
+                animate_or_skip(
+                    backdrop,
+                    t,
+                    "motion-dialog-exit",
+                    Animation::new(dur).with_easing(move |d| easing(d)),
+                    |el, delta| el.opacity(1.0 - delta),
+                )
+            }
+        }
+    }
+}
+
+impl Dialog {
+    /// 构造 backdrop + dialog content（不含动画包装）。Opening / Open /
+    /// Closing 共用同一份。`interactive=false`（Closing）时跳过键鼠 listener，
+    /// 避免用户在 exit 动画期间再次触发 close 等竞态。
+    fn build_backdrop(&mut self, interactive: bool, cx: &mut Context<Self>) -> gpui::Div {
         let t = theme(cx);
         let title = self.title.clone();
         let body = self.body.take();
         let width = self.width;
+        let radius_lg = t.radius.lg;
+        let popover_bg = t.colors.popover;
+        let border_color = t.colors.border;
+        let theme_kind = t.kind;
+        let spacing_4 = t.spacing.px_4;
+        let spacing_3 = t.spacing.px_3;
 
-        div()
+        let mut root = div()
             .absolute()
             .top_0()
             .left_0()
@@ -204,65 +326,71 @@ impl Render for Dialog {
             // （等价于 z-order 上的"完全遮挡"），覆盖 hover/wheel/click/right-click 等
             // 所有类型。GPUI 内置 API，比手工 stop_propagation 一堆 listener 干净。
             .occlude()
-            .track_focus(&self.focus_handle)
-            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
-                this.handle_key(ev, window, cx);
-            }))
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _ev: &MouseDownEvent, window, cx| {
-                    // backdrop click → 关闭
-                    this.close(cx);
-                    this.fire_close(window, cx);
-                }),
-            )
-            .child(
-                div()
-                    .w(width)
-                    .max_h(gpui::px(640.0))
-                    .bg(t.colors.popover)
-                    .rounded(t.radius.lg)
-                    .border_1()
-                    .border_color(t.colors.border)
-                    // M24 elevation-3 — modal 顶层悬浮
-                    .shadow(crate::theme::elevation_3(t.kind))
-                    .flex()
-                    .flex_col()
-                    // 阻止冒泡到 backdrop（GPUI mouse 事件是冒泡的，子元素 mouse_down
-                    // 不会自动拦住父级 listener；必须显式 stop_propagation 才能让
-                    // backdrop 的 close listener 不被点击 dialog 内部时触发）。
-                    .on_mouse_down(MouseButton::Left, |_ev, _w, cx| {
-                        cx.stop_propagation();
-                    })
-                    .child(
-                        div()
-                            .px(t.spacing.px_4)
-                            .py(t.spacing.px_3)
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .justify_between()
-                            .border_b_1()
-                            .border_color(t.colors.border)
-                            .child(
-                                // M26 Dialog title: Title2 (16/600/fg)
-                                div().typography(crate::TypeRole::Title2, t).child(title),
-                            )
-                            .child(IconButton::new("dialog-close", IconName::X).small().on_click(
-                                cx.listener(|this, _ev: &MouseDownEvent, window, cx| {
-                                    this.close(cx);
-                                    this.fire_close(window, cx);
-                                }),
-                            )),
-                    )
-                    .child(
-                        div()
-                            .p(t.spacing.px_4)
-                            .flex_1()
-                            .when_some(body, |d, b| d.child(b)),
-                    ),
-            )
-            .into_any_element()
+            .track_focus(&self.focus_handle);
+
+        if interactive {
+            root = root
+                .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
+                    this.handle_key(ev, window, cx);
+                }))
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _ev: &MouseDownEvent, window, cx| {
+                        // backdrop click → 关闭
+                        this.close(cx);
+                        this.fire_close(window, cx);
+                    }),
+                );
+        }
+
+        root.child(
+            div()
+                .w(width)
+                .max_h(gpui::px(640.0))
+                .bg(popover_bg)
+                .rounded(radius_lg)
+                .border_1()
+                .border_color(border_color)
+                // M24 elevation-3 — modal 顶层悬浮
+                .shadow(crate::theme::elevation_3(theme_kind))
+                .flex()
+                .flex_col()
+                // 阻止冒泡到 backdrop（GPUI mouse 事件是冒泡的，子元素 mouse_down
+                // 不会自动拦住父级 listener；必须显式 stop_propagation 才能让
+                // backdrop 的 close listener 不被点击 dialog 内部时触发）。
+                .on_mouse_down(MouseButton::Left, |_ev, _w, cx| {
+                    cx.stop_propagation();
+                })
+                .child(
+                    div()
+                        .px(spacing_4)
+                        .py(spacing_3)
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .justify_between()
+                        .border_b_1()
+                        .border_color(border_color)
+                        .child(
+                            // M26 Dialog title: Title2 (16/600/fg)
+                            div()
+                                .typography(crate::TypeRole::Title2, theme(cx))
+                                .child(title),
+                        )
+                        .child(IconButton::new("dialog-close", IconName::X).small().on_click(
+                            cx.listener(|this, _ev: &MouseDownEvent, window, cx| {
+                                this.close(cx);
+                                this.fire_close(window, cx);
+                            }),
+                        )),
+                )
+                .child(
+                    div()
+                        .p(spacing_4)
+                        .flex_1()
+                        .when_some(body, |d, b| d.child(b)),
+                ),
+        )
     }
 }
 
@@ -364,5 +492,112 @@ mod tests {
             unreachable!();
         }
         assert!(!open);
+    }
+
+    /// M30: open() 状态机的 pure fn 模拟（实际 open() 还要 spawn timer +
+    /// cx.notify，这里只测状态机转移逻辑）。
+    fn open_transition(cur: super::OpenState) -> super::OpenState {
+        use super::OpenState::*;
+        match cur {
+            Opening | Open => cur,
+            Closed | Closing => Opening,
+        }
+    }
+
+    /// M30: close() 的 pure fn 模拟。
+    fn close_transition(cur: super::OpenState) -> super::OpenState {
+        use super::OpenState::*;
+        match cur {
+            Closing | Closed => cur,
+            Opening | Open => Closing,
+        }
+    }
+
+    #[test]
+    fn m30_open_from_closed_enters_opening() {
+        assert_eq!(
+            open_transition(super::OpenState::Closed),
+            super::OpenState::Opening
+        );
+    }
+
+    #[test]
+    fn m30_open_from_opening_is_noop() {
+        assert_eq!(
+            open_transition(super::OpenState::Opening),
+            super::OpenState::Opening
+        );
+    }
+
+    #[test]
+    fn m30_open_from_open_is_noop() {
+        assert_eq!(
+            open_transition(super::OpenState::Open),
+            super::OpenState::Open
+        );
+    }
+
+    #[test]
+    fn m30_open_from_closing_restarts_opening() {
+        // close → 立即 open 的中断路径
+        assert_eq!(
+            open_transition(super::OpenState::Closing),
+            super::OpenState::Opening
+        );
+    }
+
+    #[test]
+    fn m30_close_from_open_enters_closing() {
+        assert_eq!(
+            close_transition(super::OpenState::Open),
+            super::OpenState::Closing
+        );
+    }
+
+    #[test]
+    fn m30_close_from_opening_enters_closing() {
+        // open → 立即 close 的中断路径
+        assert_eq!(
+            close_transition(super::OpenState::Opening),
+            super::OpenState::Closing
+        );
+    }
+
+    #[test]
+    fn m30_close_from_closing_is_noop() {
+        assert_eq!(
+            close_transition(super::OpenState::Closing),
+            super::OpenState::Closing
+        );
+    }
+
+    #[test]
+    fn m30_close_from_closed_is_noop() {
+        assert_eq!(
+            close_transition(super::OpenState::Closed),
+            super::OpenState::Closed
+        );
+    }
+
+    /// 模拟 reduced_motion 路径 — 跳过 Opening/Closing 中间态。
+    fn open_with_reduced(cur: super::OpenState, reduced: bool) -> super::OpenState {
+        use super::OpenState::*;
+        match (cur, reduced) {
+            (Opening | Open, _) => cur,
+            (_, true) => Open,
+            (_, false) => Opening,
+        }
+    }
+
+    #[test]
+    fn m30_reduced_motion_skips_opening_state() {
+        assert_eq!(
+            open_with_reduced(super::OpenState::Closed, true),
+            super::OpenState::Open
+        );
+        assert_eq!(
+            open_with_reduced(super::OpenState::Closed, false),
+            super::OpenState::Opening
+        );
     }
 }
