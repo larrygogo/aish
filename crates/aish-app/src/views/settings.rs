@@ -240,7 +240,16 @@ impl Render for SettingsView {
                 div()
                     .flex()
                     .flex_col()
-                    .child(control_row("Dark mode", None, dark_switch, t))
+                    // M35 T17: Dark mode 加 helper 提示 Light theme 是实验性
+                    // — INDEX 历史记录 M15/M17 有 7 个 light token 仍 dark
+                    // fallback 未完整调优，用户切到 light 后部分色彩可能不
+                    // 协调。明示「实验性」让用户预期对齐。
+                    .child(control_row(
+                        "Dark mode",
+                        Some("关闭后切到 Light 主题（实验性，部分色彩未完整调优）"),
+                        dark_switch,
+                        t,
+                    ))
                     .child(control_row(
                         "减少动画",
                         Some("关闭 dialog 入场 / toast 出现等动画"),
