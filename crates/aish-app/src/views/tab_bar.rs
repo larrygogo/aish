@@ -89,6 +89,9 @@ pub struct TabBarView {
     /// 键盘导航当前选中的菜单项索引。0..MENU_ITEM_COUNT。
     /// 右键打开时重置 0，↑/↓ 调整，Enter 触发 handle_menu_select。
     menu_active_idx: usize,
+    /// M31：每个 tab 的关闭 X IconButton entity，按 TabId 索引。
+    /// render 前 retain_alive_entities 同步 tab 集合避免 entity 泄漏。
+    close_buttons: std::collections::HashMap<TabId, Entity<aish_ui::IconButtonEntity>>,
 }
 
 /// tab 右键菜单 item 数量。与 build menu items 数量一致（见 render 内
@@ -192,6 +195,7 @@ impl TabBarView {
             context_menu,
             menu_tab_id: None,
             menu_active_idx: 0,
+            close_buttons: std::collections::HashMap::new(),
         }
     }
 
@@ -504,6 +508,40 @@ impl Render for TabBarView {
                 m.content(menu);
             });
         }
+        // M31：同步 close_buttons HashMap — retain 清掉关闭 tab 的 entity，
+        // ensure 当前活跃 tab id 都有 entry（lazy create）。
+        {
+            let app = self.state.read(cx);
+            let alive_ids: std::collections::HashSet<TabId> =
+                app.tabs.iter().map(|t| t.id).collect();
+            crate::app::retain_alive_entities(&mut self.close_buttons, |k| alive_ids.contains(k));
+        }
+        let tab_ids_snapshot: Vec<TabId> = self.state.read(cx).tabs.iter().map(|t| t.id).collect();
+        for tab_id in &tab_ids_snapshot {
+            if !self.close_buttons.contains_key(tab_id) {
+                let id = *tab_id;
+                let weak = cx.weak_entity();
+                let btn = cx.new(move |cx| {
+                    let mut b = aish_ui::IconButtonEntity::new(
+                        gpui::SharedString::from(format!("tab-close-{}", id)),
+                        IconName::X,
+                        cx,
+                    );
+                    b.small().ghost().on_click(move |_ev, _w, cx| {
+                        if let Some(this) = weak.upgrade() {
+                            this.update(cx, |this, cx| {
+                                // 拦住事件不冒泡到外层 tab listener 触发 select_tab
+                                cx.stop_propagation();
+                                this.handle_close(id, cx);
+                            });
+                        }
+                    });
+                    b
+                });
+                self.close_buttons.insert(id, btn);
+            }
+        }
+
         let app = self.state.read(cx);
         let selected = app.selected_tab;
         let theme = aish_ui::theme(cx);
@@ -593,20 +631,12 @@ impl Render for TabBarView {
                         .into_any_element();
                 }
 
-                // 关闭按钮（始终可见）
-                let close_btn = aish_ui::IconButton::new(
-                    gpui::SharedString::from(format!("tab-close-{}", id)),
-                    aish_ui::IconName::X,
-                )
-                .small()
-                .ghost()
-                .on_click(cx.listener(
-                    move |this, _ev: &MouseDownEvent, _w, cx| {
-                        // 拦住事件不冒泡到外层 tab listener 触发 select_tab
-                        cx.stop_propagation();
-                        this.handle_close(id, cx);
-                    },
-                ));
+                // M31: 关闭按钮 — 从 close_buttons HashMap 取已建好的 entity
+                let close_btn = self
+                    .close_buttons
+                    .get(&id)
+                    .cloned()
+                    .expect("close_buttons 在 render 顶部已 ensure");
 
                 // 连接 tab：活跃 = 绿点，已断 = 灰点；默认页 tab 不带前缀
                 let prefix: gpui::AnyElement = if is_connection {

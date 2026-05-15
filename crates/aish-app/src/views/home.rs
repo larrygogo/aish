@@ -3,20 +3,29 @@
 //! 包含：Quick Actions（+ 添加 host）、Active Sessions（活跃连接列表）、
 //! Hosts grid（host 卡片网格，复用 default_page.rs 原有逻辑）。
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::SystemTime;
 
 use aish_types::{ConnectionId, HostId};
-use aish_ui::TypographyExt;
+use aish_ui::{ButtonEntity, IconButtonEntity, TypographyExt};
 use gpui::{
     div, prelude::*, px, rgb, Context, Entity, KeyDownEvent, MouseButton, MouseDownEvent, Window,
 };
 
+use crate::app::retain_alive_entities;
 use crate::bridge::Bridge;
 use crate::state::{
     humanize_last_connected, AppState, HostFormDraft, HostFormState, SidebarTab, SshEvent, Tab,
     TabContent,
 };
+
+/// M31：每张 host card 的 edit/delete IconButton entity 对，
+/// 按 HostId 在 HomeView.host_card_buttons HashMap 维护。
+struct HostCardButtons {
+    edit: Entity<IconButtonEntity>,
+    delete: Entity<IconButtonEntity>,
+}
 
 pub struct HomeView {
     state: Entity<AppState>,
@@ -40,6 +49,11 @@ pub struct HomeView {
     empty_add_btn: Entity<aish_ui::ButtonEntity>,
     /// M31：hosts.json 加载失败时 ErrorState 内的 retry button（条件显示）。
     retry_btn: Entity<aish_ui::ButtonEntity>,
+    /// M31：每张 host card 的 edit + delete IconButton 对，按 HostId 索引。
+    /// render 前 retain_alive_entities 同步 host 集合，避免 entity 泄漏。
+    host_card_buttons: HashMap<HostId, HostCardButtons>,
+    /// M31：active sessions 列表每行的 "Open ▶" Button，按 ConnectionId 索引。
+    session_open_buttons: HashMap<ConnectionId, Entity<ButtonEntity>>,
 }
 
 /// host 右键菜单 item 数量（编辑 / 复制 / 删除）。与 render 内 items() 匹配。
@@ -118,6 +132,8 @@ impl HomeView {
             header_add_btn,
             empty_add_btn,
             retry_btn,
+            host_card_buttons: HashMap::new(),
+            session_open_buttons: HashMap::new(),
         }
     }
 
@@ -344,6 +360,86 @@ impl Render for HomeView {
                 m.content(menu);
             });
         }
+        // M31：先同步 host_card_buttons / session_open_buttons HashMap
+        // —— retain 清掉已删除的 host / closed connection 对应 entity，
+        //    然后 ensure 当前活跃 key 都有 entry（lazy create）。
+        {
+            let app = self.state.read(cx);
+            let host_ids: std::collections::HashSet<HostId> =
+                app.hosts.iter().map(|h| h.id).collect();
+            let conn_ids: std::collections::HashSet<ConnectionId> =
+                app.connections.keys().copied().collect();
+            retain_alive_entities(&mut self.host_card_buttons, |k| host_ids.contains(k));
+            retain_alive_entities(&mut self.session_open_buttons, |k| conn_ids.contains(k));
+        }
+        // ensure entries (lazy create)
+        let hosts_snapshot: Vec<HostId> = self.state.read(cx).hosts.iter().map(|h| h.id).collect();
+        for id in &hosts_snapshot {
+            if !self.host_card_buttons.contains_key(id) {
+                let host_id = *id;
+                let weak_e = cx.weak_entity();
+                let weak_d = cx.weak_entity();
+                let edit = cx.new(move |cx| {
+                    let mut b = IconButtonEntity::new(
+                        gpui::SharedString::from(format!("host-edit-{}", host_id)),
+                        aish_ui::IconName::Pencil,
+                        cx,
+                    );
+                    b.small().ghost().on_click(move |_ev, _w, cx| {
+                        if let Some(this) = weak_e.upgrade() {
+                            this.update(cx, |this, cx| {
+                                cx.stop_propagation();
+                                this.handle_edit_click(host_id, cx);
+                            });
+                        }
+                    });
+                    b
+                });
+                let delete = cx.new(move |cx| {
+                    let mut b = IconButtonEntity::new(
+                        gpui::SharedString::from(format!("host-delete-{}", host_id)),
+                        aish_ui::IconName::X,
+                        cx,
+                    );
+                    b.small().ghost().on_click(move |_ev, _w, cx| {
+                        if let Some(this) = weak_d.upgrade() {
+                            this.update(cx, |this, cx| {
+                                cx.stop_propagation();
+                                this.handle_delete_click(host_id, cx);
+                            });
+                        }
+                    });
+                    b
+                });
+                self.host_card_buttons
+                    .insert(host_id, HostCardButtons { edit, delete });
+            }
+        }
+        let conns_snapshot: Vec<ConnectionId> =
+            self.state.read(cx).connections.keys().copied().collect();
+        for conn_id in &conns_snapshot {
+            if !self.session_open_buttons.contains_key(conn_id) {
+                let cid = *conn_id;
+                let weak_o = cx.weak_entity();
+                let btn = cx.new(move |cx| {
+                    let mut b = ButtonEntity::new(
+                        gpui::SharedString::from(format!("active-session-open-{}", cid)),
+                        cx,
+                    );
+                    b.label("Open ▶").secondary().on_click(move |_ev, _w, cx| {
+                        if let Some(this) = weak_o.upgrade() {
+                            this.update(cx, |this, cx| {
+                                cx.stop_propagation();
+                                this.handle_open_session(cid, cx);
+                            });
+                        }
+                    });
+                    b
+                });
+                self.session_open_buttons.insert(*conn_id, btn);
+            }
+        }
+
         let app = self.state.read(cx);
         let theme = aish_ui::theme(cx);
         let colors = theme.colors;
@@ -422,19 +518,12 @@ impl Render for HomeView {
                                 .child(format!("· {}", time_str)),
                         );
 
-                    // Open 按钮
-                    let open_btn = aish_ui::Button::new(gpui::SharedString::from(format!(
-                        "active-session-open-{}",
-                        conn_id
-                    )))
-                    .label("Open ▶")
-                    .secondary()
-                    .on_click(cx.listener(
-                        move |this, _ev: &MouseDownEvent, _w, cx| {
-                            cx.stop_propagation();
-                            this.handle_open_session(conn_id, cx);
-                        },
-                    ));
+                    // M31: Open 按钮走 session_open_buttons entity（press feedback）
+                    let open_btn = self
+                        .session_open_buttons
+                        .get(&conn_id)
+                        .cloned()
+                        .expect("session_open_buttons 在 render 顶部已 ensure");
 
                     // 整行可点击
                     div()
@@ -573,33 +662,13 @@ impl Render for HomeView {
                 // 视觉上 default 仅 chevron，hover 多出 ✏ ⌫，chevron 位置不变
                 // （actions 仍占 flex layout 空间，只是透明）。
                 let group_name = gpui::SharedString::from(format!("host-card-row-{}", id));
-                let edit_btn = aish_ui::IconButton::new(
-                    gpui::SharedString::from(format!("host-edit-{}", id)),
-                    aish_ui::IconName::Pencil,
-                )
-                .small()
-                .ghost()
-                .on_click(cx.listener(
-                    move |this, _ev: &MouseDownEvent, _w, cx| {
-                        cx.stop_propagation();
-                        this.handle_edit_click(id, cx);
-                    },
-                ));
-
-                // delete 也走 ghost：destructive 红色 X 始终可见过于扎眼，
-                // hover 才显形已经达到"操作可发现"目的，配色不需要再加 destructive
-                let delete_btn = aish_ui::IconButton::new(
-                    gpui::SharedString::from(format!("host-delete-{}", id)),
-                    aish_ui::IconName::X,
-                )
-                .small()
-                .ghost()
-                .on_click(cx.listener(
-                    move |this, _ev: &MouseDownEvent, _w, cx| {
-                        cx.stop_propagation();
-                        this.handle_delete_click(id, cx);
-                    },
-                ));
+                // M31: edit / delete IconButton 走 host_card_buttons entity
+                let buttons = self
+                    .host_card_buttons
+                    .get(&id)
+                    .expect("host_card_buttons 在 render 顶部已 ensure");
+                let edit_btn = buttons.edit.clone();
+                let delete_btn = buttons.delete.clone();
 
                 let actions = div()
                     .flex()
