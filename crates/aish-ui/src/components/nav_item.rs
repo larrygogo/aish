@@ -16,8 +16,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    div, point, prelude::*, px, Animation, AnyElement, App, BoxShadow, Context, ElementId,
-    FocusHandle, IntoElement, MouseButton, MouseDownEvent, SharedString, Window,
+    div, prelude::*, px, Animation, AnyElement, App, Context, ElementId, IntoElement, MouseButton,
+    MouseDownEvent, SharedString, Window,
 };
 
 use crate::components::button::{press_opacity_at, HoverState};
@@ -39,17 +39,14 @@ pub struct NavItem {
     active: bool,
     orientation: NavItemOrientation,
     on_click: Option<ClickHandler>,
-    focus_handle: FocusHandle,
     pressing: bool,
-    focus_animated: bool,
-    was_focused_prev: bool,
     press_count: u64,
     hover_state: HoverState,
     hover_anim_count: u64,
 }
 
 impl NavItem {
-    pub fn new(id: impl Into<ElementId>, cx: &mut Context<Self>) -> Self {
+    pub fn new(id: impl Into<ElementId>, _cx: &mut Context<Self>) -> Self {
         Self {
             id: id.into(),
             icon: None,
@@ -57,10 +54,7 @@ impl NavItem {
             active: false,
             orientation: NavItemOrientation::Vertical,
             on_click: None,
-            focus_handle: cx.focus_handle(),
             pressing: false,
-            focus_animated: false,
-            was_focused_prev: false,
             press_count: 0,
             hover_state: HoverState::Idle,
             hover_anim_count: 0,
@@ -117,20 +111,6 @@ impl NavItem {
         })
         .detach();
         cx.notify();
-    }
-
-    fn schedule_clear_focus_anim(&mut self, cx: &mut Context<Self>) {
-        let dur = theme(cx).motion.medium;
-        cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(dur).await;
-            let _ = this.update(cx, |this, cx| {
-                if this.focus_animated {
-                    this.focus_animated = false;
-                    cx.notify();
-                }
-            });
-        })
-        .detach();
     }
 
     /// M34 v2: hover 状态机推进（含 Leaving 反向 lerp）。
@@ -207,23 +187,8 @@ impl NavItem {
     }
 }
 
-impl gpui::Focusable for NavItem {
-    fn focus_handle(&self, _cx: &App) -> FocusHandle {
-        self.focus_handle.clone()
-    }
-}
-
 impl Render for NavItem {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let now_focused = self.focus_handle.is_focused(window);
-        if !self.was_focused_prev && now_focused {
-            self.focus_animated = true;
-            self.schedule_clear_focus_anim(cx);
-        } else if self.was_focused_prev && !now_focused {
-            self.focus_animated = false;
-        }
-        self.was_focused_prev = now_focused;
-
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
         let active = self.active;
         let orientation = self.orientation;
@@ -239,17 +204,19 @@ impl Render for NavItem {
         let hover_bg = t.colors.secondary_hover;
         let press_bg_color = t.colors.secondary_active;
         let selected_bg = t.colors.accent;
-        let ring_color = t.colors.ring;
         let medium = t.motion.medium;
         let easing = t.motion.easing_standard.clone();
         let typography_t = t;
 
+        // NavItem 设计上是导航容器（与 Card / ListRow 同类），仅用
+        // bg + active 高亮表达状态 — 不画 focus ring（避免 sidebar 窄柱内
+        // 紫色 glow 视觉过载）。键盘 Tab 焦点仍走 focus_handle，只是不附
+        // 视觉 ring。
         let hover_state = self.hover_state;
         let pressing = self.pressing;
-        let focus_animating = now_focused && self.focus_animated;
         let hover_entering = !active && matches!(hover_state, HoverState::Entering { .. });
         let hover_leaving = !active && matches!(hover_state, HoverState::Leaving { .. });
-        let need_anim = pressing || focus_animating || hover_entering || hover_leaving;
+        let need_anim = pressing || hover_entering || hover_leaving;
         let press_count = self.press_count;
         let hover_anim_count = self.hover_anim_count;
 
@@ -279,8 +246,7 @@ impl Render for NavItem {
             .id(self.id.clone())
             .text_color(base_fg)
             .bg(base_bg)
-            .cursor_pointer()
-            .track_focus(&self.focus_handle);
+            .cursor_pointer();
 
         el = match orientation {
             NavItemOrientation::Vertical => el
@@ -325,22 +291,10 @@ impl Render for NavItem {
         });
 
         if !need_anim {
-            if now_focused {
-                let mut glow = ring_color;
-                glow.a = 0.4;
-                el = el.shadow(vec![BoxShadow {
-                    color: glow,
-                    offset: point(px(0.0), px(0.0)),
-                    blur_radius: px(4.0),
-                    spread_radius: px(2.0),
-                }]);
-            }
             return el.into_any_element();
         }
 
-        // 动画路径：lerp fg + bg（仅 hover_entering 时），叠加 press opacity
-        // 和 focus ring fade
-        let ring_show_static = now_focused && !focus_animating;
+        // 动画路径：lerp fg + bg（仅 hover_entering 时），叠加 press opacity。
         let anim_id: ElementId = (
             "motion-nav-item",
             press_count.wrapping_add(hover_anim_count) as usize,
@@ -364,25 +318,6 @@ impl Render for NavItem {
                     el = el
                         .text_color(crate::lerp_hsla(hover_fg, idle_fg, delta))
                         .bg(crate::lerp_hsla(hover_bg, idle_bg, delta));
-                }
-                if focus_animating {
-                    let mut glow = ring_color;
-                    glow.a = 0.4 * delta;
-                    el = el.shadow(vec![BoxShadow {
-                        color: glow,
-                        offset: point(px(0.0), px(0.0)),
-                        blur_radius: px(4.0),
-                        spread_radius: px(2.0),
-                    }]);
-                } else if ring_show_static {
-                    let mut glow = ring_color;
-                    glow.a = 0.4;
-                    el = el.shadow(vec![BoxShadow {
-                        color: glow,
-                        offset: point(px(0.0), px(0.0)),
-                        blur_radius: px(4.0),
-                        spread_radius: px(2.0),
-                    }]);
                 }
                 if pressing {
                     el = el.opacity(press_opacity_at(delta));
