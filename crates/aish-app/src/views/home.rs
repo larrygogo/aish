@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use aish_types::{ConnectionId, HostId};
-use aish_ui::{Button, IconButton, TypographyExt};
+use aish_ui::{Button, CardEntity, IconButton, TypographyExt};
 use gpui::{
     div, prelude::*, px, rgb, Context, Entity, KeyDownEvent, MouseButton, MouseDownEvent, Window,
 };
@@ -54,6 +54,9 @@ pub struct HomeView {
     host_card_buttons: HashMap<HostId, HostCardButtons>,
     /// M31：active sessions 列表每行的 "Open ▶" Button，按 ConnectionId 索引。
     session_open_buttons: HashMap<ConnectionId, Entity<Button>>,
+    /// M33: 每张 host card 的 CardEntity（hover transition + press feedback），
+    /// 按 HostId 索引。render 顶部 retain + ensure 同 host_card_buttons。
+    host_cards: HashMap<HostId, Entity<CardEntity>>,
 }
 
 /// host 右键菜单 item 数量（编辑 / 复制 / 删除）。与 render 内 items() 匹配。
@@ -134,6 +137,7 @@ impl HomeView {
             retry_btn,
             host_card_buttons: HashMap::new(),
             session_open_buttons: HashMap::new(),
+            host_cards: HashMap::new(),
         }
     }
 
@@ -371,6 +375,8 @@ impl Render for HomeView {
                 app.connections.keys().copied().collect();
             retain_alive_entities(&mut self.host_card_buttons, |k| host_ids.contains(k));
             retain_alive_entities(&mut self.session_open_buttons, |k| conn_ids.contains(k));
+            // M33: host_cards 同 host 集合同步
+            retain_alive_entities(&mut self.host_cards, |k| host_ids.contains(k));
         }
         // ensure entries (lazy create)
         let hosts_snapshot: Vec<HostId> = self.state.read(cx).hosts.iter().map(|h| h.id).collect();
@@ -439,68 +445,107 @@ impl Render for HomeView {
                 self.session_open_buttons.insert(*conn_id, btn);
             }
         }
+        // M33: ensure host_cards CardEntity for each host
+        for id in &hosts_snapshot {
+            if !self.host_cards.contains_key(id) {
+                let host_id = *id;
+                let weak = cx.weak_entity();
+                let card = cx.new(move |cx| {
+                    let mut c = CardEntity::new(
+                        gpui::SharedString::from(format!("host-card-{}", host_id)),
+                        cx,
+                    );
+                    c.no_padding();
+                    c.on_click(move |_ev, _w, cx| {
+                        if let Some(this) = weak.upgrade() {
+                            this.update(cx, |this, cx| this.handle_card_click(host_id, cx));
+                        }
+                    });
+                    c
+                });
+                self.host_cards.insert(host_id, card);
+            }
+        }
 
-        let app = self.state.read(cx);
-        let theme = aish_ui::theme(cx);
-        let colors = theme.colors;
-        let font_size = theme.font_size;
+        // M33 续做 + render split：phase A 用 block scope 包 app + theme borrow，
+        // 收集所有 owned outputs（header / active_section / cards_phase1 /
+        // hosts_section_label + captured anatomy / bg / load_error 等）；
+        // block 结束 borrow 释放。phase B 调 host_cards entity.update(cx, ...)
+        // 灌 body + build cards wrap Vec。phase C 用 captured values 组装
+        // final layout（不再借 theme/app）。
+        let (
+            header_el,
+            active_section_el,
+            cards_phase1,
+            hosts_section_label_el,
+            load_error,
+            hosts_is_empty,
+            bg_color,
+            anatomy_outer_px,
+            anatomy_outer_py_bottom,
+            anatomy_list_gap,
+        ) = {
+            let app = self.state.read(cx);
+            let theme = aish_ui::theme(cx);
+            let colors = theme.colors;
+            let font_size = theme.font_size;
 
-        // ───── Quick Actions 顶部栏 ─────
-        // 顶部主 CTA → primary。M31：header_add_btn entity 持 press feedback。
-        let add_btn = self.header_add_btn.clone();
+            // ───── Quick Actions 顶部栏 ─────
+            // 顶部主 CTA → primary。M31：header_add_btn entity 持 press feedback。
+            let add_btn = self.header_add_btn.clone();
 
-        // M27: page header padding 走 anatomy.page（outer_px 32 / outer_py_top 24 /
-        // header_to_content_gap 16）— 之前 px_8/pt_6/pb_3 等价 32/24/12，
-        // pb 从 12 改 16 与 settings page_title pb 对齐。
-        let header = div()
-            .px(theme.anatomy.page.outer_px)
-            .pt(theme.anatomy.page.outer_py_top)
-            .pb(theme.anatomy.page.header_to_content_gap)
-            .flex()
-            .flex_row()
-            .items_center()
-            .justify_between()
-            .child(
-                // M26 T2: page title 用 Title1 (20/600/fg) 替代 xl size-only
-                div()
-                    .typography(aish_ui::TypeRole::Title1, theme)
-                    .child("Home"),
-            )
-            .child(add_btn);
+            // M27: page header padding 走 anatomy.page（outer_px 32 / outer_py_top 24 /
+            // header_to_content_gap 16）— 之前 px_8/pt_6/pb_3 等价 32/24/12，
+            // pb 从 12 改 16 与 settings page_title pb 对齐。
+            let header = div()
+                .px(theme.anatomy.page.outer_px)
+                .pt(theme.anatomy.page.outer_py_top)
+                .pb(theme.anatomy.page.header_to_content_gap)
+                .flex()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .child(
+                    // M26 T2: page title 用 Title1 (20/600/fg) 替代 xl size-only
+                    div()
+                        .typography(aish_ui::TypeRole::Title1, theme)
+                        .child("Home"),
+                )
+                .child(add_btn);
 
-        // ───── Active Sessions 区 ─────
-        // 收集所有 connection 的快照（避免在闭包里借用 app）
-        let active_connections: Vec<(ConnectionId, String, String, bool)> = app
-            .connections
-            .values()
-            .map(|c| {
-                let time_str = c.humanize_opened_at();
-                let is_active = app.is_session_active(c.id);
-                (c.id, c.label.clone(), time_str, is_active)
-            })
-            .collect();
+            // ───── Active Sessions 区 ─────
+            // 收集所有 connection 的快照（避免在闭包里借用 app）
+            let active_connections: Vec<(ConnectionId, String, String, bool)> = app
+                .connections
+                .values()
+                .map(|c| {
+                    let time_str = c.humanize_opened_at();
+                    let is_active = app.is_session_active(c.id);
+                    (c.id, c.label.clone(), time_str, is_active)
+                })
+                .collect();
 
-        let active_section: Option<gpui::AnyElement> = if active_connections.is_empty() {
-            None
-        } else {
-            let rows: Vec<_> = active_connections
-                .into_iter()
-                .map(|(conn_id, label, time_str, is_active)| {
-                    // 左侧状态圆点
-                    let dot_color = if is_active {
-                        colors.success
-                    } else {
-                        colors.muted_foreground
-                    };
-                    let dot = div()
-                        .w(px(8.0))
-                        .h(px(8.0))
-                        .rounded_full()
-                        .bg(dot_color)
-                        .flex_shrink_0();
+            let active_section: Option<gpui::AnyElement> = if active_connections.is_empty() {
+                None
+            } else {
+                let rows: Vec<_> = active_connections
+                    .into_iter()
+                    .map(|(conn_id, label, time_str, is_active)| {
+                        // 左侧状态圆点
+                        let dot_color = if is_active {
+                            colors.success
+                        } else {
+                            colors.muted_foreground
+                        };
+                        let dot = div()
+                            .w(px(8.0))
+                            .h(px(8.0))
+                            .rounded_full()
+                            .bg(dot_color)
+                            .flex_shrink_0();
 
-                    // label + time
-                    let label_part = div()
+                        // label + time
+                        let label_part = div()
                         .flex_1()
                         .flex()
                         .flex_row()
@@ -518,187 +563,191 @@ impl Render for HomeView {
                                 .child(format!("· {}", time_str)),
                         );
 
-                    // M31: Open 按钮走 session_open_buttons entity（press feedback）
-                    let open_btn = self
-                        .session_open_buttons
-                        .get(&conn_id)
-                        .cloned()
-                        .expect("session_open_buttons 在 render 顶部已 ensure");
+                        // M31: Open 按钮走 session_open_buttons entity（press feedback）
+                        let open_btn = self
+                            .session_open_buttons
+                            .get(&conn_id)
+                            .cloned()
+                            .expect("session_open_buttons 在 render 顶部已 ensure");
 
-                    // 整行可点击
+                        // 整行可点击
+                        div()
+                            .px_4()
+                            .py_2p5()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_3()
+                            .rounded_lg()
+                            .cursor_pointer()
+                            .hover(|s| s.bg(colors.card))
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
+                                    this.handle_open_session(conn_id, cx);
+                                }),
+                            )
+                            .child(dot)
+                            .child(label_part)
+                            .child(open_btn)
+                    })
+                    .collect();
+
+                Some(
                     div()
-                        .px_4()
-                        .py_2p5()
+                        .px_8()
+                        .pb_4()
                         .flex()
-                        .flex_row()
-                        .items_center()
-                        .gap_3()
-                        .rounded_lg()
-                        .cursor_pointer()
-                        .hover(|s| s.bg(colors.card))
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
-                                this.handle_open_session(conn_id, cx);
-                            }),
+                        .flex_col()
+                        .gap_1()
+                        .child(
+                            // M26: ACTIVE SESSIONS section divider → Caption (与 HOSTS 同模式)
+                            div()
+                                .pb_2()
+                                .typography(aish_ui::TypeRole::Caption, theme)
+                                .child("ACTIVE SESSIONS"),
                         )
-                        .child(dot)
-                        .child(label_part)
-                        .child(open_btn)
-                })
-                .collect();
-
-            Some(
-                div()
-                    .px_8()
-                    .pb_4()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .child(
-                        // M26: ACTIVE SESSIONS section divider → Caption (与 HOSTS 同模式)
-                        div()
-                            .pb_2()
-                            .typography(aish_ui::TypeRole::Caption, theme)
-                            .child("ACTIVE SESSIONS"),
-                    )
-                    .children(rows)
-                    .into_any_element(),
-            )
-        };
-
-        // ───── Hosts grid ─────
-        let cards: Vec<_> = app
-            .hosts
-            .iter()
-            .map(|h| {
-                let id = h.id;
-                let label = h.label.clone();
-                let host_text = format!("{}@{}:{}", h.user, h.host, h.port);
-                let last_conn_str: Option<String> = app
-                    .last_connected
-                    .get(&id)
-                    .map(|t| humanize_last_connected(*t));
-
-                // 该 host 的活跃连接数
-                let active_count = app.connections.values().filter(|c| c.host_id == id).count();
-
-                // ───── 左侧 avatar：三种模式 ─────
-                // 1. os_kind 已探测且 simpleicons SVG 已内置 → SVG + 品牌色
-                //    (ubuntu/debian/arch/alpine/centos/fedora/redhat 7 个)
-                // 2. os_kind 已探测但仅品牌色支持 → 单字母 + 品牌色
-                //    (rocky/mint/manjaro/nixos/gentoo/opensuse/raspbian/elementary)
-                // 3. os_kind 未探测 / 完全未识别 → fallback host label 首字母 + palette 色
-                let os_avatar = h.os_kind.as_deref().and_then(crate::avatar::os_avatar_for);
-                let avatar: gpui::AnyElement = match os_avatar {
-                    Some(crate::avatar::OsAvatar::Svg { icon, bg }) => div()
-                        .w(px(40.0))
-                        .h(px(40.0))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .bg(rgb(bg))
-                        .rounded_xl()
-                        .child(aish_ui::icon(icon).size(px(22.0)).text_color(gpui::white()))
+                        .children(rows)
                         .into_any_element(),
-                    Some(crate::avatar::OsAvatar::Letter { letter, bg }) => div()
-                        .w(px(40.0))
-                        .h(px(40.0))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .bg(rgb(bg))
-                        .rounded_xl()
-                        .text_color(gpui::white())
-                        .text_size(font_size.lg)
-                        .child(letter.to_string())
-                        .into_any_element(),
-                    None => {
-                        let initial = label
-                            .chars()
-                            .next()
-                            .unwrap_or('?')
-                            .to_uppercase()
-                            .to_string();
-                        let avatar_bg = crate::avatar::avatar_color_for(&label);
-                        div()
+                )
+            };
+
+            // ───── Hosts grid ─────
+            // M33 续做：phase 1 cards iter 仅 collect (id, body_row)。phase 2
+            // 在 drop app/theme borrow 后调 host_cards entity.update(cx, |c, _|
+            // c.body(body_row)) + 包 wrap div。这样解锁 Card 升 Entity 的
+            // borrow 冲突（spec M33 §7 实施记录）。
+            let cards_phase1: Vec<(HostId, gpui::AnyElement)> = app
+                .hosts
+                .iter()
+                .map(|h| {
+                    let id = h.id;
+                    let label = h.label.clone();
+                    let host_text = format!("{}@{}:{}", h.user, h.host, h.port);
+                    let last_conn_str: Option<String> = app
+                        .last_connected
+                        .get(&id)
+                        .map(|t| humanize_last_connected(*t));
+
+                    // 该 host 的活跃连接数
+                    let active_count = app.connections.values().filter(|c| c.host_id == id).count();
+
+                    // ───── 左侧 avatar：三种模式 ─────
+                    // 1. os_kind 已探测且 simpleicons SVG 已内置 → SVG + 品牌色
+                    //    (ubuntu/debian/arch/alpine/centos/fedora/redhat 7 个)
+                    // 2. os_kind 已探测但仅品牌色支持 → 单字母 + 品牌色
+                    //    (rocky/mint/manjaro/nixos/gentoo/opensuse/raspbian/elementary)
+                    // 3. os_kind 未探测 / 完全未识别 → fallback host label 首字母 + palette 色
+                    let os_avatar = h.os_kind.as_deref().and_then(crate::avatar::os_avatar_for);
+                    let avatar: gpui::AnyElement = match os_avatar {
+                        Some(crate::avatar::OsAvatar::Svg { icon, bg }) => div()
                             .w(px(40.0))
                             .h(px(40.0))
                             .flex()
                             .items_center()
                             .justify_center()
-                            .bg(rgb(avatar_bg))
+                            .bg(rgb(bg))
                             .rounded_xl()
-                            .text_color(colors.primary_foreground)
-                            .text_size(font_size.lg)
-                            .child(initial)
-                            .into_any_element()
-                    }
-                };
-
-                // ───── SSH chip ─────
-                let chip = aish_ui::Badge::new("SSH").primary();
-
-                // ───── 活跃数 chip（仅当 active_count > 0） ─────
-                let active_chip: Option<gpui::AnyElement> = if active_count > 0 {
-                    Some(
-                        aish_ui::Badge::new(format!("● {} 活跃", active_count))
-                            .success()
+                            .child(aish_ui::icon(icon).size(px(22.0)).text_color(gpui::white()))
                             .into_any_element(),
-                    )
-                } else {
-                    None
-                };
+                        Some(crate::avatar::OsAvatar::Letter { letter, bg }) => div()
+                            .w(px(40.0))
+                            .h(px(40.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .bg(rgb(bg))
+                            .rounded_xl()
+                            .text_color(gpui::white())
+                            .text_size(font_size.lg)
+                            .child(letter.to_string())
+                            .into_any_element(),
+                        None => {
+                            let initial = label
+                                .chars()
+                                .next()
+                                .unwrap_or('?')
+                                .to_uppercase()
+                                .to_string();
+                            let avatar_bg = crate::avatar::avatar_color_for(&label);
+                            div()
+                                .w(px(40.0))
+                                .h(px(40.0))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .bg(rgb(avatar_bg))
+                                .rounded_xl()
+                                .text_color(colors.primary_foreground)
+                                .text_size(font_size.lg)
+                                .child(initial)
+                                .into_any_element()
+                        }
+                    };
 
-                // ───── 右侧 chevron ─────
-                let chevron = div()
-                    .text_color(colors.muted_foreground)
-                    .text_size(font_size.lg)
-                    .child("›");
+                    // ───── SSH chip ─────
+                    let chip = aish_ui::Badge::new("SSH").primary();
 
-                // ───── 编辑 / 删除按钮（hover 才显形）─────
-                // group/group_hover：body_row 标记 `.group(g)`，actions 子树
-                // 默认 opacity(0)，body_row hover 时 actions opacity(1)。
-                // 视觉上 default 仅 chevron，hover 多出 ✏ ⌫，chevron 位置不变
-                // （actions 仍占 flex layout 空间，只是透明）。
-                let group_name = gpui::SharedString::from(format!("host-card-row-{}", id));
-                // M31: edit / delete IconButton 走 host_card_buttons entity
-                let buttons = self
-                    .host_card_buttons
-                    .get(&id)
-                    .expect("host_card_buttons 在 render 顶部已 ensure");
-                let edit_btn = buttons.edit.clone();
-                let delete_btn = buttons.delete.clone();
+                    // ───── 活跃数 chip（仅当 active_count > 0） ─────
+                    let active_chip: Option<gpui::AnyElement> = if active_count > 0 {
+                        Some(
+                            aish_ui::Badge::new(format!("● {} 活跃", active_count))
+                                .success()
+                                .into_any_element(),
+                        )
+                    } else {
+                        None
+                    };
 
-                let actions = div()
-                    .flex()
-                    .flex_row()
-                    .gap_1()
-                    .opacity(0.0)
-                    .group_hover(group_name.clone(), |s| s.opacity(1.0))
-                    .child(edit_btn)
-                    .child(delete_btn);
+                    // ───── 右侧 chevron ─────
+                    let chevron = div()
+                        .text_color(colors.muted_foreground)
+                        .text_size(font_size.lg)
+                        .child("›");
 
-                // ───── 卡片主体 row ─────
-                // M13 简化：放弃 absolute hover overlay（GPUI/Taffy absolute 子元素
-                // 的 inset 在 flex container 内行为与 CSS 不一致，定位飘移），改为
-                // actions inline 但透明，body_row 标记 group → actions
-                // group_hover 显形。
-                //
-                // M27 anatomy：py 16 → 12，host card 更紧凑（Linear/Warp 风
-                // dev tool 高密度），avatar 40 + 3 行 (14/13/12) = ~52 + py 24
-                // = ~76px row 高，比之前 ~84px 略紧。
-                let body_row = div()
-                    .group(group_name)
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_3()
-                    .px_4()
-                    .py_3()
-                    .child(avatar)
-                    .child(
-                        div()
+                    // ───── 编辑 / 删除按钮（hover 才显形）─────
+                    // group/group_hover：body_row 标记 `.group(g)`，actions 子树
+                    // 默认 opacity(0)，body_row hover 时 actions opacity(1)。
+                    // 视觉上 default 仅 chevron，hover 多出 ✏ ⌫，chevron 位置不变
+                    // （actions 仍占 flex layout 空间，只是透明）。
+                    let group_name = gpui::SharedString::from(format!("host-card-row-{}", id));
+                    // M31: edit / delete IconButton 走 host_card_buttons entity
+                    let buttons = self
+                        .host_card_buttons
+                        .get(&id)
+                        .expect("host_card_buttons 在 render 顶部已 ensure");
+                    let edit_btn = buttons.edit.clone();
+                    let delete_btn = buttons.delete.clone();
+
+                    let actions = div()
+                        .flex()
+                        .flex_row()
+                        .gap_1()
+                        .opacity(0.0)
+                        .group_hover(group_name.clone(), |s| s.opacity(1.0))
+                        .child(edit_btn)
+                        .child(delete_btn);
+
+                    // ───── 卡片主体 row ─────
+                    // M13 简化：放弃 absolute hover overlay（GPUI/Taffy absolute 子元素
+                    // 的 inset 在 flex container 内行为与 CSS 不一致，定位飘移），改为
+                    // actions inline 但透明，body_row 标记 group → actions
+                    // group_hover 显形。
+                    //
+                    // M27 anatomy：py 16 → 12，host card 更紧凑（Linear/Warp 风
+                    // dev tool 高密度），avatar 40 + 3 行 (14/13/12) = ~52 + py 24
+                    // = ~76px row 高，比之前 ~84px 略紧。
+                    let body_row = div()
+                        .group(group_name)
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_3()
+                        .px_4()
+                        .py_3()
+                        .child(avatar)
+                        .child(
+                            div()
                             .flex_1()
                             .flex()
                             .flex_col()
@@ -738,46 +787,74 @@ impl Render for HomeView {
                                         None => "未连接".to_string(),
                                     }),
                             ),
-                    )
-                    .child(actions)
-                    .child(chevron);
+                        )
+                        .child(actions)
+                        .child(chevron);
 
-                // ───── 整张卡片 - 用 aish_ui::Card ─────
-                // 外包 stateful wrapper div 加 right-click → context menu。
-                // Card 自己已 stateful，wrapper id 与 Card id 不同避免冲突。
-                //
-                // M27: .no_padding() — body_row 已 px_4 py_3 padded（avatar +
-                // label/host_text/last_conn 3 行），Card 默认内置 padding 会
-                // 双重叠加。
-                let card =
-                    aish_ui::Card::new(gpui::SharedString::from(format!("host-card-{}", id)))
-                        .no_padding()
-                        .body(body_row)
-                        .on_click(cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
-                            this.handle_card_click(id, cx);
-                        }));
+                    // Phase 1 cards iter: 仅返回 (id, body_row.into_any_element())。
+                    // wrap div + Card entity.update 在 phase 2（drop app/theme 后）做。
+                    (id, body_row.into_any_element())
+                })
+                .collect();
+
+            // M26 T3: HOSTS 是 list-section divider label（Stripe/Linear 风），
+            // 用 Caption (12/400/muted) — 之前 xs (10px) 偏小不清晰
+            let hosts_section_label = div()
+                .pb_2()
+                .typography(aish_ui::TypeRole::Caption, theme)
+                .child("HOSTS");
+
+            // capture phase A 输出（drop borrow 前必须 own / Copy）
+            (
+                header.into_any_element(),
+                active_section,
+                cards_phase1,
+                hosts_section_label.into_any_element(),
+                app.hosts_load_error.clone(),
+                app.hosts.is_empty(),
+                colors.background,
+                theme.anatomy.page.outer_px,
+                theme.anatomy.page.outer_py_bottom,
+                theme.anatomy.list_row.gap_spacious,
+            )
+        };
+        // phase A end — app + theme borrow 释放
+
+        // ───── Phase B: cards Vec build with entity.update ─────
+        // 现在 cx mut borrow 可用，调 host_cards entity.update 灌 body_row
+        // 后包 right-click wrap div（context_menu open_at）。
+        let cards: Vec<gpui::AnyElement> = cards_phase1
+            .into_iter()
+            .map(|(id, body_row)| {
+                let card_entity = self
+                    .host_cards
+                    .get(&id)
+                    .cloned()
+                    .expect("host_cards 在 render 顶部已 ensure");
+                card_entity.update(cx, |c, _| {
+                    c.body(body_row);
+                });
                 div()
                     .id(gpui::SharedString::from(format!("host-card-wrap-{}", id)))
                     .on_mouse_down(
                         gpui::MouseButton::Right,
                         cx.listener(move |this, ev: &MouseDownEvent, _w, cx| {
                             this.menu_host_id = Some(id);
-                            this.menu_active_idx = 0; // 重置键盘选中态
+                            this.menu_active_idx = 0;
                             let pos = ev.position;
                             this.context_menu.update(cx, |m, cx| m.open_at(pos, cx));
                             cx.notify();
                         }),
                     )
-                    .child(card)
+                    .child(card_entity)
                     .into_any_element()
             })
             .collect();
 
-        // M28 T7: load 失败 → ErrorState + 重试 button；优先于 empty
-        // hint，因为这是真错误不是空状态。
-        let load_error = app.hosts_load_error.clone();
-        let empty_hint = if let Some(err) = load_error {
-            // M31：retry_btn entity 持 press feedback，每帧 clone 嵌入
+        // ───── Phase C: empty_hint + final layout（用 captured values）─────
+        // M28 T7: load 失败 → ErrorState 优先于 empty hint
+        // M28 T4: hosts 空 → EmptyState 4-slot anatomy
+        let empty_hint: Option<gpui::AnyElement> = if let Some(err) = load_error {
             Some(
                 aish_ui::ErrorState::new("home-hosts-load-failed")
                     .icon(aish_ui::IconName::FileQuestion)
@@ -786,9 +863,7 @@ impl Render for HomeView {
                     .action(self.retry_btn.clone())
                     .into_any_element(),
             )
-        }
-        // M28 T4: hosts 空 → EmptyState 4-slot anatomy
-        else if app.hosts.is_empty() {
+        } else if hosts_is_empty {
             Some(
                 aish_ui::EmptyState::new("home-no-hosts")
                     .icon(aish_ui::IconName::Inbox)
@@ -801,13 +876,6 @@ impl Render for HomeView {
             None
         };
 
-        // M26 T3: HOSTS 是 list-section divider label（Stripe/Linear 风），
-        // 用 Caption (12/400/muted) — 之前 xs (10px) 偏小不清晰
-        let hosts_section_label = div()
-            .pb_2()
-            .typography(aish_ui::TypeRole::Caption, theme)
-            .child("HOSTS");
-
         // ScrollPage 内部封装了 wheel + scrollbar + flex_1/min_h(0) layout。
         // caller 只需：父 flex_col + 持 ScrollHandle 字段。ContextMenu 平级
         // 挂 outer 内（不在 ScrollPage 内 — absolute backdrop 会被 scroll
@@ -817,23 +885,21 @@ impl Render for HomeView {
             .flex()
             .flex_col()
             .size_full()
-            .bg(colors.background)
+            .bg(bg_color)
             .child(
                 aish_ui::ScrollPage::new("home-scroll")
                     .scrollbar(&self.scrollbar)
                     .flex_1()
-                    .child(header)
-                    .children(active_section)
+                    .child(header_el)
+                    .children(active_section_el)
                     .child(
-                        // M27: HOSTS section 走 anatomy.page（outer_px 32 /
-                        // outer_py_bottom 24）+ list_row.gap_spacious (12)
                         div()
-                            .px(theme.anatomy.page.outer_px)
-                            .pb(theme.anatomy.page.outer_py_bottom)
+                            .px(anatomy_outer_px)
+                            .pb(anatomy_outer_py_bottom)
                             .flex()
                             .flex_col()
-                            .gap(theme.anatomy.list_row.gap_spacious)
-                            .child(hosts_section_label)
+                            .gap(anatomy_list_gap)
+                            .child(hosts_section_label_el)
                             .children(cards)
                             .children(empty_hint),
                     ),
