@@ -14,25 +14,47 @@
 //! （tab 操作 + 终端粘贴）。
 
 use aish_ui::theme::ThemeKind;
-use aish_ui::{theme, Card, Switch, Theme, TypographyExt};
-use gpui::{div, prelude::*, px, AnyElement, Context, IntoElement, SharedString, Window};
+use aish_ui::{theme, ButtonEntity, Card, Switch, Theme, TypographyExt};
+use gpui::{div, prelude::*, px, AnyElement, Context, Entity, IntoElement, SharedString, Window};
 
 pub struct SettingsView {
     /// scrollbar 状态 — ScrollPage 接管 wheel / scrollbar / 拖拽。
     scrollbar: aish_ui::ScrollbarHandle,
+    /// M31：About section 两个 secondary button entity（press feedback 80ms）。
+    open_config_btn: Entity<ButtonEntity>,
+    open_github_btn: Entity<ButtonEntity>,
 }
 
 impl SettingsView {
-    pub fn new() -> Self {
+    pub fn new(cx: &mut Context<Self>) -> Self {
+        let open_config_btn = cx.new(|cx| {
+            let mut b = ButtonEntity::new("settings-open-config-dir", cx);
+            b.label("打开配置目录").secondary().on_click(|_ev, _w, cx| {
+                match crate::app_state_file::config_dir() {
+                    Some(dir) => {
+                        // dir 不存在时 reveal_path 部分平台会报错，先确保存在
+                        let _ = std::fs::create_dir_all(&dir);
+                        cx.reveal_path(&dir);
+                    }
+                    None => {
+                        aish_ui::toast_error(cx, "无法定位配置目录");
+                    }
+                }
+            });
+            b
+        });
+        let open_github_btn = cx.new(|cx| {
+            let mut b = ButtonEntity::new("settings-open-github", cx);
+            b.label("查看 GitHub").secondary().on_click(|_ev, _w, cx| {
+                cx.open_url("https://github.com/larrygogo/aish");
+            });
+            b
+        });
         Self {
             scrollbar: aish_ui::ScrollbarHandle::new(),
+            open_config_btn,
+            open_github_btn,
         }
-    }
-}
-
-impl Default for SettingsView {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -226,31 +248,8 @@ impl Render for SettingsView {
             .flex()
             .flex_row()
             .gap_2()
-            .child(
-                aish_ui::Button::new("settings-open-config-dir")
-                    .label("打开配置目录")
-                    .secondary()
-                    .on_click(cx.listener(|_this, _ev: &gpui::MouseDownEvent, _w, cx| {
-                        match crate::app_state_file::config_dir() {
-                            Some(dir) => {
-                                // dir 不存在时 reveal_path 部分平台会报错，先确保存在
-                                let _ = std::fs::create_dir_all(&dir);
-                                cx.reveal_path(&dir);
-                            }
-                            None => {
-                                aish_ui::toast_error(cx, "无法定位配置目录");
-                            }
-                        }
-                    })),
-            )
-            .child(
-                aish_ui::Button::new("settings-open-github")
-                    .label("查看 GitHub")
-                    .secondary()
-                    .on_click(cx.listener(|_this, _ev: &gpui::MouseDownEvent, _w, cx| {
-                        cx.open_url("https://github.com/larrygogo/aish");
-                    })),
-            );
+            .child(self.open_config_btn.clone())
+            .child(self.open_github_btn.clone());
 
         let about_card = Card::new("settings-about")
             .outlined()

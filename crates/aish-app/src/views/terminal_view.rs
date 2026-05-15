@@ -145,6 +145,9 @@ pub struct TerminalView {
     /// on_next_frame 异步写入。mouse_down/move 事件的 position 是窗口绝对坐标，
     /// 必须减去 bounds.origin + padding 才能映射到 grid 坐标。
     canvas_bounds: Option<Bounds<Pixels>>,
+    /// M31：Disconnected 状态下的 reconnect button entity（press feedback 80ms）。
+    /// 仅在 Disconnected 状态 render，其他状态 entity 静置不渲染。
+    reconnect_btn: Entity<aish_ui::ButtonEntity>,
 }
 
 impl TerminalView {
@@ -169,6 +172,18 @@ impl TerminalView {
         })
         .detach();
 
+        // M31: reconnect button entity，weak.upgrade callback 触发 self.handle_reconnect
+        let weak = cx.weak_entity();
+        let reconnect_btn = cx.new(|cx| {
+            let mut b = aish_ui::ButtonEntity::new("terminal-reconnect", cx);
+            b.label("重新连接").primary().on_click(move |_ev, _w, cx| {
+                if let Some(this) = weak.upgrade() {
+                    this.update(cx, |this, cx| this.handle_reconnect(cx));
+                }
+            });
+            b
+        });
+
         Self {
             state,
             bridge,
@@ -178,6 +193,7 @@ impl TerminalView {
             last_pty_size: None,
             pending_resize: None,
             canvas_bounds: None,
+            reconnect_btn,
         }
     }
 
@@ -964,14 +980,7 @@ impl Render for TerminalView {
                                         .child(reason),
                                 ),
                         )
-                        .child(
-                            aish_ui::Button::new("terminal-reconnect")
-                                .label("重新连接")
-                                .primary()
-                                .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
-                                    this.handle_reconnect(cx);
-                                })),
-                        )
+                        .child(self.reconnect_btn.clone())
                         .into_any_element(),
                 ),
                 _ => None,

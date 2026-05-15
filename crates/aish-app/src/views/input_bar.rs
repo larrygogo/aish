@@ -60,6 +60,11 @@ pub struct InputBarView {
     /// GPUI active_drag 是 pub(crate) 没观察 API，render 内直接 read cx 不
     /// 触发自身 re-render — 必须 polling + 持久字段。
     has_external_drag: bool,
+    /// M31：pick (Plus) IconButton entity（press feedback 80ms）。
+    pick_btn: gpui::Entity<aish_ui::IconButtonEntity>,
+    /// M31：send Button entity；render 每帧 .update(...) 应用动态 label
+    /// (spinner / "发送") + disabled 状态（is_uploading || !is_connected）。
+    send_btn: gpui::Entity<aish_ui::ButtonEntity>,
 }
 
 /// CLI 标准 Braille spinner 10 帧（与 npm `ora` / `cli-spinners` 的 `dots`
@@ -173,6 +178,36 @@ impl InputBarView {
         })
         .detach();
 
+        // M31: pick + send button entities. handler 通过 weak_self 上调 self
+        // 的 pick_images / 通过文本回路 走 send（与 Enter 路径同样不读 input 防 double-borrow）。
+        let weak_pick = cx.weak_entity();
+        let pick_btn = cx.new(|cx| {
+            let mut b =
+                aish_ui::IconButtonEntity::new("input-bar-pick", aish_ui::IconName::Plus, cx);
+            b.small().secondary().on_click(move |_ev, _w, cx| {
+                if let Some(this) = weak_pick.upgrade() {
+                    this.update(cx, |this, cx| this.pick_images(cx));
+                }
+            });
+            b
+        });
+        let weak_send = cx.weak_entity();
+        let weak_input = input.downgrade();
+        let send_btn = cx.new(|cx| {
+            let mut b = aish_ui::ButtonEntity::new("input-bar-send", cx);
+            b.label("发送").primary().on_click(move |_ev, window, cx| {
+                // 与 Enter 路径同：读取 input 文本后调 self.send
+                let text = weak_input
+                    .upgrade()
+                    .map(|e| e.read(cx).text().to_string())
+                    .unwrap_or_default();
+                if let Some(this) = weak_send.upgrade() {
+                    this.update(cx, move |this, cx| this.send(text, window, cx));
+                }
+            });
+            b
+        });
+
         Self {
             conn,
             state,
@@ -182,6 +217,8 @@ impl InputBarView {
             last_uploading: false,
             spinner_phase: 0,
             has_external_drag: false,
+            pick_btn,
+            send_btn,
         }
     }
 
@@ -573,44 +610,30 @@ impl Render for InputBarView {
             .gap(px(10.0))
             .px(px(12.0))
             .py(px(8.0))
-            .child(
-                aish_ui::IconButton::new("input-bar-pick", aish_ui::IconName::Plus)
-                    .small()
-                    .secondary()
-                    // 上传中锁定：禁止再添加图片（与 Send 按钮同步 disabled）
-                    .disabled(is_uploading)
-                    .on_click(
-                        cx.listener(|this, _ev: &gpui::MouseDownEvent, _window, cx| {
-                            this.pick_images(cx);
-                        }),
-                    ),
-            )
+            .child({
+                // M31: pick_btn 每帧 update 同步 disabled 状态（is_uploading
+                // 时锁定），其他配置 new 时一次性 set 后不变。
+                self.pick_btn.update(cx, |b, _| {
+                    b.disabled(is_uploading);
+                });
+                self.pick_btn.clone()
+            })
             .child(div().flex_1().child(self.input.clone()))
-            .child(
-                aish_ui::Button::new("input-bar-send")
-                    // 上传中：Braille spinner + "上传中 X/Y"；空闲态 "发送"
-                    .label(if let Some((d, n)) = upload_progress {
-                        let spinner = SPINNER_FRAMES[self.spinner_phase as usize];
-                        SharedString::from(format!("{} 上传中 {}/{}", spinner, d, n))
-                    } else {
-                        SharedString::from("发送")
-                    })
-                    .primary()
-                    // 上传中 / Disconnected 都 disable：
-                    // - is_uploading：视觉灰化 + 不响应 click。send() 内部还有
-                    //   一层 pending_uploads 检查兜底（防 Enter / 快捷键绕过
-                    //   按钮 disabled 直接走 send）。
-                    // - !is_connected：actor sender 已销，send() 兜底走 noop
-                    //   (state.sessions.get 返 None)；视觉同步表达"发不出去"。
-                    //   label 不改 — disabled 灰已够，"未连接"文字反而干扰。
-                    .disabled(is_uploading || !is_connected)
-                    .on_click(cx.listener(|this, _ev: &gpui::MouseDownEvent, window, cx| {
-                        // 按钮 click 路径不嵌套（InputBarView listener，
-                        // input 是别的 entity，read 是首次借用 OK）
-                        let text = this.input.read(cx).text().to_string();
-                        this.send(text, window, cx);
-                    })),
-            );
+            .child({
+                // M31: send_btn 每帧 update：label 随 upload_progress 切换
+                // (spinner / "发送")，disabled 联动 is_uploading / !is_connected。
+                let label_str = if let Some((d, n)) = upload_progress {
+                    let spinner = SPINNER_FRAMES[self.spinner_phase as usize];
+                    SharedString::from(format!("{} 上传中 {}/{}", spinner, d, n))
+                } else {
+                    SharedString::from("发送")
+                };
+                let send_disabled = is_uploading || !is_connected;
+                self.send_btn.update(cx, |b, _| {
+                    b.label(label_str).disabled(send_disabled);
+                });
+                self.send_btn.clone()
+            });
 
         // InputBar 整体改 chat-card 风：rounded + border + bg(card)。
         // input 自身 borderless，视觉框由 outer card 提供；缩略图 / 进度 / +

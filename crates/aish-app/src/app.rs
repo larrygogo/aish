@@ -422,7 +422,7 @@ impl RootView {
         });
         let empty_terminal =
             cx.new(|cx| crate::views::EmptyTerminalGuideView::new(state.clone(), cx));
-        let settings = cx.new(|_cx| crate::views::SettingsView::new());
+        let settings = cx.new(crate::views::SettingsView::new);
         let host_form = cx.new(|cx| {
             crate::views::HostFormModal::new(state.clone(), bridge.clone(), tx.clone(), cx)
         });

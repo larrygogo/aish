@@ -34,6 +34,12 @@ pub struct HomeView {
     /// 含 ScrollHandle + drag flag，ScrollPage builder 一句接管所有 wheel /
     /// scrollbar / 拖拽行为。
     scrollbar: aish_ui::ScrollbarHandle,
+    /// M31：顶部 page header "+ 添加 host" button（永远显示）。
+    header_add_btn: Entity<aish_ui::ButtonEntity>,
+    /// M31：空 hosts 状态 EmptyState 内的 add button（条件显示）。
+    empty_add_btn: Entity<aish_ui::ButtonEntity>,
+    /// M31：hosts.json 加载失败时 ErrorState 内的 retry button（条件显示）。
+    retry_btn: Entity<aish_ui::ButtonEntity>,
 }
 
 /// host 右键菜单 item 数量（编辑 / 复制 / 删除）。与 render 内 items() 匹配。
@@ -65,6 +71,42 @@ impl HomeView {
                 }
             });
         });
+        // M31: 3 个单例 button entity，weak.upgrade callback 透传到 self method
+        let weak_add_header = cx.weak_entity();
+        let header_add_btn = cx.new(|cx| {
+            let mut b = aish_ui::ButtonEntity::new("home-add-host-btn", cx);
+            b.label("+ 添加 host")
+                .primary()
+                .on_click(move |_ev, _w, cx| {
+                    if let Some(this) = weak_add_header.upgrade() {
+                        this.update(cx, |this, cx| this.handle_add_click(cx));
+                    }
+                });
+            b
+        });
+        let weak_add_empty = cx.weak_entity();
+        let empty_add_btn = cx.new(|cx| {
+            let mut b = aish_ui::ButtonEntity::new("home-empty-add-host", cx);
+            b.label("+ 添加 host")
+                .primary()
+                .on_click(move |_ev, _w, cx| {
+                    if let Some(this) = weak_add_empty.upgrade() {
+                        this.update(cx, |this, cx| this.handle_add_click(cx));
+                    }
+                });
+            b
+        });
+        let weak_retry = cx.weak_entity();
+        let retry_btn = cx.new(|cx| {
+            let mut b = aish_ui::ButtonEntity::new("home-hosts-load-retry", cx);
+            b.label("重试加载").primary().on_click(move |_ev, _w, cx| {
+                if let Some(this) = weak_retry.upgrade() {
+                    this.update(cx, |this, cx| this.handle_retry_load_hosts(cx));
+                }
+            });
+            b
+        });
+
         Self {
             state,
             bridge,
@@ -73,6 +115,9 @@ impl HomeView {
             menu_host_id: None,
             menu_active_idx: 0,
             scrollbar: aish_ui::ScrollbarHandle::new(),
+            header_add_btn,
+            empty_add_btn,
+            retry_btn,
         }
     }
 
@@ -305,11 +350,8 @@ impl Render for HomeView {
         let font_size = theme.font_size;
 
         // ───── Quick Actions 顶部栏 ─────
-        // 顶部主 CTA → primary（绿色突出），与 Settings 等次要按钮区分
-        let add_btn = aish_ui::Button::new("home-add-host-btn")
-            .label("+ 添加 host")
-            .primary()
-            .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| this.handle_add_click(cx)));
+        // 顶部主 CTA → primary。M31：header_add_btn entity 持 press feedback。
+        let add_btn = self.header_add_btn.clone();
 
         // M27: page header padding 走 anatomy.page（outer_px 32 / outer_py_top 24 /
         // header_to_content_gap 16）— 之前 px_8/pt_6/pb_3 等价 32/24/12，
@@ -666,35 +708,24 @@ impl Render for HomeView {
         // hint，因为这是真错误不是空状态。
         let load_error = app.hosts_load_error.clone();
         let empty_hint = if let Some(err) = load_error {
-            let retry_btn = aish_ui::Button::new("home-hosts-load-retry")
-                .primary()
-                .label("重试")
-                .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
-                    this.handle_retry_load_hosts(cx);
-                }));
+            // M31：retry_btn entity 持 press feedback，每帧 clone 嵌入
             Some(
                 aish_ui::ErrorState::new("home-hosts-load-failed")
                     .icon(aish_ui::IconName::FileQuestion)
                     .title("加载主机列表失败")
                     .description(err)
-                    .action(retry_btn)
+                    .action(self.retry_btn.clone())
                     .into_any_element(),
             )
         }
         // M28 T4: hosts 空 → EmptyState 4-slot anatomy
         else if app.hosts.is_empty() {
-            let add_btn = aish_ui::Button::new("home-empty-add-host")
-                .primary()
-                .label("+ 添加 host")
-                .on_click(
-                    cx.listener(|this, _ev: &MouseDownEvent, _w, cx| this.handle_add_click(cx)),
-                );
             Some(
                 aish_ui::EmptyState::new("home-no-hosts")
                     .icon(aish_ui::IconName::Inbox)
                     .title("还没有保存的连接")
                     .description("点击右上角 + 添加 host 开始")
-                    .action(add_btn)
+                    .action(self.empty_add_btn.clone())
                     .into_any_element(),
             )
         } else {
