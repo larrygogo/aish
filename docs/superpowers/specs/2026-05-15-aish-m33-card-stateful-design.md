@@ -149,11 +149,31 @@ Card 没 Ghost variant；3 variant (Default / Outlined / Elevated) bg 都是
 |---|---|---|
 | spec/plan | `baf4605` | spec 7 ADR + plan 4 task |
 | T1 | `834671f` | ✅ CardEntity 旁挂（aish-ui 内）+ 完整状态机 |
-| T2 (home host card) | — | ⛔ **暂停**（cx borrow 冲突，详下） |
-| T3 (settings 3 Card) | — | ⛔ **暂停**（同 T2 borrow 模式） |
-| T4 (删 stateless rename) | — | ⛔ **暂停** |
+| T2 (home host card) | `ac63224` | ✅ **续做完成**（home render split 3 阶段解锁） |
+| T3 (settings 3 Card) | — | 📌 **不做**（settings 无 on_click → hover/press 无意义，保留 stateless Card 双 type 共存） |
+| T4 (删 stateless rename) | — | 📌 **不做**（settings 仍依赖 stateless，长期保留双 type） |
 
-### T2 暂停原因 — cx borrow 实际超 spec 估算
+### T2 续做（commit `ac63224`）
+
+T2 第一次实施暂停的根因（spec/plan 估算 0.25 天，实际撞 cx borrow 冲突
+需要 render split 3 阶段重构 1+ 天）现已解决。完整改造内容见 commit message：
+
+**Phase A**（block scope app + theme borrow）：build header / active_section /
+cards_phase1（仅 collect (id, body_row)）/ hosts_section_label + capture
+load_error / hosts_is_empty / colors.background / anatomy 三 Pixels token。
+Tuple 输出 10 个 owned values。
+
+**Phase B**（drop borrow）：cards_phase1 iter，调
+`self.host_cards.get(&id).update(cx, |c, _| c.body(body_row))` 灌 body，
+包 right-click wrap div + .child(card_entity) → cards: Vec<AnyElement>。
+
+**Phase C**（用 captured values）：empty_hint build + final layout div +
+ScrollPage 组装（不再借 theme/app）。
+
+测试 268/147 全通过。Home host card 现在 mouse 移入 150ms bg lerp +
+mouse_down 0.7→1.0 opacity press feedback。
+
+### T2 暂停期遗留分析
 
 spec/plan 估算 T2 home host card 改造 0.25 天，实施时撞到 GPUI render
 内 `app = state.read(cx)` + `theme = aish_ui::theme(cx)` 跨 cards iter
@@ -180,11 +200,18 @@ phase 2 drop borrow + entity.update + cards Vec，phase 3 re-borrow build
 rest）。home.rs render 函数 ~500 行需要重组。**实际工程量预估 1+ 天**，
 远超 spec 的 0.25 天。
 
-### 决策：T2-T4 暂停
+### 最终决策（commit `ac63224` 后）
 
-- ✅ T1 CardEntity 基础设施已就绪（aish-ui 旁挂可用）
-- ⛔ T2-T4 暂停 — 等以后有时间重构 home.rs render 时一并做，或寻找
-  alternative 不需要 AnyElement 每帧 update 的方案
+- ✅ T1 CardEntity 基础设施就绪
+- ✅ T2 home host card 落地（render split 3 阶段解锁）
+- 📌 T3 settings 3 Card 不做（无 on_click → hover/press 无意义，保留
+  stateless Card 服务 settings）
+- 📌 T4 删 stateless + rename 不做（settings 长期依赖 stateless）
+
+**最终态**：aish-ui 内 Card (stateless RenderOnce) + CardEntity (stateful)
+**双 type 共存**。Card 用于 settings 装饰容器（zero hover/click 视觉
+需求）；CardEntity 用于 home host card 等需要 motion 反馈场景。caller
+按场景选合适 type，编译期类型区分清晰。
 
 ### 启示 / 未来评估
 
@@ -211,6 +238,6 @@ rest）。home.rs render 函数 ~500 行需要重组。**实际工程量预估 1
 | 内容 | 状态 |
 |---|---|
 | CardEntity 基础设施 | ✅ 完成（旁挂在 aish-ui） |
-| home host card hover transition | ⛔ Defer M34+ |
-| Settings 3 Card 升 Entity | ⛔ Defer（无实际收益，无 on_click） |
-| 删 stateless Card / rename | ⛔ Defer 等 callsite 全迁后做 |
+| home host card hover transition | ✅ 完成（commit `ac63224` render split + 接入） |
+| Settings 3 Card 升 Entity | 📌 不做（无实际收益） |
+| 删 stateless Card / rename | 📌 不做（双 type 共存 by design） |
