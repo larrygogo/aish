@@ -101,7 +101,13 @@ impl RenderOnce for Card {
                 el = el.border_1().border_color(t.colors.border);
             }
             CardVariant::Elevated => {
-                el = el.border_1().border_color(t.colors.ring);
+                // M24/M25：Elevated 用 hairline border + elevation_1 shadow
+                // 浮起（Linear/Warp 风），替代之前用 ring 色 border 的 hack
+                // （ring 现在是 indigo，紫 border 太抢眼与 Card 主信息冲突）
+                el = el
+                    .border_1()
+                    .border_color(t.colors.border)
+                    .shadow(crate::theme::elevation_1(t.kind));
             }
         }
 
