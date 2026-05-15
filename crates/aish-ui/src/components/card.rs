@@ -3,6 +3,17 @@
 //! `AnyElement` 不可 Clone，Card 走 `#[derive(IntoElement)] + RenderOnce`
 //! 一次性消费（与 Dialog body 同模式）。每帧调用方通过 builder 重新构造。
 //!
+//! ## M27 内置 padding（默认开启）
+//!
+//! 每个 slot 默认应用 `t.anatomy.card.{header,body,footer}_{px,py}`：
+//! - header: 16/10
+//! - body: 16/12
+//! - footer: 16/10
+//!
+//! caller 的 child（如 settings section_header / two_column_row）不应再
+//! 自己设 px_4/py_3 — 会与 Card 内置 padding 双重叠加。需要 opt-out 时调
+//! `.no_padding()`（host card 自身 row 已 px_4/py_3 padded 的场景）。
+//!
 //! **关于"hover 才显示的浮层"（如编辑/删除按钮）**：Card 不内置 actions
 //! 浮层（之前尝试用 absolute + group_hover 内置但定位歧义大）。需要这种效果
 //! 时，调用方自己在 body 内安排：body 容器 `.relative()` + `.group(name)`，
@@ -33,6 +44,10 @@ pub struct Card {
     footer: Option<AnyElement>,
     variant: CardVariant,
     on_click: Option<ClickHandler>,
+    /// M27：内置 padding 开关。默认 true（每 slot 走 anatomy.card.*_p{x,y}）。
+    /// caller 自身 child 已 padded 时调 `.no_padding()` opt-out 防双重叠加
+    /// （典型场景：host card body 是 `.px_4.py_3` 的 row 容器）。
+    padding: bool,
 }
 
 impl Card {
@@ -44,7 +59,15 @@ impl Card {
             footer: None,
             variant: CardVariant::Default,
             on_click: None,
+            padding: true,
         }
+    }
+
+    /// 关闭内置 padding —— caller 自己控制每 slot 内部 padding。
+    /// 用于 host card 这种 body 已是完整 padded row 的场景。
+    pub fn no_padding(mut self) -> Self {
+        self.padding = false;
+        self
     }
 
     pub fn header(mut self, h: impl IntoElement) -> Self {
@@ -125,9 +148,35 @@ impl RenderOnce for Card {
                 });
         }
 
-        el.when_some(self.header, |d, h| d.child(div().child(h)))
-            .when_some(self.body, |d, b| d.child(div().flex_1().child(b)))
-            .when_some(self.footer, |d, f| d.child(div().child(f)))
+        // M27 内置 padding（默认）：每 slot 包裹 div 应用
+        // anatomy.card.{header/body/footer}_{px/py}。.no_padding() opt-out 时
+        // 走 M11 原行为（裸 child 不加 wrapper padding）。
+        let pad = self.padding;
+        let a = t.anatomy.card;
+        el.when_some(self.header, |d, h| {
+            let wrapper = if pad {
+                div().px(a.header_px).py(a.header_py)
+            } else {
+                div()
+            };
+            d.child(wrapper.child(h))
+        })
+        .when_some(self.body, |d, b| {
+            let wrapper = if pad {
+                div().flex_1().px(a.body_px).py(a.body_py)
+            } else {
+                div().flex_1()
+            };
+            d.child(wrapper.child(b))
+        })
+        .when_some(self.footer, |d, f| {
+            let wrapper = if pad {
+                div().px(a.footer_px).py(a.footer_py)
+            } else {
+                div()
+            };
+            d.child(wrapper.child(f))
+        })
     }
 }
 
@@ -166,5 +215,18 @@ mod tests {
     fn on_click_stored() {
         let c = Card::new("a").on_click(|_, _, _| {});
         assert!(c.on_click.is_some());
+    }
+
+    #[test]
+    fn padding_default_true() {
+        // M27: Card 默认带 anatomy.card.* padding
+        let c = Card::new("a");
+        assert!(c.padding);
+    }
+
+    #[test]
+    fn no_padding_chains() {
+        let c = Card::new("a").no_padding();
+        assert!(!c.padding);
     }
 }

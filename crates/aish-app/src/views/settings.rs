@@ -157,6 +157,7 @@ impl Render for SettingsView {
 
         let appearance_card = Card::new("settings-appearance")
             .outlined()
+            .no_padding() // M27: section_header + row helpers 都自带 px_4，opt-out 防双重
             .header(section_header("Appearance", t))
             .body(
                 div()
@@ -170,6 +171,7 @@ impl Render for SettingsView {
         // 接管；Ctrl+W / Ctrl+T / Ctrl+Tab 走 terminal_view focused 路径。
         let shortcuts_card = Card::new("settings-shortcuts")
             .outlined()
+            .no_padding() // M27: section_header + row helpers 都自带 px_4，opt-out 防双重
             .header(section_header("Keyboard Shortcuts", t))
             .body(
                 div()
@@ -219,6 +221,7 @@ impl Render for SettingsView {
 
         let about_card = Card::new("settings-about")
             .outlined()
+            .no_padding() // M27: section_header + row helpers 都自带 px_4，opt-out 防双重
             .header(section_header("About", t))
             .body(
                 div()

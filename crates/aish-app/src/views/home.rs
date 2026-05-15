@@ -631,8 +631,13 @@ impl Render for HomeView {
                 // ───── 整张卡片 - 用 aish_ui::Card ─────
                 // 外包 stateful wrapper div 加 right-click → context menu。
                 // Card 自己已 stateful，wrapper id 与 Card id 不同避免冲突。
+                //
+                // M27: .no_padding() — body_row 已 px_4 py_3 padded（avatar +
+                // label/host_text/last_conn 3 行），Card 默认内置 padding 会
+                // 双重叠加。
                 let card =
                     aish_ui::Card::new(gpui::SharedString::from(format!("host-card-{}", id)))
+                        .no_padding()
                         .body(body_row)
                         .on_click(cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
                             this.handle_card_click(id, cx);
