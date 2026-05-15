@@ -147,6 +147,15 @@ pub struct TerminalView {
     /// M31：Disconnected 状态下的 reconnect button entity（press feedback 80ms）。
     /// 仅在 Disconnected 状态 render，其他状态 entity 静置不渲染。
     reconnect_btn: Entity<aish_ui::Button>,
+    /// M35 T12: Disconnected ErrorState 内「编辑 host」button（打开 HostForm
+    /// Edit modal）。仅 Disconnected 状态显示。
+    edit_host_btn: Entity<aish_ui::Button>,
+    /// M35 T12: Disconnected ErrorState 内「复制错误」button — 把 reason
+    /// 写到剪贴板方便用户粘到 issue / 求助消息。
+    copy_error_btn: Entity<aish_ui::Button>,
+    /// 最近一次 Disconnected reason 的镜像 — copy_error_btn click handler
+    /// 用（避免在 closure 内反复 read state）。每帧 render 时刷新。
+    last_disconnect_reason: String,
 }
 
 impl TerminalView {
@@ -183,6 +192,32 @@ impl TerminalView {
             b
         });
 
+        // M35 T12: 编辑 host + 复制错误 button entities
+        let weak_edit = cx.weak_entity();
+        let edit_host_btn = cx.new(|cx| {
+            let mut b = aish_ui::Button::new("terminal-edit-host", cx);
+            b.label("编辑 host")
+                .secondary()
+                .on_click(move |_ev, _w, cx| {
+                    if let Some(this) = weak_edit.upgrade() {
+                        this.update(cx, |this, cx| this.handle_edit_host(cx));
+                    }
+                });
+            b
+        });
+        let weak_copy = cx.weak_entity();
+        let copy_error_btn = cx.new(|cx| {
+            let mut b = aish_ui::Button::new("terminal-copy-error", cx);
+            b.label("复制错误")
+                .secondary()
+                .on_click(move |_ev, _w, cx| {
+                    if let Some(this) = weak_copy.upgrade() {
+                        this.update(cx, |this, cx| this.handle_copy_error(cx));
+                    }
+                });
+            b
+        });
+
         Self {
             state,
             bridge,
@@ -193,6 +228,9 @@ impl TerminalView {
             pending_resize: None,
             canvas_bounds: None,
             reconnect_btn,
+            edit_host_btn,
+            copy_error_btn,
+            last_disconnect_reason: String::new(),
         }
     }
 
@@ -801,6 +839,44 @@ impl TerminalView {
         });
     }
 
+    /// M35 T12: 编辑当前 connection 对应的 host → 打开 HostForm Edit modal。
+    fn handle_edit_host(&mut self, cx: &mut Context<Self>) {
+        let conn = match self.state.read(cx).current_connection() {
+            Some(c) => c,
+            None => return,
+        };
+        let (host_id, cfg) = {
+            let app = self.state.read(cx);
+            let host_id = match app.connections.get(&conn).map(|c| c.host_id) {
+                Some(h) => h,
+                None => return,
+            };
+            let cfg = match app.hosts.iter().find(|h| h.id == host_id).cloned() {
+                Some(c) => c,
+                None => return,
+            };
+            (host_id, cfg)
+        };
+        self.state.update(cx, |s, cx| {
+            s.modal = Some(crate::state::HostFormState::Editing {
+                id: host_id,
+                draft: crate::state::HostFormDraft::from_config(&cfg),
+            });
+            cx.notify();
+        });
+    }
+
+    /// M35 T12: 复制 disconnect reason 到剪贴板（用户可粘到 issue / 求助）。
+    fn handle_copy_error(&mut self, cx: &mut Context<Self>) {
+        if self.last_disconnect_reason.is_empty() {
+            return;
+        }
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string(
+            self.last_disconnect_reason.clone(),
+        ));
+        aish_ui::toast_success(cx, "错误信息已复制到剪贴板");
+    }
+
     fn check_resize(&mut self, bounds: Bounds<Pixels>, cx: &mut Context<Self>) {
         self.canvas_bounds = Some(bounds);
 
@@ -945,43 +1021,49 @@ impl Render for TerminalView {
                         )
                         .into_any_element(),
                 ),
-                Some(ConnectionPhase::Disconnected { reason }) => Some(
-                    div()
-                        .absolute()
-                        .left_0()
-                        .right_0()
-                        .bottom_0()
-                        .px_4()
-                        .py_3()
-                        .bg(colors.card)
-                        .border_t_1()
-                        .border_color(colors.border)
+                Some(ConnectionPhase::Disconnected { reason }) => {
+                    // M35 T12: 中央 ErrorState（替代之前底部 strip）— icon +
+                    // 「连接已断开」标题 + reason (Code typography muted) +
+                    // 3 action button (重新连接 / 编辑 host / 复制错误)。
+                    // 镜像 reason 到 self.last_disconnect_reason 给 copy handler 用。
+                    self.last_disconnect_reason = reason.clone();
+                    let host_label = label.clone().unwrap_or_default();
+                    let title = if host_label.is_empty() {
+                        "连接已断开".to_string()
+                    } else {
+                        format!("连接已断开 — {}", host_label)
+                    };
+                    let actions = div()
                         .flex()
                         .flex_row()
                         .items_center()
-                        .gap_3()
-                        .child(
-                            div()
-                                .flex_1()
-                                .flex()
-                                .flex_col()
-                                .gap_0p5()
-                                .child(
-                                    div()
-                                        .text_size(fs.sm)
-                                        .text_color(colors.foreground)
-                                        .child("连接已断开"),
-                                )
-                                .child(
-                                    div()
-                                        .text_size(fs.xs)
-                                        .text_color(colors.muted_foreground)
-                                        .child(reason),
-                                ),
-                        )
+                        .gap_2()
                         .child(self.reconnect_btn.clone())
-                        .into_any_element(),
-                ),
+                        .child(self.edit_host_btn.clone())
+                        .child(self.copy_error_btn.clone());
+                    let error_state = aish_ui::ErrorState::new("terminal-disconnected")
+                        .icon(aish_ui::IconName::AlertCircle)
+                        .title(title)
+                        .description(reason)
+                        .action(actions);
+                    Some(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .left_0()
+                            .right_0()
+                            .bottom_0()
+                            .flex()
+                            .flex_col()
+                            .items_center()
+                            .justify_center()
+                            // 半透明遮罩让 terminal scrollback 仍可隐约可见
+                            // 但视觉重心在中央 ErrorState
+                            .bg(gpui::rgba(0x000000d0))
+                            .child(error_state)
+                            .into_any_element(),
+                    )
+                }
                 _ => None,
             }
         });
