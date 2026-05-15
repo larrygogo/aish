@@ -244,14 +244,23 @@ impl HostFormModal {
                 match next {
                     SyncedKey::DeleteConfirm(_) => {
                         // 切到 delete confirm：先关 add/edit dialog，再开 delete_dialog
+                        // M29 D-9 / R10：initial_focus 给 Cancel button，
+                        // Enter 触发 Cancel 而非 删除（避免误删）
                         self.dialog.update(cx, |d, cx| d.close(cx));
-                        self.delete_dialog.update(cx, |d, cx| d.open(cx));
+                        let cancel_fh = self.delete_cancel_focus.clone();
+                        self.delete_dialog.update(cx, |d, cx| {
+                            d.initial_focus(cancel_fh);
+                            d.open(cx);
+                        });
                     }
                     SyncedKey::Adding | SyncedKey::Editing(_) => {
                         // 切到 add/edit：关 delete_dialog（edit → Delete 路径），
                         // 同步 input + focus_chain，再开 dialog
+                        // M29 D-9：initial_focus 给 label_input，open 后 cursor
+                        // 立即闪在 label 字段（无需用户点一下才能输入）
                         self.delete_dialog.update(cx, |d, cx| d.close(cx));
                         self.fill_inputs_from_modal(cx);
+                        let label_fh = self.label_input.read(cx).focus_handle(cx);
                         let chain = vec![
                             self.label_input.read(cx).focus_handle(cx),
                             self.host_input.read(cx).focus_handle(cx),
@@ -262,6 +271,7 @@ impl HostFormModal {
                         ];
                         self.dialog.update(cx, |d, cx| {
                             d.focus_chain(chain);
+                            d.initial_focus(label_fh);
                             d.open(cx);
                         });
                     }
