@@ -18,8 +18,8 @@ use std::sync::Arc;
 use aish_types::HostId;
 use aish_ui::{theme, Button, Dialog, TextInput, TypographyExt};
 use gpui::{
-    div, prelude::*, App, Context, Entity, Focusable, IntoElement, MouseDownEvent,
-    PathPromptOptions, SharedString, Window,
+    div, prelude::*, AnyElement, App, Context, Entity, FocusHandle, Focusable, IntoElement,
+    MouseDownEvent, PathPromptOptions, SharedString, Window,
 };
 
 use crate::bridge::Bridge;
@@ -32,6 +32,13 @@ pub struct HostFormModal {
     #[allow(dead_code)]
     tx: tokio::sync::mpsc::Sender<SshEvent>,
     dialog: Entity<Dialog>,
+    /// M29 D-6：delete confirm 拆独立 dialog（380 窄 + destructive 视觉）。
+    /// 与 add/edit dialog 独立 open/close，避免共用 body 时分支爆炸。
+    delete_dialog: Entity<Dialog>,
+    /// M29 D-9：delete_dialog 默认 focus 的 Cancel button focus handle。
+    /// Cancel button 注入此 handle，delete_dialog.initial_focus 也指向它，
+    /// 确保 dialog open 时 Cancel 默认聚焦，Enter 触发 Cancel 而非 删除（R10）。
+    delete_cancel_focus: FocusHandle,
     /// M29 D-3：auth 切换从 Tabs Entity → enum 字段。
     /// 默认 KeyFile（与 M12 Tabs 默认 active=0 等价）。
     auth_kind: AuthKind,
@@ -113,6 +120,20 @@ impl HostFormModal {
             });
         });
 
+        // M29 D-6: delete confirm 独立 dialog（380 窄 + 标题改 "删除 Host?"）
+        let delete_dialog = cx.new(Dialog::new);
+        let weak_del = cx.weak_entity();
+        delete_dialog.update(cx, move |d, _cx| {
+            d.title("删除 Host?");
+            d.width(gpui::px(380.0));
+            d.on_close(move |_window, cx| {
+                if let Some(this) = weak_del.upgrade() {
+                    this.update(cx, |this, cx| this.cancel(cx));
+                }
+            });
+        });
+        let delete_cancel_focus = cx.focus_handle();
+
         // M29 D-3: auth 切换从 Tabs Entity 改 enum 字段，初始 KeyFile
 
         let label_input = cx.new(|cx| {
@@ -184,6 +205,8 @@ impl HostFormModal {
             bridge,
             tx,
             dialog,
+            delete_dialog,
+            delete_cancel_focus,
             auth_kind: AuthKind::KeyFile,
             label_input,
             host_input,
@@ -207,32 +230,45 @@ impl HostFormModal {
         });
 
         match (self.synced_key, current) {
-            // modal 关闭：dialog 也关
+            // modal 关闭：两个 dialog 都关（R5 防双 open）
             (_, None) => {
                 if self.synced_key != SyncedKey::None {
                     self.synced_key = SyncedKey::None;
                     self.dialog.update(cx, |d, cx| d.close(cx));
+                    self.delete_dialog.update(cx, |d, cx| d.close(cx));
                 }
             }
-            // modal 切换：dialog open + 把 draft 内容同步到 input + 注册
-            // focus_chain（Tab 在 5 个 input 之间循环；keyfile 与 password
-            // 互斥取决于 auth_tabs，但都加进 chain 也无害 —— 隐藏的 input
-            // 也持 FocusHandle，Tab 跳到时再切回可见的也可以接受）
+            // modal 切换：根据 next 决定 open 哪个 dialog，close 另一个（R5）
             (prev, Some(next)) if prev != next => {
                 self.synced_key = next;
-                self.fill_inputs_from_modal(cx);
-                let chain = vec![
-                    self.label_input.read(cx).focus_handle(cx),
-                    self.host_input.read(cx).focus_handle(cx),
-                    self.port_input.read(cx).focus_handle(cx),
-                    self.user_input.read(cx).focus_handle(cx),
-                    self.keyfile_input.read(cx).focus_handle(cx),
-                    self.password_input.read(cx).focus_handle(cx),
-                ];
-                self.dialog.update(cx, |d, cx| {
-                    d.focus_chain(chain);
-                    d.open(cx);
-                });
+                match next {
+                    SyncedKey::DeleteConfirm(_) => {
+                        // 切到 delete confirm：先关 add/edit dialog，再开 delete_dialog
+                        self.dialog.update(cx, |d, cx| d.close(cx));
+                        self.delete_dialog.update(cx, |d, cx| d.open(cx));
+                    }
+                    SyncedKey::Adding | SyncedKey::Editing(_) => {
+                        // 切到 add/edit：关 delete_dialog（edit → Delete 路径），
+                        // 同步 input + focus_chain，再开 dialog
+                        self.delete_dialog.update(cx, |d, cx| d.close(cx));
+                        self.fill_inputs_from_modal(cx);
+                        let chain = vec![
+                            self.label_input.read(cx).focus_handle(cx),
+                            self.host_input.read(cx).focus_handle(cx),
+                            self.port_input.read(cx).focus_handle(cx),
+                            self.user_input.read(cx).focus_handle(cx),
+                            self.keyfile_input.read(cx).focus_handle(cx),
+                            self.password_input.read(cx).focus_handle(cx),
+                        ];
+                        self.dialog.update(cx, |d, cx| {
+                            d.focus_chain(chain);
+                            d.open(cx);
+                        });
+                    }
+                    SyncedKey::None => {
+                        // 不会发生（None 已在上面分支处理）
+                    }
+                }
             }
             // 同 key 不动（用户正在编辑，避免覆盖输入）
             _ => {}
@@ -401,6 +437,61 @@ impl HostFormModal {
     }
 }
 
+impl HostFormModal {
+    /// 构造 delete_dialog 的 body（label / 提示 / Cancel + 删除）。
+    /// M29 D-6：从 add/edit dialog 的 body 分支拆出，独立 dialog 380 窄。
+    fn build_delete_body(&self, label: String, cx: &mut Context<Self>) -> AnyElement {
+        let (colors, font_size, spacing) = {
+            let t = theme(cx);
+            (t.colors, t.font_size, t.spacing)
+        };
+        let cancel_focus = self.delete_cancel_focus.clone();
+        div()
+            .flex()
+            .flex_col()
+            .gap(spacing.px_3)
+            .child(
+                // Body (13/400/fg)：主提示文案
+                div()
+                    .text_size(font_size.sm)
+                    .text_color(colors.foreground)
+                    .child(format!("将永久删除 \"{}\"，此操作不可撤销。", label)),
+            )
+            .child(
+                // Caption (12/400/muted)：键盘提示
+                div()
+                    .text_size(font_size.xs)
+                    .text_color(colors.muted_foreground)
+                    .child("Esc 取消"),
+            )
+            .child(
+                // footer：Cancel（focus 默认） + 删除（destructive）
+                div()
+                    .flex()
+                    .flex_row()
+                    .justify_end()
+                    .gap(spacing.px_2)
+                    .child(
+                        Button::new("delete-cancel")
+                            .label("Cancel")
+                            .focus_handle(cancel_focus)
+                            .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
+                                this.cancel(cx);
+                            })),
+                    )
+                    .child(
+                        Button::new("delete-confirm")
+                            .label("删除")
+                            .destructive()
+                            .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
+                                this.save(cx);
+                            })),
+                    ),
+            )
+            .into_any_element()
+    }
+}
+
 impl Render for HostFormModal {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let modal_kind = self.state.read(cx).modal.as_ref().map(|m| match m {
@@ -410,9 +501,21 @@ impl Render for HostFormModal {
         });
 
         let Some((kind, err_opt, label_opt)) = modal_kind else {
-            // modal 为 None，dialog 也已通过 observe 关闭
+            // modal 为 None — 两个 dialog 都已通过 observe 关闭，渲染 add/edit
+            // 的 close 状态（任一空 dialog 都行，dialog.render 在 !open 时返回
+            // 空 div）
             return self.dialog.clone().into_any_element();
         };
+
+        // M29 D-6：delete 走独立 dialog 分支
+        if kind == "delete" {
+            let label = label_opt.unwrap_or_default();
+            let body = self.build_delete_body(label, cx);
+            self.delete_dialog.update(cx, |d, _cx| {
+                d.body(body);
+            });
+            return self.delete_dialog.clone().into_any_element();
+        }
 
         // 提前拷贝 token，避免 theme(cx) 的不可变借用跨整个 render（与下面
         // keyfile_row(cx)/buttons_row(cx) 的可变借用冲突）。
@@ -428,125 +531,92 @@ impl Render for HostFormModal {
         // M29 D-3：auth 切换从 Tabs idx → enum 字段
         let auth_kind = self.auth_kind;
         let is_edit = kind == "edit";
-        let is_delete = kind == "delete";
         let title = match kind {
             "add" => "添加 Host",
             "edit" => "编辑 Host",
-            "delete" => "确认删除",
             _ => "Host",
         };
-        let primary_label = if is_delete { "Delete" } else { "Save" };
+        let primary_label = "Save";
 
-        let body: gpui::AnyElement = if is_delete {
-            let label = label_opt.unwrap_or_default();
-            div()
-                .flex()
-                .flex_col()
-                .gap(spacing.px_3)
-                .child(
-                    // M26 等价 Body (13/400/fg)
+        let err = err_opt.flatten();
+        // Save 按钮 disabled 联动实时校验：host/port 任一有 inline error
+        // 时禁用，避免用户带着错误 submit。空字段不算 error（validator 空 OK），
+        // 进入 save() 时由 draft.into_config 报"必填"，所以空白态保持可点 Save。
+        let save_disabled = self.host_error.is_some() || self.port_error.is_some();
+        // M29 D-7: 把 host_error / port_error 联动到 input.error(bool)
+        // 视觉，让红 border 提示用户哪个 input 错。
+        let host_err_active = self.host_error.is_some();
+        let port_err_active = self.port_error.is_some();
+        self.host_input.update(cx, |i, _| {
+            i.error(host_err_active);
+        });
+        self.port_input.update(cx, |i, _| {
+            i.error(port_err_active);
+        });
+        // M29 D-2: 字段 gap 12（anatomy.form.field_gap）替代 spacing.px_3
+        // 等价值 12 但语义清晰
+        let body: gpui::AnyElement = div()
+            .flex()
+            .flex_col()
+            .gap(form_field_gap)
+            .child(field_row(cx, "label", self.label_input.clone(), None))
+            .child(field_row(
+                cx,
+                "host",
+                self.host_input.clone(),
+                self.host_error,
+            ))
+            .child(field_row(
+                cx,
+                "port",
+                self.port_input.clone(),
+                self.port_error,
+            ))
+            .child(field_row(cx, "user", self.user_input.clone(), None))
+            // M29 D-3: Radio 横排替代 Tabs Entity
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .gap(spacing.px_3)
+                    .child(
+                        aish_ui::Radio::new("host-form-auth-keyfile")
+                            .label("Key File")
+                            .checked(matches!(auth_kind, AuthKind::KeyFile))
+                            .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
+                                this.auth_kind = AuthKind::KeyFile;
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        aish_ui::Radio::new("host-form-auth-password")
+                            .label("Password")
+                            .checked(matches!(auth_kind, AuthKind::Password))
+                            .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
+                                this.auth_kind = AuthKind::Password;
+                                cx.notify();
+                            })),
+                    ),
+            )
+            .child(match auth_kind {
+                AuthKind::KeyFile => {
+                    let kf = self.keyfile_input.clone();
+                    keyfile_row(kf, cx).into_any_element()
+                }
+                AuthKind::Password => field_row(cx, "password", self.password_input.clone(), None)
+                    .into_any_element(),
+            })
+            .when_some(err, |d, e| {
+                d.child(
+                    // M26 等价 Body + destructive
                     div()
                         .text_size(font_size.sm)
-                        .text_color(colors.foreground)
-                        .child(format!("将永久删除 host：{}", label)),
+                        .text_color(colors.destructive)
+                        .child(e),
                 )
-                .child(
-                    // M26 等价 Caption (12/400/muted)
-                    div()
-                        .text_size(font_size.xs)
-                        .text_color(colors.muted_foreground)
-                        .child("Enter 确认 · Esc 取消"),
-                )
-                // delete confirm dialog 的 primary 是 Delete，不受实时校验影响
-                .child(buttons_row(primary_label, true, false, cx))
-                .into_any_element()
-        } else {
-            let err = err_opt.flatten();
-            // Save 按钮 disabled 联动实时校验：host/port 任一有 inline error
-            // 时禁用，避免用户带着错误 submit。空字段不算 error（validator 空 OK），
-            // 进入 save() 时由 draft.into_config 报"必填"，所以空白态保持可点 Save。
-            let save_disabled = self.host_error.is_some() || self.port_error.is_some();
-            // M29 D-7: 把 host_error / port_error 联动到 input.error(bool)
-            // 视觉，让红 border 提示用户哪个 input 错。
-            let host_err_active = self.host_error.is_some();
-            let port_err_active = self.port_error.is_some();
-            self.host_input.update(cx, |i, _| {
-                i.error(host_err_active);
-            });
-            self.port_input.update(cx, |i, _| {
-                i.error(port_err_active);
-            });
-            // M29 D-2: 字段 gap 12（anatomy.form.field_gap）替代 spacing.px_3
-            // 等价值 12 但语义清晰
-            div()
-                .flex()
-                .flex_col()
-                .gap(form_field_gap)
-                .child(field_row(cx, "label", self.label_input.clone(), None))
-                .child(field_row(
-                    cx,
-                    "host",
-                    self.host_input.clone(),
-                    self.host_error,
-                ))
-                .child(field_row(
-                    cx,
-                    "port",
-                    self.port_input.clone(),
-                    self.port_error,
-                ))
-                .child(field_row(cx, "user", self.user_input.clone(), None))
-                // M29 D-3: Radio 横排替代 Tabs Entity
-                .child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .gap(spacing.px_3)
-                        .child(
-                            aish_ui::Radio::new("host-form-auth-keyfile")
-                                .label("Key File")
-                                .checked(matches!(auth_kind, AuthKind::KeyFile))
-                                .on_click(cx.listener(
-                                    |this, _ev: &MouseDownEvent, _w, cx| {
-                                        this.auth_kind = AuthKind::KeyFile;
-                                        cx.notify();
-                                    },
-                                )),
-                        )
-                        .child(
-                            aish_ui::Radio::new("host-form-auth-password")
-                                .label("Password")
-                                .checked(matches!(auth_kind, AuthKind::Password))
-                                .on_click(cx.listener(
-                                    |this, _ev: &MouseDownEvent, _w, cx| {
-                                        this.auth_kind = AuthKind::Password;
-                                        cx.notify();
-                                    },
-                                )),
-                        ),
-                )
-                .child(match auth_kind {
-                    AuthKind::KeyFile => {
-                        let kf = self.keyfile_input.clone();
-                        keyfile_row(kf, cx).into_any_element()
-                    }
-                    AuthKind::Password => {
-                        field_row(cx, "password", self.password_input.clone(), None)
-                            .into_any_element()
-                    }
-                })
-                .when_some(err, |d, e| {
-                    d.child(
-                        // M26 等价 Body + destructive
-                        div()
-                            .text_size(font_size.sm)
-                            .text_color(colors.destructive)
-                            .child(e),
-                    )
-                })
-                .child(buttons_row(primary_label, is_edit, save_disabled, cx))
-                .into_any_element()
-        };
+            })
+            .child(buttons_row(primary_label, is_edit, save_disabled, cx))
+            .into_any_element();
 
         self.dialog.update(cx, |d, _cx| {
             d.title(title);
