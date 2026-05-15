@@ -134,6 +134,10 @@ pub struct PageAnatomy {
     pub outer_px: Pixels,
     pub outer_py_top: Pixels,
     pub outer_py_bottom: Pixels,
+    /// M35 T5: hero / page header 用更宽松的 top padding（Linear / Vercel 风
+    /// 80-120px 区间偏 lower 端）。caller 在 page top 包 hero section 时用，
+    /// 替代默认 outer_py_top 给视觉呼吸感。
+    pub outer_py_spacious: Pixels,
     pub section_gap: Pixels,
     pub header_to_content_gap: Pixels,
 }
@@ -141,10 +145,12 @@ pub struct PageAnatomy {
 impl Default for PageAnatomy {
     fn default() -> Self {
         // spec D-6: outer_px 32 / outer_py 24/24 / section_gap 16 / header_to_content 16
+        // M35 T5: 新加 outer_py_spacious 40px（页面 hero section 留白用）
         Self {
             outer_px: px(32.0),
             outer_py_top: px(24.0),
             outer_py_bottom: px(24.0),
+            outer_py_spacious: px(40.0),
             section_gap: px(16.0),
             header_to_content_gap: px(16.0),
         }
@@ -248,8 +254,16 @@ mod tests {
         assert_eq!(p.outer_px, px(32.0));
         assert_eq!(p.outer_py_top, px(24.0));
         assert_eq!(p.outer_py_bottom, px(24.0));
+        assert_eq!(p.outer_py_spacious, px(40.0));
         assert_eq!(p.section_gap, px(16.0));
         assert_eq!(p.header_to_content_gap, px(16.0));
+    }
+
+    /// M35 T5：spacious 必须大于普通 outer_py_top（让 hero 视觉呼吸感更宽）。
+    #[test]
+    fn page_spacious_is_more_than_normal_top() {
+        let p = PageAnatomy::default();
+        assert!(p.outer_py_spacious > p.outer_py_top);
     }
 
     #[test]
