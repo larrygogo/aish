@@ -26,7 +26,7 @@ mod tooltip;
 
 pub use badge::{Badge, BadgeVariant};
 pub use button::{Button, ButtonVariant};
-pub use card::{Card, CardVariant};
+pub use card::{Card, CardEntity, CardVariant};
 pub use checkbox::Checkbox;
 pub use context_menu::ContextMenu;
 pub use dialog::Dialog;
