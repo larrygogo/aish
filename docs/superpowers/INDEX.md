@@ -835,7 +835,7 @@ sidebar nav) 都有 hover transition + press feedback；home render split
 | ~~tab_bar render split + TabItem entity~~ | ✅ M34 落地（`9e14a18`） | — | — |
 | ~~hover leave fade-out~~ | ✅ post-M34 落地（commit `96ad9a2`），5 组件双向 lerp 全套补完 | — | — |
 | ~~dead_code cleanup~~ | ✅ 2026-05-15 落地（`4589231` + `1b2f57e`），删 9 个 crate-level allow + 暴露的死方法/字段/参数 | — | — |
-| list row hover transition | session_picker row / active sessions row 升 Entity + retain 模式 | ~1 天 | 中 |
+| ~~list row hover transition~~ | ✅ 2026-05-15 落地（`079ef82`），ListRow Entity + session_picker / home Active Sessions 接入 | — | — |
 | tab-indicator-slide | TabItem 切换时 indicator 底部 line 横向滑动 150ms（M30 T6 defer） | ~半天 | 低 |
 | mouse-legacy-encoding | X10/UTF8 鼠标编码 fallback（现代默认 SGR，需求弱） | < 1 小时 | 极低 |
 | button-entity-test-harness | 引入 gpui::TestApp 给 Entity 加真行为单测（M31 D-9 留空） | ~1 天 | 低 |
