@@ -10,13 +10,35 @@
 
 ## 当前状态
 
-- **活跃分支**：main（2026-05-15 完成 M22-M28 + M27，全在 origin；M29/M30 spec 待实施）
-- **下一里程碑**：M29 (host_form 重设计) → M30 (animation)
-- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **232** + aish-app **145** + 其他 crate) 全过 — 总 497
+- **活跃分支**：main（2026-05-15 完成 M22-M29 + M27，全在 origin；M30 spec 待实施）
+- **下一里程碑**：M30 (animation tokens + spinner/skeleton 动画落地)
+- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **242** + aish-app **145** + 其他 crate) 全过
 
 ---
 
 ## Milestones（按时间倒序）
+
+### M29 — HostForm Dialog 视觉重设计（2026-05-15）— ✅ 已完成
+- spec：[`specs/2026-05-15-aish-m29-host-form-redesign-design.md`](specs/2026-05-15-aish-m29-host-form-redesign-design.md)
+- plan：[`plans/2026-05-15-aish-m29-host-form-redesign.md`](plans/2026-05-15-aish-m29-host-form-redesign.md)
+- 范围：把 HostForm Modal 从 M12 风格升级到 Linear/Stripe 商业级 form modal
+  - **aish-ui 底层**：TextInput.error(bool) + Dialog.initial_focus(handle) + Radio 组件
+  - **布局**：label 80px 左栅格 → label-on-top（label 显眼 + input 占满宽 + inline error 与 input 同列）
+  - **auth 切换**：Tabs Entity → AuthKind enum + Radio 横排（更直观）
+  - **Delete**：从共用 dialog 拆出独立 380 窄 dialog，Cancel button initial_focus + destructive 视觉
+  - **Footer**：两端对齐 + border-top + Cancel 按钮回归（左 [Delete] / 右 [Cancel] [Save]）
+  - **Focus**：add/edit dialog open → label_input；delete dialog open → Cancel（R10 防 Enter 误删）
+  - **Dialog 宽度**：460 → 480（label-on-top + Radio 需要更宽）
+- 关键 commits：
+  - `ba96ea6` — T1 TextInput.error + Dialog.initial_focus（aish-ui 底层）
+  - `8ead8fe` — T2 Radio 组件
+  - `4e9e59f` — T3 host_form auth_kind enum + Radio 接入
+  - `6f57e8e` — T4 label-on-top + inline error
+  - `abefb37` — T5 delete_dialog 拆独立
+  - `383b477` — T6 footer 两端对齐 + Cancel 回归
+  - `e90cd8b` — T7 dialog.initial_focus 接线
+- 测试：aish-ui 232 → **242**（+10：TextInput error/Dialog focus +5 / Radio +5），aish-app 145 不变
+- 已知边界：截图对比 spec 末尾仍待补，shimmer 动画留 M30
 
 ### M27 — Component Anatomy 规范（2026-05-15）— ✅ 已完成（T5/T6 推 M29）
 - spec：[`specs/2026-05-15-aish-m27-component-anatomy-design.md`](specs/2026-05-15-aish-m27-component-anatomy-design.md)

@@ -495,4 +495,48 @@ M29 完成后，spec 末尾"实施记录"贴：
 
 ## 8. 实施记录
 
-（M29 实施后填）
+### Commits
+
+| Task | Commit | 摘要 |
+|---|---|---|
+| T1 | `ba96ea6` | TextInput.error(bool) + Dialog.initial_focus(handle) — aish-ui 底层 |
+| T2 | `8ead8fe` | Radio 组件（14px 圆 + 6px center dot + label, hover/disabled 状态） |
+| T3 | `4e9e59f` | host_form 切 auth Tabs Entity → AuthKind enum 字段 + Radio 接入 |
+| T4 | `6f57e8e` | label-on-top 布局 + inline 错误提示 + dialog 460→480 |
+| T5 | `abefb37` | delete confirm 拆独立 Dialog（380 窄 + Cancel/删除 footer） |
+| T6 | `383b477` | footer 两端对齐 + border-top + Cancel 回归（add/edit） |
+| T7 | `e90cd8b` | dialog.initial_focus 接线（add → label / delete → Cancel） |
+
+### Risk 实际遇到
+
+- **R1** 双 Dialog state 互相干扰：用 sync_from_state 切换路径 close-the-other
+  解决（next == DeleteConfirm 时 self.dialog.close + delete_dialog.open；
+  next == Adding/Editing 时反之）。**未观察到**双 dialog 同时 open 现象。
+- **R10** delete dialog Enter 默认触发删除（焦点在 destructive primary）：
+  T7 给 delete_dialog.initial_focus 注入 delete_cancel_focus，Cancel button
+  通过 `.focus_handle(delete_cancel_focus.clone())` 注入同一 handle，
+  open 时 Cancel 默认聚焦 → Enter 触发 Cancel close。**通过**。
+- **R5** observe re-entry：sync_from_state 内的 close + open 路径在
+  observe 回调里执行；GPUI 的 update 是同步的，没有递归 observe 触发，
+  实测**未出问题**。
+- **预期外**：T3 commit 推送时 `schannel: failed to receive handshake`
+  网络错误一次，重试成功。与 M29 无关。
+
+### 测试增量
+
+- T1: +5 aish-ui 单测（TextInput pick_border_state × 3 / Dialog
+  pick_focus_target × 2，open_helper/close_helper 不计为 M29 新增 — 是
+  M12 dialog 重构同步加的）
+- T2: +5 aish-ui 单测（Radio default / label / checked / disabled /
+  on_click_stored）
+
+总 aish-ui 单测：M27 末态 232 → M29 末态 242（+10）。
+
+### 视觉差异（待截图）
+
+- **before**（M28 末态）：label 80px 左栅格 + secondary_fg 弱化 + dialog 460
+  + Tabs 横排 auth + footer 仅右侧 [Delete] [Save]
+- **after**（M29 末态）：label-on-top + Label role 加粗 fg + dialog 480 +
+  Radio 横排 auth + footer border-top + 两端对齐 [Delete] / [Cancel] [Save]
+- **delete confirm**：从共用 dialog 拆出独立 380 窄 dialog，Cancel 默认 focus，
+  destructive 视觉提示。
