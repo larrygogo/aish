@@ -500,6 +500,7 @@ impl Render for HomeView {
             header_el,
             active_section_label,
             active_rows_phase1,
+            separator_el,
             cards_phase1,
             hosts_section_label_el,
             load_error,
@@ -518,12 +519,12 @@ impl Render for HomeView {
             // 顶部主 CTA → primary。M31：header_add_btn entity 持 press feedback。
             let add_btn = self.header_add_btn.clone();
 
-            // M27: page header padding 走 anatomy.page（outer_px 32 / outer_py_top 24 /
-            // header_to_content_gap 16）— 之前 px_8/pt_6/pb_3 等价 32/24/12，
-            // pb 从 12 改 16 与 settings page_title pb 对齐。
+            // M27: page header padding 走 anatomy.page。
+            // M35 T5: outer_py_top → outer_py_spacious（24 → 40）让 hero
+            // 顶部更宽松，符合 Linear / Vercel 留白风格。
             let header = div()
                 .px(theme.anatomy.page.outer_px)
-                .pt(theme.anatomy.page.outer_py_top)
+                .pt(theme.anatomy.page.outer_py_spacious)
                 .pb(theme.anatomy.page.header_to_content_gap)
                 .flex()
                 .flex_row()
@@ -601,14 +602,18 @@ impl Render for HomeView {
                 })
                 .collect();
 
+            // M35 T4: ACTIVE SESSIONS 改名「继续工作」+ 升 Title3 视觉权重。
+            // 「继续工作」是 verb-driven 引导（用户打开 aish 大概率为恢复
+            // 上次状态而非配置新主机），视觉应在 Home 首位重权重 — 替代
+            // 原 muted Caption divider 模式。
             let active_section_label: Option<gpui::AnyElement> = if active_rows_phase1.is_empty() {
                 None
             } else {
                 Some(
                     div()
                         .pb_2()
-                        .typography(aish_ui::TypeRole::Caption, theme)
-                        .child("ACTIVE SESSIONS")
+                        .typography(aish_ui::TypeRole::Title3, theme)
+                        .child("继续工作")
                         .into_any_element(),
                 )
             };
@@ -799,18 +804,49 @@ impl Render for HomeView {
                 })
                 .collect();
 
-            // M26 T3: HOSTS 是 list-section divider label（Stripe/Linear 风），
-            // 用 Caption (12/400/muted) — 之前 xs (10px) 偏小不清晰
+            // M35 T4: HOSTS 改名「保存的主机 (N)」+ 升 Title3 视觉权重，与
+            // 「继续工作」section label 等级一致。右上角 「⌘K 搜索」hint
+            // 作为未来 T8 CommandPalette 的 visual anchor（不挂事件）。
+            let hosts_count = app.hosts.len();
             let hosts_section_label = div()
                 .pb_2()
-                .typography(aish_ui::TypeRole::Caption, theme)
-                .child("HOSTS");
+                .flex()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .child(
+                    div()
+                        .typography(aish_ui::TypeRole::Title3, theme)
+                        .child(format!("保存的主机 ({})", hosts_count)),
+                )
+                .child(
+                    div()
+                        .typography(aish_ui::TypeRole::Caption, theme)
+                        .child("⌘K 搜索"),
+                );
+
+            // M35 T4: 两 section 间分隔条 — 仅当两 section 都将显示时画。
+            // 视觉作用：明确「继续工作」与「保存的主机」是两类不同 task —
+            // 前者是 verb-driven 恢复，后者是 noun-list 选择。
+            let show_separator = !active_rows_phase1.is_empty() && !app.hosts.is_empty();
+            let separator_el: Option<gpui::AnyElement> = if show_separator {
+                Some(
+                    div()
+                        .px(theme.anatomy.page.outer_px)
+                        .pb_4()
+                        .child(aish_ui::Separator::horizontal())
+                        .into_any_element(),
+                )
+            } else {
+                None
+            };
 
             // capture phase A 输出（drop borrow 前必须 own / Copy）
             (
                 header.into_any_element(),
                 active_section_label,
                 active_rows_phase1,
+                separator_el,
                 cards_phase1,
                 hosts_section_label.into_any_element(),
                 app.hosts_load_error.clone(),
@@ -926,6 +962,7 @@ impl Render for HomeView {
                     .flex_1()
                     .child(header_el)
                     .children(active_section_el)
+                    .children(separator_el)
                     .child(
                         div()
                             .px(anatomy_outer_px)
