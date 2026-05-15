@@ -80,18 +80,29 @@ impl Render for SidebarNavView {
         let colors = aish_ui::theme(cx).colors;
 
         // 每帧重设 icon + active（icon 是 AnyElement 不可 Clone，必须每帧重 build）
-        let home_icon = div()
-            .font_family(FONT_NAME)
-            .text_size(px(16.0))
-            .child("\u{f015}");
-        let term_icon = div()
-            .font_family(FONT_NAME)
-            .text_size(px(16.0))
-            .child("\u{f120}");
-        let settings_icon = div()
-            .font_family(FONT_NAME)
-            .text_size(px(16.0))
-            .child("\u{f013}");
+        //
+        // M35 T6 v2 视觉对齐修正：Nerd Font 部分字符 advance width ≠ glyph
+        // 视觉中心（\u{f015} home / \u{f120} terminal 字形不对称），flex
+        // items_center 居中的是 char box 而非 glyph，导致 sidebar 内 icon
+        // 偏左。用固定 20×20 wrapper 强制 glyph 在 box 内 flex-center，
+        // 再交给 NavItem items_center 居中整个 wrapper — 视觉对齐 OK。
+        let make_icon = |ch: &'static str| {
+            div()
+                .w(px(20.0))
+                .h(px(20.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(
+                    div()
+                        .font_family(FONT_NAME)
+                        .text_size(px(16.0))
+                        .child(ch),
+                )
+        };
+        let home_icon = make_icon("\u{f015}");
+        let term_icon = make_icon("\u{f120}");
+        let settings_icon = make_icon("\u{f013}");
 
         // M35 T6: 加 .label() — icon + Caption 标签让导航自明
         self.home_item.update(cx, |n, _| {
