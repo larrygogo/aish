@@ -12,7 +12,7 @@
 
 - **活跃分支**：main（2026-05-15 完成 M22-M30 + M27，全在 origin）
 - **下一里程碑候选**：M31 (Button stateful entity + press feedback / TabItem indicator slide / focus ring fade — M30 defer 项)
-- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **261** + aish-app **147** + 其他 crate) 全过
+- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **262** + aish-app **147** + 其他 crate) 全过
 
 ---
 
@@ -107,7 +107,7 @@
   - `f83e08b` — T3 Skeleton block/circle 原语
   - `283b07c` — T4-T7 home/empty_terminal/session_picker 接入 + hosts_load_error 字段
 - 测试：aish-ui 211 → **222**（+6 EmptyState +5 Skeleton），aish-app 144 → **145**（+1 hosts_load_error 默认）
-- 已知边界：shimmer 实现是 v1 stub（无动画），M30 animation 落地后接入
+- 已知边界：~~shimmer 实现是 v1 stub（无动画），M30 animation 落地后接入~~ ✅ 已落地 — commit `7197148`（M30 后）shimmer 接 pulsating_between sine 呼吸 1.2s 循环，reduced_motion 自动 fallback
 
 ### M26 — Typography × Information Hierarchy（2026-05-15）— ✅ 已完成
 - spec：[`specs/2026-05-15-aish-m26-typography-hierarchy-design.md`](specs/2026-05-15-aish-m26-typography-hierarchy-design.md)
