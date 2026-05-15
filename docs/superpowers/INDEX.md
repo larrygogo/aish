@@ -44,7 +44,7 @@
   - T6 sidebar icon + Caption label，64px (`6c14a2b`)
   - T4 Home 改名「继续工作」/「保存的主机」+ Title3 升级 + separator (`8abb844`)
   - 视觉对齐 icon fix (`2bdb482`)
-- **Phase B（v0.next+1）✅ 完成 6/6 task (2026-05-15)：**
+- **Phase B（v0.next+1）5/6 + 1 revert (2026-05-15)：**
   - **T8 CommandPalette MVP ✅** (`f8a3462`)：fuzzy host search + global
     ⌘K/Ctrl+P trigger，~475 行含 7 单测（fuzzy_score / selection wrap /
     Enter handler）
@@ -53,11 +53,13 @@
     保留 muscle memory，toggle 切 220px 含 brand header + nav.horizontal
     + 「最近连接」list（max 5，按 last_connected 倒序）。偏好持久化
     app_state.toml.sidebar_expanded
-  - **T7 Home ACTIVE SESSIONS 段删除 ✅** (`b74afb4`)：T9 v2 落地解锁后
-    清理 — sidebar「最近连接」+ tab_bar 共同覆盖原职责。删 home
-    active_session_rows / session_open_buttons / handle_open_session +
-    state.Connection.id/opened_at/humanize_opened_at 标 #[allow(dead_code)]
-    保留作 future API
+  - **T7 Home ACTIVE SESSIONS 段删除 ⛔ revert** (`b74afb4` → `4549ed4` revert)：
+    实施后发现设计 bug — sidebar **默认折叠 64px** 不显示「最近连接」，
+    home 又删了 Active Sessions，**默认状态下**用户彻底失去活跃 / 历史
+    连接的可视入口（只剩 tab_bar 短 title）。T9 v2 默认折叠 + T7 删除
+    两个独立合理的决定**叠加产生回归**。revert 让 home Active Sessions
+    回归，与 sidebar 展开模式「最近连接」并存 — 冗余但安全。**Lesson**：
+    cross-component 删除前先 trace 默认状态下的访问路径
   - **T10 HostForm 单行 user@host:port ✅** (`bfd07f8`)：parse_connection_string
     + 10 单测（typical/IPv6/边界）+ label 字段移底部
   - **T11 Terminal ConnectionBar (24px) ✅** (`b7a604c`)：tab_bar 与
