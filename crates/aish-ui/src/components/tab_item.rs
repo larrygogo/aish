@@ -12,6 +12,7 @@ use gpui::{
 };
 
 use crate::theme::theme;
+use crate::TypographyExt;
 
 type ClickHandler = Rc<dyn Fn(&MouseDownEvent, &mut Window, &mut App) + 'static>;
 
@@ -90,7 +91,8 @@ impl RenderOnce for TabItem {
             .flex_row()
             .items_center()
             .gap(t.spacing.px_2)
-            .text_size(t.font_size.sm)
+            // M26 TabItem title：Body (13/400/fg)
+            .typography(crate::TypeRole::Body, t)
             .bg(bg)
             .cursor_pointer();
 

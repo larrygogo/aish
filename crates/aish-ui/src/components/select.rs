@@ -11,6 +11,7 @@ use gpui::{
 use crate::components::{Popover, PopoverPlacement};
 use crate::icons::{icon, IconName};
 use crate::theme::theme;
+use crate::TypographyExt;
 
 type ChangeHandler = Rc<dyn Fn(&usize, &mut Window, &mut App) + 'static>;
 
@@ -141,9 +142,9 @@ impl Render for Select {
             .border_color(t.colors.border)
             .cursor_pointer()
             .child(
+                // M26 Select trigger label：Body (13/400/fg)
                 div()
-                    .text_size(t.font_size.sm)
-                    .text_color(t.colors.foreground)
+                    .typography(crate::TypeRole::Body, t)
                     .child(display_text),
             )
             .child(
@@ -191,7 +192,9 @@ impl Render for Select {
                         .px(t.spacing.px_3)
                         .flex()
                         .items_center()
-                        .text_size(t.font_size.sm)
+                        // M26 Select option：Body (13/400)，selected/normal 走
+                        // typography 后 text_color override
+                        .typography(crate::TypeRole::Body, t)
                         .text_color(if is_selected {
                             t.colors.accent_foreground
                         } else {

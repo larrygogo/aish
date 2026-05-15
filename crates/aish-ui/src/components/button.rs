@@ -8,6 +8,7 @@ use gpui::{
 };
 
 use crate::theme::theme;
+use crate::TypographyExt;
 
 type ClickHandler = Rc<dyn Fn(&MouseDownEvent, &mut Window, &mut App) + 'static>;
 
@@ -154,8 +155,11 @@ impl RenderOnce for Button {
             .rounded(t.radius.md)
             .bg(idle_bg)
             .child(
+                // M26 Button label：BodyStrong (13/500/fg)，weight medium 让按钮
+                // label 视觉略强表达 actionable。fg 走 variant 决定的颜色
+                // override default fg role。
                 div()
-                    .text_size(t.font_size.sm)
+                    .typography(crate::TypeRole::BodyStrong, t)
                     .text_color(fg)
                     .child(self.label),
             );

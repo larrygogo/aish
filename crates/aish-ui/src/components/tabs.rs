@@ -11,6 +11,7 @@ use gpui::{
 };
 
 use crate::theme::theme;
+use crate::TypographyExt;
 
 type ChangeHandler = Rc<dyn Fn(&usize, &mut Window, &mut App) + 'static>;
 
@@ -106,7 +107,16 @@ impl Render for Tabs {
                     .px(t.spacing.px_3)
                     .flex()
                     .items_center()
-                    .text_size(t.font_size.sm)
+                    // M26 Tabs tab label：active=BodyStrong (13/500/fg)，
+                    // inactive=Body (13/400/secondary_fg)。weight 区分而非 color。
+                    .typography(
+                        if is_active {
+                            crate::TypeRole::BodyStrong
+                        } else {
+                            crate::TypeRole::Body
+                        },
+                        t,
+                    )
                     .text_color(if is_active {
                         t.colors.foreground
                     } else {

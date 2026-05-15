@@ -12,6 +12,7 @@ use gpui::{
 };
 
 use crate::theme::theme;
+use crate::TypographyExt;
 
 type ClickHandler = Rc<dyn Fn(&MouseDownEvent, &mut Window, &mut App) + 'static>;
 
@@ -138,7 +139,8 @@ impl RenderOnce for NavItem {
 
         el = el.when_some(icon, |d, i| d.child(i));
         el = el.when_some(label, |d, l| {
-            d.child(div().text_size(t.font_size.sm).child(l))
+            // M26 NavItem label：Caption (12/400/muted) 紧凑 icon+label 模式
+            d.child(div().typography(crate::TypeRole::Caption, t).child(l))
         });
 
         el

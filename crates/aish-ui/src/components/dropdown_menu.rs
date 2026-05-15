@@ -15,6 +15,7 @@ use gpui::{
 use crate::components::MenuItem;
 use crate::icons::icon;
 use crate::theme::theme;
+use crate::TypographyExt;
 
 type SelectHandler = Rc<dyn Fn(&usize, &mut Window, &mut App) + 'static>;
 
@@ -93,7 +94,8 @@ impl RenderOnce for DropdownMenu {
                 .flex_row()
                 .items_center()
                 .gap(t.spacing.px_2)
-                .text_size(t.font_size.sm)
+                // M26: menu item 用 Body (13/400/fg)
+                .typography(crate::TypeRole::Body, t)
                 .text_color(fg);
 
             // 键盘选中态：仅 bg(secondary_hover) 区分，不画 primary 绿条
@@ -107,12 +109,8 @@ impl RenderOnce for DropdownMenu {
             }
             row = row.child(div().flex_1().child(item.label.clone()));
             if let Some(sc) = item.shortcut {
-                row = row.child(
-                    div()
-                        .text_color(t.colors.muted_foreground)
-                        .text_size(t.font_size.xs)
-                        .child(sc),
-                );
+                // M26: shortcut 用 Micro (11/400/muted)
+                row = row.child(div().typography(crate::TypeRole::Micro, t).child(sc));
             }
 
             if !is_disabled {

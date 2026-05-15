@@ -8,6 +8,7 @@ use gpui::{
 
 use crate::icons::{icon, IconName};
 use crate::theme::theme;
+use crate::TypographyExt;
 
 type ChangeHandler = Rc<dyn Fn(&bool, &mut Window, &mut App) + 'static>;
 
@@ -94,8 +95,9 @@ impl RenderOnce for Checkbox {
 
         if !self.label.as_ref().is_empty() {
             row = row.child(
+                // M26 Checkbox label：Body (13/400/fg)
                 div()
-                    .text_size(t.font_size.sm)
+                    .typography(crate::TypeRole::Body, t)
                     .text_color(if disabled {
                         t.colors.muted_foreground
                     } else {

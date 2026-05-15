@@ -12,6 +12,7 @@ use gpui::{
 use crate::components::IconButton;
 use crate::icons::IconName;
 use crate::theme::theme;
+use crate::TypographyExt;
 
 type CloseHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
 type KeyHandler = Rc<dyn Fn(&KeyDownEvent, &mut Window, &mut App) + 'static>;
@@ -225,10 +226,8 @@ impl Render for Dialog {
                             .border_b_1()
                             .border_color(t.colors.border)
                             .child(
-                                div()
-                                    .text_size(t.font_size.lg)
-                                    .text_color(t.colors.foreground)
-                                    .child(title),
+                                // M26 Dialog title: Title2 (16/600/fg)
+                                div().typography(crate::TypeRole::Title2, t).child(title),
                             )
                             .child(IconButton::new("dialog-close", IconName::X).small().on_click(
                                 cx.listener(|this, _ev: &MouseDownEvent, window, cx| {

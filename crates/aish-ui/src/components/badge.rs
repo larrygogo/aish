@@ -3,6 +3,7 @@
 use gpui::{div, prelude::*, App, IntoElement, SharedString, Window};
 
 use crate::theme::theme;
+use crate::TypographyExt;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BadgeVariant {
@@ -66,8 +67,9 @@ impl RenderOnce for Badge {
             .rounded(t.radius.full)
             .bg(bg)
             .child(
+                // M26: badge 用 Micro (11/400) — 之前 xs 10 偏小不清晰
                 div()
-                    .text_size(t.font_size.xs)
+                    .typography(crate::TypeRole::Micro, t)
                     .text_color(fg)
                     .child(self.label),
             )
