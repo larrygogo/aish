@@ -212,11 +212,18 @@ impl Render for NavItem {
         let idle_bg = gpui::transparent_black();
         let hover_bg = t.colors.secondary_hover;
         let press_bg_color = t.colors.secondary_active;
-        // active selected bg 改 secondary_hover（与 hover 同色）— 让 active
-        // 视觉克制不喧宾。之前 accent (深紫) 在 sidebar 220px 横排 NavItem
-        // fill 整宽显得 \"喧宾\"。subtle bg + 圆角卡片是 VS Code / Linear
-        // sidebar 风。
-        let selected_bg = t.colors.secondary_hover;
+        // M35 redesign v4：active 视觉用 \"left 2px primary stripe + 克制 bg\"，
+        // 不再 fill 整宽（VS Code / IntelliJ / Cursor / Linear sidebar 标准）。
+        // - icon-only (no label / folded): bg 保 transparent，仅靠 stripe 锚定
+        // - icon + label (expanded): bg 用 secondary (#26282D 比 hover_bg 浅一档)
+        //   配合 stripe，标识 active 但不喧宾
+        let has_label = self.label.is_some();
+        let selected_bg = if has_label {
+            t.colors.secondary
+        } else {
+            gpui::transparent_black()
+        };
+        let stripe_color = t.colors.primary;
         let medium = t.motion.medium;
         let easing = t.motion.easing_standard.clone();
         let typography_t = t;
@@ -265,7 +272,15 @@ impl Render for NavItem {
 
         // horizontal 模式 icon-only（label is None）自动 justify_center 让
         // icon 居中（sidebar 折叠模式用）；有 label 时 left align icon + label
-        let has_label = self.label.is_some();
+        //
+        // M35 v4: active 时 left border 2px primary stripe（VS Code/Linear
+        // 标志性 active indicator）+ rounded 仅右侧（stripe 那侧矩形锚定）。
+        // idle 也设 border_l_2 transparent 占位防 content 抖动。
+        let border_l_color = if active {
+            stripe_color
+        } else {
+            gpui::transparent_black()
+        };
         el = match orientation {
             NavItemOrientation::Vertical => el
                 .w_full()
@@ -279,13 +294,16 @@ impl Render for NavItem {
                 let mut e = el
                     .h(px(32.0))
                     .px(t.spacing.px_3)
-                    // rounded card 视觉 — Linear / VS Code sidebar nav 风
-                    .rounded(t.radius.md)
+                    .border_l_2()
+                    .border_color(border_l_color)
                     .flex()
                     .flex_row()
                     .items_center()
                     .gap(t.spacing.px_2);
-                if !has_label {
+                if has_label {
+                    // 有 label 时仅右侧 rounded（stripe 那侧保持矩形锚定感）
+                    e = e.rounded_r(t.radius.md);
+                } else {
                     // icon-only 时让 icon 在容器内居中（折叠模式 sidebar 用）
                     e = e.justify_center();
                 }

@@ -373,13 +373,16 @@ impl Render for SidebarNavView {
                         .flex_col()
                         .gap(px(2.0))
                         .child(
-                            // 11px MEDIUM muted — Linear / Stripe section divider 风。
-                            // 显式 text_color 防 typography Caption inheritance 异常。
+                            // 11px MEDIUM secondary_fg — 显式 text_color 防 typography
+                            // inheritance 异常。secondary_fg 替代 muted_fg 让 11px 小字
+                            // 在 dark bg 上对比度 9:1 完全过 WCAG AA（之前 muted 在
+                            // secondary bg 上仅 3.7:1 不过 AA 正文标准）。
                             div()
+                                .pl(spacing.px_2)
                                 .pb(spacing.px_1)
                                 .text_size(px(11.0))
                                 .font_weight(gpui::FontWeight::MEDIUM)
-                                .text_color(colors.muted_foreground)
+                                .text_color(colors.secondary_foreground)
                                 .child("最近连接"),
                         )
                         .children(recent_row_entities)
