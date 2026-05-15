@@ -16,7 +16,7 @@
 use std::sync::Arc;
 
 use aish_types::HostId;
-use aish_ui::{theme, ButtonEntity, Dialog, TextInput, TypographyExt};
+use aish_ui::{theme, Button, Dialog, TextInput, TypographyExt};
 use gpui::{
     div, prelude::*, AnyElement, App, Context, Entity, Focusable, IntoElement, MouseDownEvent,
     PathPromptOptions, SharedString, Window,
@@ -39,12 +39,12 @@ pub struct HostFormModal {
     /// M31：直接从 delete_cancel_btn entity 的 focus_handle() 取（每次 sync
     /// 时调），不再独立维护 FocusHandle 字段 — entity 已内置且唯一。
     /// M31：6 个 button 升 stateful entity，全部带 press feedback。
-    delete_cancel_btn: Entity<ButtonEntity>,
-    delete_confirm_btn: Entity<ButtonEntity>,
-    pick_keyfile_btn: Entity<ButtonEntity>,
-    host_delete_btn: Entity<ButtonEntity>,
-    host_cancel_btn: Entity<ButtonEntity>,
-    host_save_btn: Entity<ButtonEntity>,
+    delete_cancel_btn: Entity<Button>,
+    delete_confirm_btn: Entity<Button>,
+    pick_keyfile_btn: Entity<Button>,
+    host_delete_btn: Entity<Button>,
+    host_cancel_btn: Entity<Button>,
+    host_save_btn: Entity<Button>,
     /// M29 D-3：auth 切换从 Tabs Entity → enum 字段。
     /// 默认 KeyFile（与 M12 Tabs 默认 active=0 等价）。
     auth_kind: AuthKind,
@@ -207,7 +207,7 @@ impl HostFormModal {
         // M31: 6 个 button entity，weak.upgrade callback 透传 self method
         let weak_dc = cx.weak_entity();
         let delete_cancel_btn = cx.new(|cx| {
-            let mut b = ButtonEntity::new("delete-cancel", cx);
+            let mut b = Button::new("delete-cancel", cx);
             b.label("Cancel").on_click(move |_ev, _w, cx| {
                 if let Some(this) = weak_dc.upgrade() {
                     this.update(cx, |this, cx| this.cancel(cx));
@@ -217,7 +217,7 @@ impl HostFormModal {
         });
         let weak_df = cx.weak_entity();
         let delete_confirm_btn = cx.new(|cx| {
-            let mut b = ButtonEntity::new("delete-confirm", cx);
+            let mut b = Button::new("delete-confirm", cx);
             b.label("删除").destructive().on_click(move |_ev, _w, cx| {
                 if let Some(this) = weak_df.upgrade() {
                     this.update(cx, |this, cx| this.save(cx));
@@ -227,7 +227,7 @@ impl HostFormModal {
         });
         let weak_pk = cx.weak_entity();
         let pick_keyfile_btn = cx.new(|cx| {
-            let mut b = ButtonEntity::new("pick-keyfile", cx);
+            let mut b = Button::new("pick-keyfile", cx);
             b.label("…").secondary().on_click(move |_ev, _w, cx| {
                 if let Some(this) = weak_pk.upgrade() {
                     this.update(cx, |this, cx| this.pick_keyfile(cx));
@@ -237,7 +237,7 @@ impl HostFormModal {
         });
         let weak_hd = cx.weak_entity();
         let host_delete_btn = cx.new(|cx| {
-            let mut b = ButtonEntity::new("host-delete", cx);
+            let mut b = Button::new("host-delete", cx);
             b.label("Delete")
                 .destructive()
                 .on_click(move |_ev, _w, cx| {
@@ -260,7 +260,7 @@ impl HostFormModal {
         });
         let weak_hc = cx.weak_entity();
         let host_cancel_btn = cx.new(|cx| {
-            let mut b = ButtonEntity::new("host-cancel", cx);
+            let mut b = Button::new("host-cancel", cx);
             b.label("Cancel").on_click(move |_ev, _w, cx| {
                 if let Some(this) = weak_hc.upgrade() {
                     this.update(cx, |this, cx| this.cancel(cx));
@@ -270,7 +270,7 @@ impl HostFormModal {
         });
         let weak_hs = cx.weak_entity();
         let host_save_btn = cx.new(|cx| {
-            let mut b = ButtonEntity::new("host-save", cx);
+            let mut b = Button::new("host-save", cx);
             b.label("Save").primary().on_click(move |_ev, _w, cx| {
                 if let Some(this) = weak_hs.upgrade() {
                     this.update(cx, |this, cx| this.save(cx));
@@ -754,7 +754,7 @@ fn field_row(
 
 fn keyfile_row(
     keyfile_input: Entity<TextInput>,
-    pick_btn: Entity<ButtonEntity>,
+    pick_btn: Entity<Button>,
     cx: &mut Context<HostFormModal>,
 ) -> impl IntoElement {
     // M29 D-1: label-on-top + input/picker 横排
@@ -797,9 +797,9 @@ fn buttons_row(
     primary_label: &'static str,
     show_delete: bool,
     save_disabled: bool,
-    delete_btn: Entity<ButtonEntity>,
-    cancel_btn: Entity<ButtonEntity>,
-    save_btn: Entity<ButtonEntity>,
+    delete_btn: Entity<Button>,
+    cancel_btn: Entity<Button>,
+    save_btn: Entity<Button>,
     cx: &mut Context<HostFormModal>,
 ) -> impl IntoElement {
     // M31: save_btn label / disabled 状态每帧 update（其他 button 静态配置在 new() 已 set）

@@ -25,14 +25,14 @@ mod toast;
 mod tooltip;
 
 pub use badge::{Badge, BadgeVariant};
-pub use button::{Button, ButtonEntity, ButtonVariant};
+pub use button::{Button, ButtonVariant};
 pub use card::{Card, CardVariant};
 pub use checkbox::Checkbox;
 pub use context_menu::ContextMenu;
 pub use dialog::Dialog;
 pub use dropdown_menu::DropdownMenu;
 pub use empty_state::{EmptyState, ErrorState, StatusView};
-pub use icon_button::{IconButton, IconButtonEntity, IconButtonSize};
+pub use icon_button::{IconButton, IconButtonSize};
 pub use menu_item::MenuItem;
 pub use nav_item::{NavItem, NavItemOrientation};
 pub use popover::{Popover, PopoverPlacement};

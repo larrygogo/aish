@@ -147,7 +147,7 @@ pub struct TerminalView {
     canvas_bounds: Option<Bounds<Pixels>>,
     /// M31：Disconnected 状态下的 reconnect button entity（press feedback 80ms）。
     /// 仅在 Disconnected 状态 render，其他状态 entity 静置不渲染。
-    reconnect_btn: Entity<aish_ui::ButtonEntity>,
+    reconnect_btn: Entity<aish_ui::Button>,
 }
 
 impl TerminalView {
@@ -175,7 +175,7 @@ impl TerminalView {
         // M31: reconnect button entity，weak.upgrade callback 触发 self.handle_reconnect
         let weak = cx.weak_entity();
         let reconnect_btn = cx.new(|cx| {
-            let mut b = aish_ui::ButtonEntity::new("terminal-reconnect", cx);
+            let mut b = aish_ui::Button::new("terminal-reconnect", cx);
             b.label("重新连接").primary().on_click(move |_ev, _w, cx| {
                 if let Some(this) = weak.upgrade() {
                     this.update(cx, |this, cx| this.handle_reconnect(cx));

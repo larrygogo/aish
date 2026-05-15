@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use aish_types::{ConnectionId, HostId};
-use aish_ui::{ButtonEntity, IconButtonEntity, TypographyExt};
+use aish_ui::{Button, IconButton, TypographyExt};
 use gpui::{
     div, prelude::*, px, rgb, Context, Entity, KeyDownEvent, MouseButton, MouseDownEvent, Window,
 };
@@ -23,8 +23,8 @@ use crate::state::{
 /// M31：每张 host card 的 edit/delete IconButton entity 对，
 /// 按 HostId 在 HomeView.host_card_buttons HashMap 维护。
 struct HostCardButtons {
-    edit: Entity<IconButtonEntity>,
-    delete: Entity<IconButtonEntity>,
+    edit: Entity<IconButton>,
+    delete: Entity<IconButton>,
 }
 
 pub struct HomeView {
@@ -44,16 +44,16 @@ pub struct HomeView {
     /// scrollbar / 拖拽行为。
     scrollbar: aish_ui::ScrollbarHandle,
     /// M31：顶部 page header "+ 添加 host" button（永远显示）。
-    header_add_btn: Entity<aish_ui::ButtonEntity>,
+    header_add_btn: Entity<aish_ui::Button>,
     /// M31：空 hosts 状态 EmptyState 内的 add button（条件显示）。
-    empty_add_btn: Entity<aish_ui::ButtonEntity>,
+    empty_add_btn: Entity<aish_ui::Button>,
     /// M31：hosts.json 加载失败时 ErrorState 内的 retry button（条件显示）。
-    retry_btn: Entity<aish_ui::ButtonEntity>,
+    retry_btn: Entity<aish_ui::Button>,
     /// M31：每张 host card 的 edit + delete IconButton 对，按 HostId 索引。
     /// render 前 retain_alive_entities 同步 host 集合，避免 entity 泄漏。
     host_card_buttons: HashMap<HostId, HostCardButtons>,
     /// M31：active sessions 列表每行的 "Open ▶" Button，按 ConnectionId 索引。
-    session_open_buttons: HashMap<ConnectionId, Entity<ButtonEntity>>,
+    session_open_buttons: HashMap<ConnectionId, Entity<Button>>,
 }
 
 /// host 右键菜单 item 数量（编辑 / 复制 / 删除）。与 render 内 items() 匹配。
@@ -88,7 +88,7 @@ impl HomeView {
         // M31: 3 个单例 button entity，weak.upgrade callback 透传到 self method
         let weak_add_header = cx.weak_entity();
         let header_add_btn = cx.new(|cx| {
-            let mut b = aish_ui::ButtonEntity::new("home-add-host-btn", cx);
+            let mut b = aish_ui::Button::new("home-add-host-btn", cx);
             b.label("+ 添加 host")
                 .primary()
                 .on_click(move |_ev, _w, cx| {
@@ -100,7 +100,7 @@ impl HomeView {
         });
         let weak_add_empty = cx.weak_entity();
         let empty_add_btn = cx.new(|cx| {
-            let mut b = aish_ui::ButtonEntity::new("home-empty-add-host", cx);
+            let mut b = aish_ui::Button::new("home-empty-add-host", cx);
             b.label("+ 添加 host")
                 .primary()
                 .on_click(move |_ev, _w, cx| {
@@ -112,7 +112,7 @@ impl HomeView {
         });
         let weak_retry = cx.weak_entity();
         let retry_btn = cx.new(|cx| {
-            let mut b = aish_ui::ButtonEntity::new("home-hosts-load-retry", cx);
+            let mut b = aish_ui::Button::new("home-hosts-load-retry", cx);
             b.label("重试加载").primary().on_click(move |_ev, _w, cx| {
                 if let Some(this) = weak_retry.upgrade() {
                     this.update(cx, |this, cx| this.handle_retry_load_hosts(cx));
@@ -380,7 +380,7 @@ impl Render for HomeView {
                 let weak_e = cx.weak_entity();
                 let weak_d = cx.weak_entity();
                 let edit = cx.new(move |cx| {
-                    let mut b = IconButtonEntity::new(
+                    let mut b = IconButton::new(
                         gpui::SharedString::from(format!("host-edit-{}", host_id)),
                         aish_ui::IconName::Pencil,
                         cx,
@@ -396,7 +396,7 @@ impl Render for HomeView {
                     b
                 });
                 let delete = cx.new(move |cx| {
-                    let mut b = IconButtonEntity::new(
+                    let mut b = IconButton::new(
                         gpui::SharedString::from(format!("host-delete-{}", host_id)),
                         aish_ui::IconName::X,
                         cx,
@@ -422,7 +422,7 @@ impl Render for HomeView {
                 let cid = *conn_id;
                 let weak_o = cx.weak_entity();
                 let btn = cx.new(move |cx| {
-                    let mut b = ButtonEntity::new(
+                    let mut b = Button::new(
                         gpui::SharedString::from(format!("active-session-open-{}", cid)),
                         cx,
                     );

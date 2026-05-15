@@ -14,21 +14,21 @@
 //! （tab 操作 + 终端粘贴）。
 
 use aish_ui::theme::ThemeKind;
-use aish_ui::{theme, ButtonEntity, Card, Switch, Theme, TypographyExt};
+use aish_ui::{theme, Button, Card, Switch, Theme, TypographyExt};
 use gpui::{div, prelude::*, px, AnyElement, Context, Entity, IntoElement, SharedString, Window};
 
 pub struct SettingsView {
     /// scrollbar 状态 — ScrollPage 接管 wheel / scrollbar / 拖拽。
     scrollbar: aish_ui::ScrollbarHandle,
     /// M31：About section 两个 secondary button entity（press feedback 80ms）。
-    open_config_btn: Entity<ButtonEntity>,
-    open_github_btn: Entity<ButtonEntity>,
+    open_config_btn: Entity<Button>,
+    open_github_btn: Entity<Button>,
 }
 
 impl SettingsView {
     pub fn new(cx: &mut Context<Self>) -> Self {
         let open_config_btn = cx.new(|cx| {
-            let mut b = ButtonEntity::new("settings-open-config-dir", cx);
+            let mut b = Button::new("settings-open-config-dir", cx);
             b.label("打开配置目录").secondary().on_click(|_ev, _w, cx| {
                 match crate::app_state_file::config_dir() {
                     Some(dir) => {
@@ -44,7 +44,7 @@ impl SettingsView {
             b
         });
         let open_github_btn = cx.new(|cx| {
-            let mut b = ButtonEntity::new("settings-open-github", cx);
+            let mut b = Button::new("settings-open-github", cx);
             b.label("查看 GitHub").secondary().on_click(|_ev, _w, cx| {
                 cx.open_url("https://github.com/larrygogo/aish");
             });

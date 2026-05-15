@@ -5,7 +5,7 @@
 //! - `ToastManager` Entity（队列 + 渲染 + 定时清理）
 //! - `ToastHandle` Global（持有 Entity<ToastManager> 的引用，让任意位置都能 push）
 //!
-//! M31：close X 按钮升 IconButtonEntity stateful，每个 toast 持独立 entity
+//! M31：close X 按钮升 IconButton stateful，每个 toast 持独立 entity
 //! 让 press feedback 生效。close_buttons HashMap 跟随 toasts vec 增删同步
 //! retain，避免 entity 泄漏。
 
@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 
 use gpui::{div, prelude::*, px, App, Context, Entity, IntoElement, Render, SharedString, Window};
 
-use crate::components::IconButtonEntity;
+use crate::components::IconButton;
 use crate::icons::{icon, IconName};
 use crate::theme::theme;
 
@@ -51,7 +51,7 @@ pub struct ToastManager {
     next_id: u64,
     /// M31：per-toast close X 按钮 entity（key = toast.id）。push 时插入，
     /// dismiss / cleanup_expired retain 同步清掉过期 entry 防泄漏。
-    close_buttons: HashMap<u64, Entity<IconButtonEntity>>,
+    close_buttons: HashMap<u64, Entity<IconButton>>,
 }
 
 impl ToastManager {
@@ -79,7 +79,7 @@ impl ToastManager {
         // M31：为此 toast 创建 close X button entity，weak callback 触发 dismiss
         let weak = cx.weak_entity();
         let btn = cx.new(|cx| {
-            let mut b = IconButtonEntity::new(("toast-close", id as usize), IconName::X, cx);
+            let mut b = IconButton::new(("toast-close", id as usize), IconName::X, cx);
             b.small().ghost().on_click(move |_ev, _w, cx| {
                 if let Some(this) = weak.upgrade() {
                     this.update(cx, |this, cx| this.dismiss(id, cx));
@@ -162,11 +162,7 @@ impl Render for ToastManager {
     }
 }
 
-fn render_toast(
-    toast: Toast,
-    close_btn: Entity<IconButtonEntity>,
-    cx: &mut App,
-) -> gpui::AnyElement {
+fn render_toast(toast: Toast, close_btn: Entity<IconButton>, cx: &mut App) -> gpui::AnyElement {
     let t = theme(cx);
     let (border_color, fg_color) = match toast.kind {
         ToastKind::Info => (t.colors.accent, t.colors.foreground),

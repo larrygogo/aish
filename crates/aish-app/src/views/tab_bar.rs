@@ -91,7 +91,7 @@ pub struct TabBarView {
     menu_active_idx: usize,
     /// M31：每个 tab 的关闭 X IconButton entity，按 TabId 索引。
     /// render 前 retain_alive_entities 同步 tab 集合避免 entity 泄漏。
-    close_buttons: std::collections::HashMap<TabId, Entity<aish_ui::IconButtonEntity>>,
+    close_buttons: std::collections::HashMap<TabId, Entity<aish_ui::IconButton>>,
 }
 
 /// tab 右键菜单 item 数量。与 build menu items 数量一致（见 render 内
@@ -522,7 +522,7 @@ impl Render for TabBarView {
                 let id = *tab_id;
                 let weak = cx.weak_entity();
                 let btn = cx.new(move |cx| {
-                    let mut b = aish_ui::IconButtonEntity::new(
+                    let mut b = aish_ui::IconButton::new(
                         gpui::SharedString::from(format!("tab-close-{}", id)),
                         IconName::X,
                         cx,

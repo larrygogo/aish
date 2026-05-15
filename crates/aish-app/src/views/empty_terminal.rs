@@ -1,6 +1,6 @@
 //! EmptyTerminalGuideView：sidebar=Terminal 且无任何会话时的引导页（M4a）。
 
-use aish_ui::ButtonEntity;
+use aish_ui::Button;
 use gpui::{div, prelude::*, Context, Entity, Window};
 
 use crate::state::{AppState, SidebarTab};
@@ -8,7 +8,7 @@ use crate::state::{AppState, SidebarTab};
 pub struct EmptyTerminalGuideView {
     state: Entity<AppState>,
     /// M31：go-home button 升 stateful entity，press feedback 80ms。
-    go_home_btn: Entity<ButtonEntity>,
+    go_home_btn: Entity<Button>,
 }
 
 impl EmptyTerminalGuideView {
@@ -17,7 +17,7 @@ impl EmptyTerminalGuideView {
         // 构造 go_home_btn entity — weak.upgrade callback 修改 state.sidebar
         let weak = cx.weak_entity();
         let go_home_btn = cx.new(|cx| {
-            let mut b = ButtonEntity::new("empty-terminal-go-home", cx);
+            let mut b = Button::new("empty-terminal-go-home", cx);
             b.label("回到 Home").primary().on_click(move |_ev, _w, cx| {
                 if let Some(this) = weak.upgrade() {
                     this.update(cx, |this, cx| {

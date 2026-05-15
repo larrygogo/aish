@@ -61,10 +61,10 @@ pub struct InputBarView {
     /// 触发自身 re-render — 必须 polling + 持久字段。
     has_external_drag: bool,
     /// M31：pick (Plus) IconButton entity（press feedback 80ms）。
-    pick_btn: gpui::Entity<aish_ui::IconButtonEntity>,
+    pick_btn: gpui::Entity<aish_ui::IconButton>,
     /// M31：send Button entity；render 每帧 .update(...) 应用动态 label
     /// (spinner / "发送") + disabled 状态（is_uploading || !is_connected）。
-    send_btn: gpui::Entity<aish_ui::ButtonEntity>,
+    send_btn: gpui::Entity<aish_ui::Button>,
 }
 
 /// CLI 标准 Braille spinner 10 帧（与 npm `ora` / `cli-spinners` 的 `dots`
@@ -182,8 +182,7 @@ impl InputBarView {
         // 的 pick_images / 通过文本回路 走 send（与 Enter 路径同样不读 input 防 double-borrow）。
         let weak_pick = cx.weak_entity();
         let pick_btn = cx.new(|cx| {
-            let mut b =
-                aish_ui::IconButtonEntity::new("input-bar-pick", aish_ui::IconName::Plus, cx);
+            let mut b = aish_ui::IconButton::new("input-bar-pick", aish_ui::IconName::Plus, cx);
             b.small().secondary().on_click(move |_ev, _w, cx| {
                 if let Some(this) = weak_pick.upgrade() {
                     this.update(cx, |this, cx| this.pick_images(cx));
@@ -194,7 +193,7 @@ impl InputBarView {
         let weak_send = cx.weak_entity();
         let weak_input = input.downgrade();
         let send_btn = cx.new(|cx| {
-            let mut b = aish_ui::ButtonEntity::new("input-bar-send", cx);
+            let mut b = aish_ui::Button::new("input-bar-send", cx);
             b.label("发送").primary().on_click(move |_ev, window, cx| {
                 // 与 Enter 路径同：读取 input 文本后调 self.send
                 let text = weak_input

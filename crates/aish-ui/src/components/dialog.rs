@@ -15,7 +15,7 @@ use gpui::{
     KeyDownEvent, MouseButton, MouseDownEvent, Pixels, SharedString, Window,
 };
 
-use crate::components::IconButtonEntity;
+use crate::components::IconButton;
 use crate::icons::IconName;
 use crate::theme::{animate_or_skip, theme};
 use crate::TypographyExt;
@@ -49,7 +49,7 @@ pub struct Dialog {
     width: Pixels,
     on_close: Option<CloseHandler>,
     /// M31：标题栏右侧 X 关闭按钮升 stateful IconButton（带 press 反馈）。
-    close_btn: gpui::Entity<IconButtonEntity>,
+    close_btn: gpui::Entity<IconButton>,
     /// caller 注册的额外 key handler。在 Dialog 处理 Esc 关闭之后调用。
     /// 用于 caller 实现 ↑/↓/Enter 等列表导航（如 SessionPicker）。
     on_key: Option<KeyHandler>,
@@ -70,7 +70,7 @@ impl Dialog {
         // 不能直接 reference self（self 不存在），用 weak entity 模式。
         let weak = cx.weak_entity();
         let close_btn = cx.new(|cx| {
-            let mut b = IconButtonEntity::new("dialog-close", IconName::X, cx);
+            let mut b = IconButton::new("dialog-close", IconName::X, cx);
             b.small().on_click(move |_ev, window, cx| {
                 if let Some(this) = weak.upgrade() {
                     this.update(cx, |this, cx| {
