@@ -126,7 +126,8 @@ impl IconButton {
         self.pressing = true;
         self.press_count = self.press_count.wrapping_add(1);
         let expected = self.press_count;
-        let dur = theme(cx).motion.fast;
+        // press 用 medium 150ms（M31 v2 UX 调整，详 button.rs 注释）
+        let dur = theme(cx).motion.medium;
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(dur).await;
             let _ = this.update(cx, |this, cx| {
@@ -141,7 +142,7 @@ impl IconButton {
     }
 
     fn schedule_clear_focus_anim(&mut self, cx: &mut Context<Self>) {
-        let dur = theme(cx).motion.fast;
+        let dur = theme(cx).motion.medium;
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(dur).await;
             let _ = this.update(cx, |this, cx| {
@@ -179,7 +180,8 @@ impl Render for IconButton {
         let isz = self.size.icon_size();
         let radius_sm = t.radius.sm;
         let ring_color = t.colors.ring;
-        let fast_duration = t.motion.fast;
+        // press + ring fade 共用 medium 150ms（M31 v2 UX 调整）
+        let fast_duration = t.motion.medium;
         let easing = t.motion.easing_standard.clone();
 
         let pressing = self.pressing;

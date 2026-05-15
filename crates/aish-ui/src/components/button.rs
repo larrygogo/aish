@@ -118,7 +118,8 @@ impl Button {
         self.pressing = true;
         self.press_count = self.press_count.wrapping_add(1);
         let expected = self.press_count;
-        let dur = theme(cx).motion.fast;
+        // press 用 medium 150ms — fast 80ms 用户察觉不到（v1 UX bug）
+        let dur = theme(cx).motion.medium;
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(dur).await;
             let _ = this.update(cx, |this, cx| {
@@ -133,10 +134,10 @@ impl Button {
         cx.notify();
     }
 
-    /// focus_animated 80ms 后清 — 让 render 走非 animate 路径（focus ring
-    /// 显示但不重播动画）。
+    /// focus_animated 150ms 后清 — 让 render 走非 animate 路径（focus ring
+    /// 显示但不重播动画）。与 press 共用 medium duration 让两路 timing 一致。
     fn schedule_clear_focus_anim(&mut self, cx: &mut Context<Self>) {
-        let dur = theme(cx).motion.fast;
+        let dur = theme(cx).motion.medium;
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(dur).await;
             let _ = this.update(cx, |this, cx| {
@@ -177,7 +178,8 @@ impl Render for Button {
         let padding_x = t.spacing.px_3;
         let radius = t.radius.md;
         let ring_color = t.colors.ring;
-        let fast_duration = t.motion.fast;
+        // press + ring fade 共用 medium 150ms（M31 v2 UX 调整）
+        let fast_duration = t.motion.medium;
         let easing = t.motion.easing_standard.clone();
         let static_ring = ring_shadow(t, 1.0);
 
@@ -326,11 +328,20 @@ pub(crate) fn pick_button_colors(
     }
 }
 
-/// press feedback opacity：linear 0.85 → 1.0 在 delta ∈ [0, 1]。
-/// 与 with_animation 的 easing 配合 — easing 已 ease-out，本 fn 仅线性映射。
+/// press feedback opacity：linear 0.70 → 1.0 在 delta ∈ [0, 1]。
+///
+/// 视觉时序：mouse_down 瞬间 delta=0 → opacity=0.70（**明显**变暗 30%），
+/// 然后 150ms 内 ease-out 渐变回 1.0。这模拟物理按键 "按下瞬间立刻变暗 +
+/// 慢慢恢复" 标准模式。
+///
+/// 原 M31 v1 用 0.85→1.0 / 80ms — 15% 变化幅度太小 + 80ms 低于人眼
+/// motion 察觉阈值 (~150-200ms)，加 handler 立即触发 state 变化导致视觉
+/// 抖动盖过 opacity 渐变，用户实际看不到反馈。v2 改 30% 变化 + medium
+/// 150ms 让按下瞬间立刻有明显暗化，即使 button 后续 unmount 也已经看到
+/// 至少首帧的 "按下" 视觉。
 pub(crate) fn press_opacity_at(delta: f32) -> f32 {
     let d = delta.clamp(0.0, 1.0);
-    0.85 + 0.15 * d
+    0.70 + 0.30 * d
 }
 
 #[cfg(test)]
@@ -415,19 +426,20 @@ mod tests {
 
     #[test]
     fn press_opacity_at_endpoints() {
-        assert!((press_opacity_at(0.0) - 0.85).abs() < 1e-6);
+        // v2: 按下瞬间 opacity=0.70 (明显变暗 30%)，恢复 1.0
+        assert!((press_opacity_at(0.0) - 0.70).abs() < 1e-6);
         assert!((press_opacity_at(1.0) - 1.0).abs() < 1e-6);
     }
 
     #[test]
     fn press_opacity_at_midpoint() {
-        // delta=0.5 → 0.85 + 0.15*0.5 = 0.925
-        assert!((press_opacity_at(0.5) - 0.925).abs() < 1e-6);
+        // delta=0.5 → 0.70 + 0.30*0.5 = 0.85
+        assert!((press_opacity_at(0.5) - 0.85).abs() < 1e-6);
     }
 
     #[test]
     fn press_opacity_clamped() {
-        assert!((press_opacity_at(-0.5) - 0.85).abs() < 1e-6);
+        assert!((press_opacity_at(-0.5) - 0.70).abs() < 1e-6);
         assert!((press_opacity_at(1.5) - 1.0).abs() < 1e-6);
     }
 }
