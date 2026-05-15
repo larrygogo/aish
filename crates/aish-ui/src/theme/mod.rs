@@ -1,10 +1,14 @@
 //! Theme / Token 系统。M11 仅实现 dark。
 
+mod anatomy;
 mod dark;
 mod light;
 mod tokens;
 mod typography;
 
+pub use anatomy::{
+    Anatomy, CardAnatomy, DialogAnatomy, FormAnatomy, ListRowAnatomy, OverlayAnatomy, PageAnatomy,
+};
 pub use tokens::{
     elevation_1, elevation_2, elevation_3, ColorTokens, FontSize, Radius, Spacing, Theme, ThemeKind,
 };

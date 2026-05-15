@@ -12,6 +12,7 @@ pub mod theme;
 pub use components::*;
 pub use icons::{icon, AishUiAssets, IconName};
 pub use theme::{
-    elevation_1, elevation_2, elevation_3, theme, ColorRole, Theme, ThemeKind, TypeRole, TypeStyle,
-    Typography, TypographyExt,
+    elevation_1, elevation_2, elevation_3, theme, Anatomy, CardAnatomy, ColorRole, DialogAnatomy,
+    FormAnatomy, ListRowAnatomy, OverlayAnatomy, PageAnatomy, Theme, ThemeKind, TypeRole,
+    TypeStyle, Typography, TypographyExt,
 };

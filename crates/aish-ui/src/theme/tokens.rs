@@ -124,6 +124,9 @@ pub struct Theme {
     /// M26 新增：9 个语义 type role（size × weight × color_role 三维）。
     /// caller 通过 `.typography(TypeRole::Title3, t)` 一行 apply。
     pub typography: super::typography::Typography,
+    /// M27 新增：Component anatomy — Card/Dialog/List/Form/Page/Overlay
+    /// 内部 padding / gap / 行高规则。跨主题相同。
+    pub anatomy: super::anatomy::Anatomy,
 }
 
 impl gpui::Global for Theme {}

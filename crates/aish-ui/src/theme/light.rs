@@ -65,6 +65,7 @@ impl Theme {
             spacing: Spacing::default(),
             font_size: FontSize::default(),
             typography: super::typography::Typography::default(),
+            anatomy: super::anatomy::Anatomy::default(),
         }
     }
 }
