@@ -10,13 +10,35 @@
 
 ## 当前状态
 
-- **活跃分支**：main（2026-05-15 完成 M22-M32 + M27，全在 origin）
-- **下一里程碑候选**：M33（Card / NavItem / TabItem 升 Entity + hover transition / list row hover transition / TabItem indicator slide）
-- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **268** + aish-app **147** + 其他 crate) 全过
+- **活跃分支**：main（2026-05-15 完成 M22-M32 + M27；M33 仅 T1 落地，T2-T4 暂停）
+- **下一里程碑候选**：home.rs render split 重构（解锁 M33 T2-T4 + 其他 entity 化场景）
+- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **270** + aish-app **147** + 其他 crate) 全过
 
 ---
 
 ## Milestones（按时间倒序）
+
+### M33 — Card 升 Entity（2026-05-15）— ⚠️ T1 完成 / T2-T4 暂停
+- spec：[`specs/2026-05-15-aish-m33-card-stateful-design.md`](specs/2026-05-15-aish-m33-card-stateful-design.md)
+- plan：[`plans/2026-05-15-aish-m33-card-stateful.md`](plans/2026-05-15-aish-m33-card-stateful.md)
+- 范围：把 Card 升 stateful Entity 给 home host card 加 hover transition
+  + press feedback（M32 路线延续到 Card 组件）
+- 实际进展：
+  - ✅ T1 (`834671f`)：CardEntity 旁挂在 aish-ui，含完整 HoverState +
+    fire_press + fire_hover + render 三路 animator wrapper，与 Button
+    模式对称
+  - ⛔ T2-T4 暂停：home.rs render 内 `app = state.read(cx)` + `theme =
+    theme(cx)` immutable borrow 跨 cards iter 与 card_entity.update(cx, ...)
+    mut borrow 冲突；可行解但需 split render 成 3 阶段（phase 1 build
+    owned + phase 2 drop borrow + entity.update + phase 3 re-borrow），
+    工程量超 spec 估算 4 倍。决定暂停，等以后有空一并重构 home render
+- 关键 commits：
+  - `baf4605` — spec + plan
+  - `834671f` — T1 CardEntity 旁挂
+- 测试：aish-ui 268 → **270**（M32 v2 Ghost fix 计入，CardEntity 旁挂无新测试）
+- 启示：AnyElement 不可 Clone 是 Card 升 Entity 主要摩擦 — 与 Dialog
+  body 同模式但 Dialog 是顶层 view，Card 嵌在 home 复杂 render 流；未来
+  通用 entity 化 pattern 需要更轻量的 body schema（待 brainstorm）
 
 ### M32 — Button / IconButton hover transition v1（2026-05-15）— ✅ 已完成
 - spec：[`specs/2026-05-15-aish-m32-hover-transition-design.md`](specs/2026-05-15-aish-m32-hover-transition-design.md)

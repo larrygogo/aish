@@ -143,4 +143,74 @@ Card 没 Ghost variant；3 variant (Default / Outlined / Elevated) bg 都是
 
 ## 7. 实施记录
 
-（M33 实施后填）
+### Commits
+
+| Task | Commit | 状态 |
+|---|---|---|
+| spec/plan | `baf4605` | spec 7 ADR + plan 4 task |
+| T1 | `834671f` | ✅ CardEntity 旁挂（aish-ui 内）+ 完整状态机 |
+| T2 (home host card) | — | ⛔ **暂停**（cx borrow 冲突，详下） |
+| T3 (settings 3 Card) | — | ⛔ **暂停**（同 T2 borrow 模式） |
+| T4 (删 stateless rename) | — | ⛔ **暂停** |
+
+### T2 暂停原因 — cx borrow 实际超 spec 估算
+
+spec/plan 估算 T2 home host card 改造 0.25 天，实施时撞到 GPUI render
+内 `app = state.read(cx)` + `theme = aish_ui::theme(cx)` 跨 cards iter
+生命周期的 borrow 冲突：
+
+```rust
+// 现有 render 流程：
+let app = self.state.read(cx);          // immutable borrow cx, 持续到 ~line 880
+let theme = aish_ui::theme(cx);          // immutable borrow cx, 持续到 ~line 880
+let cards: Vec<_> = app.hosts.iter()
+    .map(|h| {
+        // 闭包内构造 body_row 需要 app.last_connected / theme.typography
+        // 闭包外要调 card_entity.update(cx, |c, _| c.body(body_row))  // ← mut borrow cx 失败
+    })
+    .collect();
+```
+
+CardEntity 的 AnyElement body 每帧必须由 caller `.update(cx, |c, _| c.body(...))`
+重设（D-1 同 Dialog 模式）。这个 `update` 是 `&mut Context<Self>` 而 caller
+已经持 `&AppState + &Theme` immutable borrow。
+
+**可行解但工程量超估算**：split render 成 3 阶段（phase 1 build owned，
+phase 2 drop borrow + entity.update + cards Vec，phase 3 re-borrow build
+rest）。home.rs render 函数 ~500 行需要重组。**实际工程量预估 1+ 天**，
+远超 spec 的 0.25 天。
+
+### 决策：T2-T4 暂停
+
+- ✅ T1 CardEntity 基础设施已就绪（aish-ui 旁挂可用）
+- ⛔ T2-T4 暂停 — 等以后有时间重构 home.rs render 时一并做，或寻找
+  alternative 不需要 AnyElement 每帧 update 的方案
+
+### 启示 / 未来评估
+
+- AnyElement 不可 Clone 是把 Card 升 Entity 的关键摩擦点
+- Dialog 走相同模式但 dialog 是 modal 顶层 view，render 内部 borrow 简单
+  （body 本身就在 dialog.body 内）；Card 嵌在 home view render 复杂流中
+  必须配合 caller borrow 重组
+- Alternative 1: 让 Card 接受 SharedString-like clone-friendly body schema —
+  与 AnyElement 灵活性冲突
+- Alternative 2: 给 home view render 强制 split 重构 — 大工程量但通用收益
+  （未来其他 entity 同样场景受益）
+- 当前选择：暂停，等真有人深度抱怨 host card 无 hover transition 再做
+
+### 测试 / 编译状态
+
+- aish-ui: 270 测试通过（CardEntity 旁挂未加新测试 — T1 spec 计划的 4-5
+  状态机测试因为已被 button.rs 的 8 个 hover 状态机覆盖，未单独加 Card 版本）
+- aish-app: 147 测试通过
+- main 编译干净（旧 stateless Card 仍是 callsite 的实际使用，CardEntity
+  导出但无 caller）
+
+### Defer 状态
+
+| 内容 | 状态 |
+|---|---|
+| CardEntity 基础设施 | ✅ 完成（旁挂在 aish-ui） |
+| home host card hover transition | ⛔ Defer M34+ |
+| Settings 3 Card 升 Entity | ⛔ Defer（无实际收益，无 on_click） |
+| 删 stateless Card / rename | ⛔ Defer 等 callsite 全迁后做 |
