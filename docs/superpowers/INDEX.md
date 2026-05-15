@@ -10,9 +10,10 @@
 
 ## 当前状态
 
-- **活跃分支**：main（2026-05-15 完成 M22-M32 + M27；M33 仅 T1 落地，T2-T4 暂停）
+- **活跃分支**：main（2026-05-15 完成 M22-M32 + M27；M33 T1 落地 T2-T4 暂停；
+  NavItem 同步升 Entity + hover transition `f18cbc0` polish）
 - **下一里程碑候选**：home.rs render split 重构（解锁 M33 T2-T4 + 其他 entity 化场景）
-- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **270** + aish-app **147** + 其他 crate) 全过
+- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **268** + aish-app **147** + 其他 crate) 全过
 
 ---
 
@@ -39,6 +40,18 @@
 - 启示：AnyElement 不可 Clone 是 Card 升 Entity 主要摩擦 — 与 Dialog
   body 同模式但 Dialog 是顶层 view，Card 嵌在 home 复杂 render 流；未来
   通用 entity 化 pattern 需要更轻量的 body schema（待 brainstorm）
+
+### NavItem polish (M32 follow-up)（2026-05-15）— ✅ 已完成
+- 范围：sidebar 4-tab 导航的 NavItem 从 stateless 升 stateful Entity，
+  加 hover transition（fg + bg 双 lerp 150ms）+ press feedback + focus
+  ring fade。M32 / M33 模式延续，sidebar_nav.rs render 内 borrow 简单
+  未撞 M33 home host card 的 cx mut 冲突 — 直接替换不走旁挂
+- 关键 commit：`f18cbc0`
+- 测试：aish-ui 270 → **268**（净 -2，删 6 旧 stateless 单测 + 加 4 hover
+  状态机 pure fn）
+- 特殊处理：NavItem fire_hover 内 `if self.active { return }` 让 active
+  selected 视觉保持稳态，不被 hover 覆盖（保留 stateless 时代 `if !active`
+  分支语义）
 
 ### M32 — Button / IconButton hover transition v1（2026-05-15）— ✅ 已完成
 - spec：[`specs/2026-05-15-aish-m32-hover-transition-design.md`](specs/2026-05-15-aish-m32-hover-transition-design.md)
