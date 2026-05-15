@@ -199,10 +199,10 @@ impl Render for SidebarNavView {
             }
         }
 
-        // Icon helper：SVG IconName 替代 Nerd Font 字符 — SVG viewBox 自身
-        // 已视觉居中，不需 wrapper（之前 2bdb482 的 20×20 wrapper 仅是
-        // font char 时代的 hack，SVG 时代直接 svg().size() 即可）。
-        let make_icon = |name: IconName| icon(name).size(px(18.0));
+        // Icon helper：SVG IconName。GPUI svg() 颜色不从父 text_color 自动
+        // 继承 — 必须显式 .text_color() 否则 stroke 不可见。
+        let icon_color = theme(cx).colors.muted_foreground;
+        let make_icon = move |name: IconName| icon(name).size(px(18.0)).text_color(icon_color);
 
         // ── Phase B：read theme borrow，block scope → build inner body AnyElement ──
         let rows_phase1: Vec<(HostId, gpui::AnyElement)> = {
@@ -329,7 +329,11 @@ impl Render for SidebarNavView {
                         .flex()
                         .items_center()
                         .justify_center()
-                        .child(icon(toggle_icon_name).size(px(12.0))),
+                        .child(
+                            icon(toggle_icon_name)
+                                .size(px(12.0))
+                                .text_color(colors.muted_foreground),
+                        ),
                 )
                 .on_mouse_down(
                     MouseButton::Left,
@@ -396,7 +400,11 @@ impl Render for SidebarNavView {
                         .text_color(colors.muted_foreground)
                         .rounded(px(6.0))
                         .hover(|s| s.bg(colors.secondary_hover))
-                        .child(icon(toggle_icon_name).size(px(12.0)))
+                        .child(
+                            icon(toggle_icon_name)
+                                .size(px(12.0))
+                                .text_color(colors.muted_foreground),
+                        )
                         .on_mouse_down(
                             MouseButton::Left,
                             cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
