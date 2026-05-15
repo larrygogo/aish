@@ -3,12 +3,14 @@
 mod anatomy;
 mod dark;
 mod light;
+mod motion;
 mod tokens;
 mod typography;
 
 pub use anatomy::{
     Anatomy, CardAnatomy, DialogAnatomy, FormAnatomy, ListRowAnatomy, OverlayAnatomy, PageAnatomy,
 };
+pub use motion::{animate_or_skip, EasingFn, Motion};
 pub use tokens::{
     elevation_1, elevation_2, elevation_3, ColorTokens, FontSize, Radius, Spacing, Theme, ThemeKind,
 };

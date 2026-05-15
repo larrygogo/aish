@@ -127,6 +127,12 @@ pub struct Theme {
     /// M27 新增：Component anatomy — Card/Dialog/List/Form/Page/Overlay
     /// 内部 padding / gap / 行高规则。跨主题相同。
     pub anatomy: super::anatomy::Anatomy,
+    /// M30 新增：动画 duration + easing token（4 档语义 ms）。
+    pub motion: super::motion::Motion,
+    /// M30 新增：accessibility — "减少动画"偏好。true 时所有
+    /// `animate_or_skip` 调用跳过 Animation 包装直接输出 end-state。
+    /// 由 Settings UI toggle 写盘到 app_state.toml，启动时回灌到 Theme。
+    pub reduced_motion: bool,
 }
 
 impl gpui::Global for Theme {}
