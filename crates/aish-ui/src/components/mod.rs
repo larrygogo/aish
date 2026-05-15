@@ -25,7 +25,7 @@ mod toast;
 mod tooltip;
 
 pub use badge::{Badge, BadgeVariant};
-pub use button::{Button, ButtonVariant};
+pub use button::{Button, ButtonEntity, ButtonVariant};
 pub use card::{Card, CardVariant};
 pub use checkbox::Checkbox;
 pub use context_menu::ContextMenu;
