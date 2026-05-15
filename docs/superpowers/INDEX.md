@@ -10,13 +10,32 @@
 
 ## 当前状态
 
-- **活跃分支**：main（2026-05-15 完成 M22-M28，全在 origin；M27/M29/M30 spec 已起草待实施）
-- **下一里程碑**：按用户选定顺序 M27 (anatomy) → M29 (host_form 重设计) → M30 (animation)
-- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **222** + aish-app **145** + 其他 crate) 全过 — 总 487
+- **活跃分支**：main（2026-05-15 完成 M22-M28 + M27，全在 origin；M29/M30 spec 待实施）
+- **下一里程碑**：M29 (host_form 重设计) → M30 (animation)
+- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **232** + aish-app **145** + 其他 crate) 全过 — 总 497
 
 ---
 
 ## Milestones（按时间倒序）
+
+### M27 — Component Anatomy 规范（2026-05-15）— ✅ 已完成（T5/T6 推 M29）
+- spec：[`specs/2026-05-15-aish-m27-component-anatomy-design.md`](specs/2026-05-15-aish-m27-component-anatomy-design.md)
+- plan：[`plans/2026-05-15-aish-m27-component-anatomy.md`](plans/2026-05-15-aish-m27-component-anatomy.md)
+- 范围：Component anatomy 升 Theme 第 5 层 token
+  - 6 个 sub-struct: CardAnatomy / DialogAnatomy / ListRowAnatomy
+    (dense/comfortable/spacious 三档) / FormAnatomy / PageAnatomy /
+    OverlayAnatomy
+  - Card 加 padding: bool + .no_padding() opt-out（默认 true 内置 padding）
+  - settings 3 Card + home host card 调 .no_padding() 保持视觉零回归
+  - anatomy.page 接 home / settings page padding
+  - anatomy.overlay 接 Toast / Tooltip padding
+- 关键 commits：
+  - `37ca0c4` — T1 anatomy.rs + 6 sub-struct
+  - `ef82d75` — T2 Card 内置 padding + T3+T4 caller opt-out
+  - `de7960f` — anatomy.page 接 home/settings
+- 测试：aish-ui 222 → **232**（+8 anatomy +2 padding），aish-app 145 不变
+- 推迟到 M29：T5 session_picker dense list / T6 host_form form anatomy
+  （与 host_form 重设计合并避免重叠）
 
 ### M28 — State Design（EmptyState / ErrorState / Skeleton）（2026-05-15）— ✅ 已完成
 - spec：[`specs/2026-05-15-aish-m28-state-design-design.md`](specs/2026-05-15-aish-m28-state-design-design.md)

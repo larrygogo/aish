@@ -169,8 +169,8 @@ fn render_toast(
         .relative()
         .min_w(px(300.0))
         .max_w(px(440.0))
-        .px(px(12.0))
-        .py(px(12.0))
+        // M27 anatomy.overlay.toast_p (12)
+        .p(t.anatomy.overlay.toast_p)
         .rounded(t.radius.lg)
         .bg(t.colors.popover)
         .border_1()
@@ -180,7 +180,8 @@ fn render_toast(
         .flex()
         .flex_row()
         .items_start() // icon 与文字第一行顶部对齐（长文字换行时仍对齐）
-        .gap(px(12.0))
+        // M27 anatomy.overlay.toast_gap (12)
+        .gap(t.anatomy.overlay.toast_gap)
         // svg 必须套 flex_shrink_0 div：GPUI svg 元素本身设了 size(18px)，
         // 但 flex 默认 shrink=1，在长 message 挤压 max_w 时会把 svg 压到
         // width=0 触发 'can't render at a zero size' 报错刷屏。包一层固定宽

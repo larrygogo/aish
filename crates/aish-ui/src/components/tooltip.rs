@@ -45,9 +45,10 @@ pub struct TooltipView {
 impl Render for TooltipView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
+        // M27 anatomy.overlay.tooltip_px (8) / tooltip_py (4)
         div()
-            .px(t.spacing.px_2)
-            .py(t.spacing.px_1)
+            .px(t.anatomy.overlay.tooltip_px)
+            .py(t.anatomy.overlay.tooltip_py)
             .rounded(t.radius.sm)
             .bg(t.colors.popover)
             .border_1()

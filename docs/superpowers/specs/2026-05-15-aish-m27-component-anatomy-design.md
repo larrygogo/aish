@@ -414,3 +414,40 @@ T1 token 加好后，跑前先记录基线（aish-ui 211 + aish-app 144 = 355）
 ## 8. 实施记录（待 plan 完成后回填）
 
 T1 ~ T7 实施 commits 等待填入。
+
+---
+
+## 8. 实施记录（2026-05-15 完成）
+
+T1 完整 + T2-T4 + T7 部分接入 + page anatomy 接入。T5/T6 (session_picker
+dense list + host_form form anatomy) 推迟到 M29 host_form 重设计一起做
+（避免与 M29 改动重叠）。
+
+### 实际 commits
+
+| Task | Commit | 内容 |
+|---|---|---|
+| spec + plan | `e12c967` | M27/M28/M29/M30 4 并行 spec 一波合 |
+| T1 | `37ca0c4` | anatomy.rs + 6 sub-struct + Theme 字段 + 8 单测 |
+| T2+T3+T4 | `ef82d75` | Card 内置 padding + .no_padding() + caller opt-out + 2 单测 |
+| anatomy.page | `de7960f` | home / settings page padding 走 anatomy.page token |
+| T7 | (本次) | Toast / Tooltip 走 anatomy.overlay |
+| T8 | (本次) | INDEX + spec 实施记录 |
+
+### 测试增量
+
+- aish-ui 222 → **232** (+10 = 8 anatomy T1 + 2 Card padding)
+- aish-app 145 不变
+
+### Risk 实际命中
+
+- **R1 双重 padding 叠加**：T2 加内置 padding 后 settings 3 个 Card +
+  home host card 必须 .no_padding() opt-out 才不双 padding。已 mitigation。
+- caller 适配工作量低于预期 — opt-out 模式比 plan 原版"section_header
+  删 px_4 让 Card 自带"简单得多，零视觉回归。
+
+### 未做（推迟到 M29 一起）
+
+- T5 session_picker row 走 list_row.dense（涉及 row 数据流不动）
+- T6 host_form 用 form anatomy.field_gap/row_gap/inline_gap/footer_gap
+  （会被 M29 重设计覆盖，避免重复改）
