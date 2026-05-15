@@ -118,7 +118,12 @@ pub struct Theme {
     pub colors: ColorTokens,
     pub radius: Radius,
     pub spacing: Spacing,
+    /// 旧 5 档 size token（xs/sm/base/lg/xl）—— M26 起新增代码用
+    /// `typography` 字段，font_size 保留 fallback 渐进迁移。
     pub font_size: FontSize,
+    /// M26 新增：9 个语义 type role（size × weight × color_role 三维）。
+    /// caller 通过 `.typography(TypeRole::Title3, t)` 一行 apply。
+    pub typography: super::typography::Typography,
 }
 
 impl gpui::Global for Theme {}

@@ -64,6 +64,7 @@ impl Theme {
             radius: Radius::default(),
             spacing: Spacing::default(),
             font_size: FontSize::default(),
+            typography: super::typography::Typography::default(),
         }
     }
 }
