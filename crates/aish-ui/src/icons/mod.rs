@@ -44,6 +44,12 @@ pub enum IconName {
     DistroFedora,
     DistroRedhat,
     DistroMacos,
+    // M28 state design：EmptyState / ErrorState / LoadingSkeleton 默认 icon
+    Inbox,
+    Server,
+    WifiOff,
+    FileQuestion,
+    Loader,
 }
 
 impl IconName {
@@ -76,6 +82,11 @@ impl IconName {
         IconName::DistroFedora,
         IconName::DistroRedhat,
         IconName::DistroMacos,
+        IconName::Inbox,
+        IconName::Server,
+        IconName::WifiOff,
+        IconName::FileQuestion,
+        IconName::Loader,
     ];
 
     /// AssetSource 加载用的 path（对应 assets/icons/ 内文件名）。
@@ -107,6 +118,11 @@ impl IconName {
             IconName::DistroFedora => "icons/distros/fedora.svg",
             IconName::DistroRedhat => "icons/distros/redhat.svg",
             IconName::DistroMacos => "icons/distros/macos.svg",
+            IconName::Inbox => "icons/inbox.svg",
+            IconName::Server => "icons/server.svg",
+            IconName::WifiOff => "icons/wifi-off.svg",
+            IconName::FileQuestion => "icons/file-question.svg",
+            IconName::Loader => "icons/loader.svg",
         }
     }
 
@@ -153,6 +169,11 @@ impl IconName {
             IconName::DistroMacos => {
                 include_bytes!("../../assets/icons/distros/macos.svg")
             }
+            IconName::Inbox => include_bytes!("../../assets/icons/inbox.svg"),
+            IconName::Server => include_bytes!("../../assets/icons/server.svg"),
+            IconName::WifiOff => include_bytes!("../../assets/icons/wifi-off.svg"),
+            IconName::FileQuestion => include_bytes!("../../assets/icons/file-question.svg"),
+            IconName::Loader => include_bytes!("../../assets/icons/loader.svg"),
         }
     }
 }
