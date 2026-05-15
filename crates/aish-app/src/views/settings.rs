@@ -123,6 +123,8 @@ impl Render for SettingsView {
         // global 真值，不再用 self.dark_mode 镜像（之前 镜像 + disabled 是因为
         // Light 未实现的占位）。
         let dark = matches!(t.kind, ThemeKind::Dark);
+        // M30：reduced_motion 偏好直接从 global Theme 读，Switch 反映真值。
+        let reduced_motion = t.reduced_motion;
 
         // ───── 页面标题 ─────
         // M26 T2: page title 用 Title1 (20/600/fg)。
@@ -140,11 +142,15 @@ impl Render for SettingsView {
             .checked(dark)
             .on_change(cx.listener(|_this, new_value: &bool, _w, cx| {
                 let dark_now = *new_value;
-                let new_theme = if dark_now {
+                // 切主题时**保留** reduced_motion 偏好（dark/light Theme
+                // constructor 初始化为 false，会丢用户选择）
+                let cur_reduced = theme(cx).reduced_motion;
+                let mut new_theme = if dark_now {
                     Theme::dark()
                 } else {
                     Theme::light()
                 };
+                new_theme.reduced_motion = cur_reduced;
                 cx.set_global(new_theme);
                 // refresh_windows 让所有 view 重 render 拿新 theme global。
                 // 不用 cx.notify(this) —— 该 view 自身只是众多受影响 view 之一。
@@ -152,6 +158,26 @@ impl Render for SettingsView {
                 // 持久化：load 当前 state、改 theme 字段、save。
                 let mut snapshot = crate::app_state_file::load_app_state();
                 snapshot.theme = Some(if dark_now { "dark" } else { "light" }.to_string());
+                crate::app_state_file::save_app_state(&snapshot);
+            }))
+            .into_any_element();
+
+        // M30：reduced motion Switch — 切换"减少动画"偏好，写盘 + 更新 Theme
+        let motion_switch = Switch::new("settings-reduced-motion")
+            .checked(reduced_motion)
+            .on_change(cx.listener(|_this, new_value: &bool, _w, cx| {
+                let new_reduced = *new_value;
+                // 切 reduced_motion 时保留 dark/light kind
+                let kind = theme(cx).kind;
+                let mut new_theme = match kind {
+                    ThemeKind::Dark => Theme::dark(),
+                    ThemeKind::Light => Theme::light(),
+                };
+                new_theme.reduced_motion = new_reduced;
+                cx.set_global(new_theme);
+                cx.refresh_windows();
+                let mut snapshot = crate::app_state_file::load_app_state();
+                snapshot.reduced_motion = Some(new_reduced);
                 crate::app_state_file::save_app_state(&snapshot);
             }))
             .into_any_element();
@@ -164,7 +190,13 @@ impl Render for SettingsView {
                 div()
                     .flex()
                     .flex_col()
-                    .child(control_row("Dark mode", None, dark_switch, t)),
+                    .child(control_row("Dark mode", None, dark_switch, t))
+                    .child(control_row(
+                        "减少动画",
+                        Some("关闭 dialog 入场 / toast 出现等动画"),
+                        motion_switch,
+                        t,
+                    )),
             );
 
         // ───── Keyboard Shortcuts ─────

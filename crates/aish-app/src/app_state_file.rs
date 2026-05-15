@@ -21,6 +21,10 @@ pub struct AppStateFile {
     /// SettingsView 切换 Dark mode switch 后写入此字段并 save 让重启保留。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub theme: Option<String>,
+    /// M30：accessibility - "减少动画"偏好。None = 默认 false（启用动画）。
+    /// SettingsView Switch 写盘后，启动时回灌到 Theme.reduced_motion。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reduced_motion: Option<bool>,
 }
 
 pub fn app_state_path() -> Option<PathBuf> {
@@ -121,6 +125,7 @@ impl AppStateFile {
         Self {
             recent,
             theme: None,
+            reduced_motion: None,
         }
     }
 
@@ -202,5 +207,29 @@ mod tests {
         lc.insert(id, t);
         let state = AppStateFile::from_last_connected(&lc);
         assert_eq!(state.recent.get(&id.0.to_string()), Some(&1715174400u64));
+    }
+
+    /// M30：reduced_motion None / Some(true) / Some(false) 都能 roundtrip。
+    /// None 时 skip_serializing 不写盘，加载回来仍是 None（默认行为）。
+    #[test]
+    fn reduced_motion_roundtrip_some_true() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("app_state.toml");
+        let state = AppStateFile {
+            reduced_motion: Some(true),
+            ..AppStateFile::default()
+        };
+        save_app_state_to(&path, &state);
+        let loaded = load_app_state_from(&path);
+        assert_eq!(loaded.reduced_motion, Some(true));
+    }
+
+    #[test]
+    fn reduced_motion_default_none() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("app_state.toml");
+        let loaded = load_app_state_from(&path);
+        // 文件不存在时返回 default，reduced_motion None = 默认 false
+        assert_eq!(loaded.reduced_motion, None);
     }
 }
