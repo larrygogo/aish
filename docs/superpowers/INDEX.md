@@ -10,13 +10,42 @@
 
 ## 当前状态
 
-- **活跃分支**：main（2026-05-15 完成 M22-M31 + M27，全在 origin）
-- **下一里程碑候选**：M32（TabItem indicator slide — M30 T6 仍 defer / hover transition / Skeleton 业务接入）
-- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **260** + aish-app **147** + 其他 crate) 全过
+- **活跃分支**：main（2026-05-15 完成 M22-M32 + M27，全在 origin）
+- **下一里程碑候选**：M33（Card / NavItem / TabItem 升 Entity + hover transition / list row hover transition / TabItem indicator slide）
+- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **268** + aish-app **147** + 其他 crate) 全过
 
 ---
 
 ## Milestones（按时间倒序）
+
+### M32 — Button / IconButton hover transition v1（2026-05-15）— ✅ 已完成
+- spec：[`specs/2026-05-15-aish-m32-hover-transition-design.md`](specs/2026-05-15-aish-m32-hover-transition-design.md)
+- plan：[`plans/2026-05-15-aish-m32-hover-transition.md`](plans/2026-05-15-aish-m32-hover-transition.md)
+- 范围：给 Button / IconButton 加 hover enter transition — mouse 移入
+  时 bg 颜色 150ms ease_out_quint lerp idle → hover；移出 instant 切回
+  idle（D-1 与 M31 focus fade-in-no-out 策略一致）
+  - **HoverState enum 3 态**：Idle / Entering { anim_count } / Hovered
+  - **状态机入口**：`fire_hover(hovered)` 通过 GPUI `.on_hover()` callback
+    调用；Idle + true → Entering + spawn 150ms timer 切 Hovered（幂等
+    check 防 stale）；任意 + false → Idle instant
+  - **render 改造**：删 `.hover(|s| s.bg(hover_bg))` declarative，自管
+    bg（按 hover_state 选 idle_bg / hover_bg / lerp 中间值）
+  - **三路 animator wrapper 共用**：hover + press + focus 单 animate_or_skip
+    内 closure 独立 set bg / opacity / shadow，天然解耦无冲突
+  - **ElementId 用 (press_count + hover_anim_count) tuple**：任一变化
+    让 GPUI 创建新 Animation state 重播
+  - **reduced_motion 跳 Entering 直接 Hovered**（D-7 fallback）
+  - **不接 Card / NavItem / TabItem / list row**（D-6 留 M33+，需先升 Entity）
+- 关键 commits：
+  - `5169fc7` — spec + plan
+  - `a32909f` — T1 Button hover transition + 8 pure fn 单测
+  - `471155c` — T2 IconButton 对称（HoverState 升 pub(crate) 复用）
+- 测试：aish-ui 260 → **268**（+8 hover 状态机单测），aish-app 147 不变
+- 已知边界：
+  - Ghost variant lerp(transparent_black, secondary_active) 中间色是半透明
+    灰 — 手测后视觉评估 R5，若不佳后续可加 Ghost fallback 走 instant
+  - hover leave fade-out 不做（D-1 简化）
+  - Card / NavItem / TabItem / list row 留 M33+
 
 ### M31 — Button / IconButton stateful 重构 + press / focus 动画（2026-05-15）— ✅ 已完成
 - spec：[`specs/2026-05-15-aish-m31-button-stateful-design.md`](specs/2026-05-15-aish-m31-button-stateful-design.md)
@@ -691,7 +720,7 @@
 |---|---|---|---|
 | detach-detect | tmux conf 注入 `set-hook -g client-detached`；aish 解析后清侧栏 attached 标记。aish-tmux protocol 已有 ParsedEvent::ClientDetached parser，但走 raw attach 路径没启用 control mode — 需要混合模式（attach 时同时 spawn 一个 -C 监听 channel） | ~半天 | 中 |
 | mouse-legacy-encoding | X10/UTF8 鼠标编码 fallback（现代默认 SGR，需求弱） | < 1 小时 | 极低 |
-| hover-transition | 17 处 `.hover()` 切色加 80-150ms 过渡（M30 D-3 / M31 D-8 defer 项） | ~1-2 天 | 中（用户感知度高） |
+| ~~hover-transition (Button / IconButton)~~ | ✅ M32 落地（commits `a32909f` / `471155c`），Card/NavItem/TabItem/list row 留 M33+ | — | — |
 | tab-indicator-slide | TabItem 切换时 indicator 底部 line 横向滑动 150ms（M30 T6 defer） | ~半天 | 中 |
 | button-entity-test-harness | 引入 gpui::TestApp 给 ButtonEntity 加 entity-level 单测（M31 D-9 留空） | ~1 天 | 低 |
 | skeleton-business-usecase | 找到一个真实业务场景接 Skeleton（session_picker NotChecked / 远端命令异步等）— M28 留空待业务驱动 | TBD | 中 |

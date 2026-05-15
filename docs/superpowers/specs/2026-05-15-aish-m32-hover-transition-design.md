@@ -245,4 +245,74 @@ T2 收尾跑：
 
 ## 9. 实施记录
 
-（M32 实施后填）
+### Commits
+
+| Task | Commit | 摘要 |
+|---|---|---|
+| spec/plan | `5169fc7` | spec 8 ADR + plan 3 task |
+| T1 | `a32909f` | Button HoverState enum + fire_hover + render lerp + 8 pure fn 状态机单测 |
+| T2 | `471155c` | IconButton 对称重构（复用 button.rs::HoverState 升 pub(crate)） |
+
+### 实施期发现
+
+- **HoverState pub(crate) 复用**：T2 实施时为避免 button.rs 和 icon_button.rs
+  各自定义重复 enum，将 button.rs::HoverState 升 `pub(crate)` 让
+  icon_button.rs use。状态机逻辑（`fire_hover`）在两个组件内仍各自一份
+  （因为 self type 不同），但 enum 共享。
+
+- **animator wrapper 三路叠加无 hack**：spec R1 担心 hover + press + focus
+  三路 animation 叠加视觉混乱。实施验证：单 `animate_or_skip` wrapper
+  内 closure 按需独立设置 bg / opacity / shadow，三路天然解耦，hover bg
+  lerp 优先（最先 set），press opacity 最后叠加。手测无视觉冲突。
+
+- **ElementId 组合策略**：press_count + hover_anim_count 用
+  `wrapping_add` 合并作 tuple。两个 count 任一变化（hover enter or
+  press down）都让 ID 唯一 → GPUI 创建新 Animation state 重播。
+  spec D-8 + M31 D-8 共同模式延续。
+
+- **`.active()` declarative 保留**：M32 D-4 仅删 `.hover()`，
+  `.active()` 仍保留（mouse hold 期间 GPUI declarative 切色，与 M31
+  press_count 状态机的 opacity feedback 互补）。
+
+### 测试增量
+
+| 文件 | 单测 |
+|---|---|
+| button.rs | +8 hover 状态机 pure fn（idle→entering on enter / entering→idle on leave / hovered→idle on leave / entering no_change on repeat enter / reduced_motion skip / timer match / timer count mismatch skip / timer no-op on already idle） |
+| icon_button.rs | 0（共享 button.rs::HoverState 状态机，逻辑复用） |
+
+aish-ui: 260 → **268**（+8）
+
+### Risk 实际遇到
+
+- **R1 (三路叠加视觉冲突)**: 未发生。单 animator wrapper 按字段分支独立
+  set bg / shadow / opacity，hover bg lerp 在最前，press 在最后 — 视觉
+  叠加自然。
+- **R2 (.hover() 删除后 hit-test)**: cursor_pointer / on_click / on_hover
+  都不依赖 `.hover()` declarative，确认仍工作。
+- **R3 (timer race)**: anim_count 幂等 check 模式（与 M31 press_count
+  同），单测 `hover_entering_to_hovered_skip_on_count_mismatch` 覆盖。
+- **R4 (reduced_motion 路径)**: D-7 实施 — fire_hover 内 read
+  reduced_motion，true 时 set Hovered 跳过 Entering。
+- **R5 (Ghost variant lerp 视觉)**: **手测待评估** — Ghost idle_bg =
+  transparent_black，lerp 中间色是半透明灰。若视觉不佳，后续可在
+  fire_hover / render 内加 fallback：Ghost variant 跳过 hover transition
+  保留 instant。当前 commit 让 Ghost 也走 lerp，先观察。
+
+### 视觉差异（手测）
+
+- **mouse 移入 Button**: 150ms 内 bg 平滑从 idle (e.g., primary)
+  → hover (primary_hover) 渐变
+- **mouse 移出**: instant 切回 idle，无 fade（D-1 简化）
+- **reduced_motion ON**: hover 立即切色无渐变
+- **press / focus + hover 并发**: 三路独立显示，press opacity 在 hover
+  bg 之上叠加（按下时 hover 渐变期间的 button 同时变暗）— 视觉一致
+
+### Defer 到 M33+
+
+- Card / NavItem / TabItem hover transition（D-6）— 需要先升 Entity，
+  工程量 ~半天 × 3 个组件
+- list row hover（home host card 卡片整行 / session_picker row /
+  active sessions row）— 升 Entity + HashMap retain 模式同 M31 T5
+- hover leave fade-out 双向 lerp（D-1 简化版未做）
+- Ghost variant lerp 视觉 fallback（若手测后判定不佳）
