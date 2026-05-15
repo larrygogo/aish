@@ -33,8 +33,10 @@ use crate::app::retain_alive_entities;
 use crate::bridge::Bridge;
 use crate::state::{humanize_last_connected, AppState, SidebarTab, SshEvent, Tab, TabContent};
 
-const SIDEBAR_COLLAPSED_WIDTH: f32 = 64.0;
-const SIDEBAR_EXPANDED_WIDTH: f32 = 220.0;
+// shadcn 数值参考：折叠 48 (3rem) / 展开 240 (15rem, 略短于 shadcn 16rem 给
+// aish 主区留更多空间)
+const SIDEBAR_COLLAPSED_WIDTH: f32 = 48.0;
+const SIDEBAR_EXPANDED_WIDTH: f32 = 240.0;
 const RECENT_LIST_MAX: usize = 5;
 
 pub struct SidebarNavView {
@@ -202,7 +204,8 @@ impl Render for SidebarNavView {
         // Icon helper：SVG IconName。GPUI svg() 颜色不从父 text_color 自动
         // 继承 — 必须显式 .text_color() 否则 stroke 不可见。
         let icon_color = theme(cx).colors.muted_foreground;
-        let make_icon = move |name: IconName| icon(name).size(px(18.0)).text_color(icon_color);
+        // shadcn 参考 size-4 = 16px
+        let make_icon = move |name: IconName| icon(name).size(px(16.0)).text_color(icon_color);
 
         // ── Phase B：read theme borrow，block scope → build inner body AnyElement ──
         let rows_phase1: Vec<(HostId, gpui::AnyElement)> = {
@@ -214,7 +217,7 @@ impl Render for SidebarNavView {
                     let inner = div()
                         .flex()
                         .flex_col()
-                        .gap(px(2.0))
+                        .gap(px(4.0))
                         .child(
                             div()
                                 .typography(aish_ui::TypeRole::Body, t)
@@ -341,7 +344,7 @@ impl Render for SidebarNavView {
             .pb(spacing.px_2)
             .flex()
             .flex_col()
-            .gap(px(2.0))
+            .gap(px(4.0))
             .child(self.settings_item.clone())
             .child(toggle_btn);
 
@@ -352,7 +355,7 @@ impl Render for SidebarNavView {
             .pt(spacing.px_2)
             .flex()
             .flex_col()
-            .gap(px(2.0))
+            .gap(px(4.0))
             .child(self.home_item.clone())
             .child(self.terminal_item.clone());
 
@@ -371,7 +374,7 @@ impl Render for SidebarNavView {
                         .pt(spacing.px_4)
                         .flex()
                         .flex_col()
-                        .gap(px(2.0))
+                        .gap(px(4.0))
                         .child(
                             // 11px MEDIUM secondary_fg — 显式 text_color 防 typography
                             // inheritance 异常。secondary_fg 替代 muted_fg 让 11px 小字

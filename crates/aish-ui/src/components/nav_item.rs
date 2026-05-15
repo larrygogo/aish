@@ -212,18 +212,12 @@ impl Render for NavItem {
         let idle_bg = gpui::transparent_black();
         let hover_bg = t.colors.secondary_hover;
         let press_bg_color = t.colors.secondary_active;
-        // M35 redesign v4：active 视觉用 \"left 2px primary stripe + 克制 bg\"，
-        // 不再 fill 整宽（VS Code / IntelliJ / Cursor / Linear sidebar 标准）。
-        // - icon-only (no label / folded): bg 保 transparent，仅靠 stripe 锚定
-        // - icon + label (expanded): bg 用 secondary (#26282D 比 hover_bg 浅一档)
-        //   配合 stripe，标识 active 但不喧宾
+        // M35 redesign v5 (shadcn 风)：active 视觉用 \"纯 bg fill + font-medium\"，
+        // 不要 stripe（shadcn / Linear / Vercel sidebar 标准 — 现代 web app 模式
+        // 而非 IDE 模式）。Active bg 用 secondary_hover 与 hover 同 — 配合
+        // font_weight medium 通过文字加粗区分 active vs hover。
         let has_label = self.label.is_some();
-        let selected_bg = if has_label {
-            t.colors.secondary
-        } else {
-            gpui::transparent_black()
-        };
-        let stripe_color = t.colors.primary;
+        let selected_bg = t.colors.secondary_hover;
         let medium = t.motion.medium;
         let easing = t.motion.easing_standard.clone();
         let typography_t = t;
@@ -270,17 +264,9 @@ impl Render for NavItem {
             .bg(base_bg)
             .cursor_pointer();
 
-        // horizontal 模式 icon-only（label is None）自动 justify_center 让
-        // icon 居中（sidebar 折叠模式用）；有 label 时 left align icon + label
-        //
-        // M35 v4: active 时 left border 2px primary stripe（VS Code/Linear
-        // 标志性 active indicator）+ rounded 仅右侧（stripe 那侧矩形锚定）。
-        // idle 也设 border_l_2 transparent 占位防 content 抖动。
-        let border_l_color = if active {
-            stripe_color
-        } else {
-            gpui::transparent_black()
-        };
+        // M35 v5: 删 border_l stripe（shadcn 风纯 bg fill + font-medium）。
+        // horizontal 模式：h(32) + px(8) shadcn p-2 对称，rounded(md) 通体圆角。
+        // icon-only (no label) 时 justify_center 让 icon 居中。
         el = match orientation {
             NavItemOrientation::Vertical => el
                 .w_full()
@@ -293,18 +279,13 @@ impl Render for NavItem {
             NavItemOrientation::Horizontal => {
                 let mut e = el
                     .h(px(32.0))
-                    .px(t.spacing.px_3)
-                    .border_l_2()
-                    .border_color(border_l_color)
+                    .px(t.spacing.px_2)
+                    .rounded(t.radius.md)
                     .flex()
                     .flex_row()
                     .items_center()
                     .gap(t.spacing.px_2);
-                if has_label {
-                    // 有 label 时仅右侧 rounded（stripe 那侧保持矩形锚定感）
-                    e = e.rounded_r(t.radius.md);
-                } else {
-                    // icon-only 时让 icon 在容器内居中（折叠模式 sidebar 用）
+                if !has_label {
                     e = e.justify_center();
                 }
                 e
@@ -324,15 +305,20 @@ impl Render for NavItem {
         }
 
         // icon + label
+        // M35 v5 (shadcn 风): active 时用 BodyStrong (13/500) 加粗替代 stripe
+        // 作 active 标识；非 active 用 Body (13/400)。比之前的 Caption (12/400/muted)
+        // 视觉权重更合适 — shadcn sidebar 用 text-sm = 14px font-medium，aish
+        // 用 Body 13/400 折中（terminal app 字体偏紧）。
         let icon = self.icon.take();
         let label = self.label.clone();
+        let label_role = if active {
+            crate::TypeRole::BodyStrong
+        } else {
+            crate::TypeRole::Body
+        };
         el = el.when_some(icon, |d, i| d.child(i));
         el = el.when_some(label, |d, l| {
-            d.child(
-                div()
-                    .typography(crate::TypeRole::Caption, typography_t)
-                    .child(l),
-            )
+            d.child(div().typography(label_role, typography_t).child(l))
         });
 
         if !need_anim {
