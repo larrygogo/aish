@@ -681,11 +681,33 @@ impl Render for HostFormModal {
             )
             .child(match auth_kind {
                 AuthKind::KeyFile => {
+                    // KeyFile 模式：keyfile path picker + 可选 passphrase 输入
+                    // passphrase 复用 password_input entity（已含 mask + show_toggle），
+                    // runtime 切 placeholder 让 UI 语义明确（passphrase ≠ password）
+                    self.password_input.update(cx, |i, _| {
+                        i.placeholder("passphrase (optional, for encrypted keys)");
+                    });
                     let kf = self.keyfile_input.clone();
-                    keyfile_row(kf, self.pick_keyfile_btn.clone(), cx).into_any_element()
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(form_field_gap)
+                        .child(keyfile_row(kf, self.pick_keyfile_btn.clone(), cx))
+                        .child(field_row(
+                            cx,
+                            "passphrase",
+                            self.password_input.clone(),
+                            None,
+                        ))
+                        .into_any_element()
                 }
-                AuthKind::Password => field_row(cx, "password", self.password_input.clone(), None)
-                    .into_any_element(),
+                AuthKind::Password => {
+                    self.password_input.update(cx, |i, _| {
+                        i.placeholder("password");
+                    });
+                    field_row(cx, "password", self.password_input.clone(), None)
+                        .into_any_element()
+                }
             })
             .when_some(err, |d, e| {
                 d.child(
