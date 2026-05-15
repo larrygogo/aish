@@ -14,7 +14,7 @@
 //! （tab 操作 + 终端粘贴）。
 
 use aish_ui::theme::ThemeKind;
-use aish_ui::{theme, Button, Card, Switch, Theme, TypographyExt};
+use aish_ui::{theme, Button, Card, Kbd, Switch, Theme, TypographyExt};
 use gpui::{div, prelude::*, px, AnyElement, Context, Entity, IntoElement, SharedString, Window};
 
 pub struct SettingsView {
@@ -93,6 +93,30 @@ fn two_column_row(left: &str, right: &str, t: &Theme) -> AnyElement {
                 .flex_1()
                 .typography(aish_ui::TypeRole::Body, t)
                 .child(SharedString::from(right.to_string())),
+        )
+        .into_any_element()
+}
+
+/// M35 T15: shortcut 专用行 — 左侧 Kbd chip 视觉化按键，右侧描述。
+/// 与 two_column_row 同样的左 200px 固定 + 右自然宽节奏，但左列用 Kbd
+/// chip 替代纯文本，视觉上 \"按键\" 与 \"描述\" 分得更清晰。
+fn shortcut_row(id: &'static str, keys: &str, desc: &str, t: &Theme) -> AnyElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .px_4()
+        .py(px(10.0))
+        .child(
+            div()
+                .w(px(200.0))
+                .child(Kbd::new(id, SharedString::from(keys.to_string()))),
+        )
+        .child(
+            div()
+                .flex_1()
+                .typography(aish_ui::TypeRole::Body, t)
+                .child(SharedString::from(desc.to_string())),
         )
         .into_any_element()
 }
@@ -222,8 +246,9 @@ impl Render for SettingsView {
             );
 
         // ───── Keyboard Shortcuts ─────
-        // Ctrl+1=Home / Ctrl+2=Terminal / Ctrl+3=Settings 由 RootView 全局
-        // 接管；Ctrl+W / Ctrl+T / Ctrl+Tab 走 terminal_view focused 路径。
+        // M35 T15: shortcut 改用 Kbd chip 视觉化按键。M35 T8 加的
+        // Ctrl+P/Cmd+P/Cmd+K palette 也加入列表。Ctrl+1/2/3 由 RootView
+        // 全局接管；Ctrl+W / Ctrl+T / Ctrl+Tab 走 terminal_view focused 路径。
         let shortcuts_card = Card::new("settings-shortcuts")
             .outlined()
             .no_padding() // M27: section_header + row helpers 都自带 px_4，opt-out 防双重
@@ -232,12 +257,13 @@ impl Render for SettingsView {
                 div()
                     .flex()
                     .flex_col()
-                    .child(two_column_row("Ctrl+Shift+V", "粘贴", t))
-                    .child(two_column_row("Ctrl+W", "关闭 tab", t))
-                    .child(two_column_row("Ctrl+T", "新 tab", t))
-                    .child(two_column_row("Ctrl+1", "Home", t))
-                    .child(two_column_row("Ctrl+2", "Terminal", t))
-                    .child(two_column_row("Ctrl+3", "Settings", t)),
+                    .child(shortcut_row("sc-palette", "Ctrl+P / ⌘K", "打开命令面板", t))
+                    .child(shortcut_row("sc-paste", "Ctrl+Shift+V", "粘贴", t))
+                    .child(shortcut_row("sc-new-tab", "Ctrl+T", "新建 tab", t))
+                    .child(shortcut_row("sc-close-tab", "Ctrl+W", "关闭 tab", t))
+                    .child(shortcut_row("sc-home", "Ctrl+1", "切到 Home", t))
+                    .child(shortcut_row("sc-terminal", "Ctrl+2", "切到 Terminal", t))
+                    .child(shortcut_row("sc-settings", "Ctrl+3", "切到 Settings", t)),
             );
 
         // ───── About（版本信息 + 实际可点交互按钮）─────
@@ -251,6 +277,31 @@ impl Render for SettingsView {
             .child(self.open_config_btn.clone())
             .child(self.open_github_btn.clone());
 
+        // M35 T15: About 顶部加 logo + 标题 hero — 让\"关于 aish\"有产品感
+        // 而非纯属性表。logo 48px PNG 通过 AppAssets path 加载，与 titlebar
+        // 同一图（保留蓝/黑双色 brand）。
+        let about_hero = div()
+            .px_4()
+            .py(px(12.0))
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(12.0))
+            .child(gpui::img("aish-icon.png").w(px(48.0)).h(px(48.0)))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.0))
+                    .child(div().typography(aish_ui::TypeRole::Title2, t).child("aish"))
+                    .child(
+                        div()
+                            .typography(aish_ui::TypeRole::Caption, t)
+                            .child("有审美的 SSH 客户端"),
+                    ),
+            )
+            .into_any_element();
+
         let about_card = Card::new("settings-about")
             .outlined()
             .no_padding() // M27: section_header + row helpers 都自带 px_4，opt-out 防双重
@@ -259,6 +310,7 @@ impl Render for SettingsView {
                 div()
                     .flex()
                     .flex_col()
+                    .child(about_hero)
                     .child(two_column_row("Version", &version_str, t))
                     .child(two_column_row("Build date", build_date, t))
                     .child(two_column_row("Repository", "github.com/larrygogo/aish", t))
