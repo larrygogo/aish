@@ -32,11 +32,12 @@ pub enum ButtonVariant {
 /// Stateful Button — caller 持 `Entity<Button>` 字段。
 ///
 /// 状态：
-/// - `pressing`：mouse_down 触发后 80ms 内为 true，timer 清回 false
-/// - `focus_animated`：focus 得到的一刻为 true，触发 80ms 渐显，timer 清
+/// - `pressing`：mouse_down 触发后 150ms 内为 true，timer 清回 false
+/// - `focus_animated`：focus 得到的一刻为 true，触发 150ms 渐显，timer 清
 /// - `was_focused_prev`：跨帧 focus 状态比较，let render 决定是否触发 fade-in
 /// - `press_count`：每次 mouse_down +1，让 ElementId 唯一让 GPUI 创建新
 ///   animation state（同 ID 复用 state 会让连点不重新播放）
+/// - `hover_state` / `hover_anim_count`（M32）：hover transition 状态机
 pub struct Button {
     id: ElementId,
     label: SharedString,
@@ -48,6 +49,31 @@ pub struct Button {
     focus_animated: bool,
     was_focused_prev: bool,
     press_count: u64,
+    /// M32: hover 状态机。Idle (无 hover) / Entering (150ms 内 lerp idle→hover)
+    /// / Hovered (稳态 = hover_bg)。`on_hover` callback 推动转换。
+    hover_state: HoverState,
+    /// M32: hover Entering 时 +1，作为 Animation ElementId tuple 让每次
+    /// enter 都创建新 animation state 重播 lerp。
+    hover_anim_count: u64,
+}
+
+/// M32: Button / IconButton 的 hover transition 状态机（D-2）。
+///
+/// - `Idle`: mouse 不在 element 内，render bg = idle_bg
+/// - `Entering`: mouse enter 后 150ms 过渡期，render 走 animate path
+///   lerp(idle_bg, hover_bg, delta)
+/// - `Hovered`: 过渡期完结的稳态，render bg = hover_bg
+///
+/// transitions:
+/// - `Idle` + on_hover(true) → `Entering`（reduced_motion 时直接 `Hovered`）
+/// - `Entering` + on_hover(true) → 不变（防快速重复触发）
+/// - `Entering` + on_hover(false) → `Idle`（leave 中断 enter，instant 切回，D-1）
+/// - `Hovered` + on_hover(false) → `Idle`（instant，D-1）
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum HoverState {
+    Idle,
+    Entering { anim_count: u64 },
+    Hovered,
 }
 
 impl Button {
@@ -63,6 +89,8 @@ impl Button {
             focus_animated: false,
             was_focused_prev: false,
             press_count: 0,
+            hover_state: HoverState::Idle,
+            hover_anim_count: 0,
         }
     }
 
@@ -149,6 +177,46 @@ impl Button {
         })
         .detach();
     }
+
+    /// M32: hover 状态机推进。GPUI `on_hover` callback 调用入口。
+    /// 见 `HoverState` 文档关于 transition 表。
+    fn fire_hover(&mut self, hovered: bool, cx: &mut Context<Self>) {
+        if hovered {
+            if matches!(self.hover_state, HoverState::Idle) {
+                let reduced = theme(cx).reduced_motion;
+                if reduced {
+                    // reduced_motion：跳过 Entering 直接稳态（D-7）
+                    self.hover_state = HoverState::Hovered;
+                    cx.notify();
+                } else {
+                    let count = self.hover_anim_count.wrapping_add(1);
+                    self.hover_anim_count = count;
+                    self.hover_state = HoverState::Entering { anim_count: count };
+                    let dur = theme(cx).motion.medium;
+                    cx.spawn(async move |this, cx| {
+                        cx.background_executor().timer(dur).await;
+                        let _ = this.update(cx, |this, cx| {
+                            // 幂等 check：anim_count 一致才推进；leave-enter
+                            // 期间 count 变化时本 timer 不动（防 stale）
+                            if matches!(
+                                this.hover_state,
+                                HoverState::Entering { anim_count } if anim_count == count
+                            ) {
+                                this.hover_state = HoverState::Hovered;
+                                cx.notify();
+                            }
+                        });
+                    })
+                    .detach();
+                    cx.notify();
+                }
+            }
+        } else if !matches!(self.hover_state, HoverState::Idle) {
+            // 任意 → Idle（instant，D-1）
+            self.hover_state = HoverState::Idle;
+            cx.notify();
+        }
+    }
 }
 
 impl gpui::Focusable for Button {
@@ -185,8 +253,20 @@ impl Render for Button {
 
         let pressing = self.pressing;
         let focus_animating = now_focused && self.focus_animated;
-        let need_anim = pressing || focus_animating;
+        let hover_state = self.hover_state;
+        // M32: hover Entering 也走 animate path
+        let hover_entering = matches!(hover_state, HoverState::Entering { .. });
+        let need_anim = pressing || focus_animating || hover_entering;
         let press_count = self.press_count;
+        let hover_anim_count = self.hover_anim_count;
+
+        // M32: hover-aware static bg — Idle 用 idle_bg，Hovered 用 hover_bg，
+        // Entering 在 animator 内通过 lerp 输出中间色（base 仍设 idle_bg
+        // 作为 fallback / 入场起点）。
+        let base_bg = match hover_state {
+            HoverState::Idle | HoverState::Entering { .. } => idle_bg,
+            HoverState::Hovered => hover_bg,
+        };
 
         // base Div — 不依赖闭包，直接用值构造。两个分支后续各自决定 wrap。
         let handler = self.on_click.clone();
@@ -195,6 +275,9 @@ impl Render for Button {
             if let Some(h) = handler.clone() {
                 h(ev, window, cx);
             }
+        });
+        let on_hover_listener = cx.listener(move |this, &hovered: &bool, _w, cx| {
+            this.fire_hover(hovered, cx);
         });
 
         let mut el = div()
@@ -205,7 +288,7 @@ impl Render for Button {
             .items_center()
             .justify_center()
             .rounded(radius)
-            .bg(idle_bg)
+            .bg(base_bg)
             .track_focus(&self.focus_handle)
             .child(
                 div()
@@ -215,11 +298,14 @@ impl Render for Button {
             );
 
         if !disabled {
+            // M32 D-4: 删 .hover(|s| s.bg(hover_bg)) — bg 已由 hover_state 决定
+            // 仍保留 .active() declarative：press_count 状态机走 mouse_down listener，
+            // .active() 是 mouse hold 期间的 GPUI hit-test 反馈，与 press feedback 互补
             el = el
                 .cursor_pointer()
-                .hover(move |s| s.bg(hover_bg))
                 .active(move |s| s.bg(active_bg))
-                .on_mouse_down(MouseButton::Left, on_press_listener);
+                .on_mouse_down(MouseButton::Left, on_press_listener)
+                .on_hover(on_hover_listener);
         } else {
             el = el.cursor_not_allowed().opacity(0.6);
         }
@@ -232,11 +318,16 @@ impl Render for Button {
             return el.into_any_element();
         }
 
-        // 动画路径：单 animate_or_skip 同时驱动 press opacity + ring alpha fade
-        // ring 在两种态：focus_animating=true 时 alpha 0→0.4 渐变；
-        //                focused 但 !focus_animating 时静态 ring（按下时已 focused 场景）
+        // 动画路径：单 animate_or_skip 同时驱动 hover bg lerp + press opacity
+        // + focus ring alpha fade
         let ring_show_static = now_focused && !focus_animating;
-        let anim_id: ElementId = ("motion-btn", press_count as usize).into();
+        // anim_id 用 press_count + hover_anim_count 组合 — 任一变化都触发
+        // 新 Animation state（防 stale state 在快速切换时复用）
+        let anim_id: ElementId = (
+            "motion-btn",
+            press_count.wrapping_add(hover_anim_count) as usize,
+        )
+            .into();
 
         animate_or_skip(
             el,
@@ -245,6 +336,10 @@ impl Render for Button {
             Animation::new(fast_duration).with_easing(move |d| easing(d)),
             move |el, delta| {
                 let mut el = el;
+                // M32: hover Entering 时 bg lerp idle → hover
+                if hover_entering {
+                    el = el.bg(crate::lerp_hsla(idle_bg, hover_bg, delta));
+                }
                 if focus_animating {
                     let mut glow = ring_color;
                     glow.a = 0.4 * delta;
@@ -441,5 +536,105 @@ mod tests {
     fn press_opacity_clamped() {
         assert!((press_opacity_at(-0.5) - 0.70).abs() < 1e-6);
         assert!((press_opacity_at(1.5) - 1.0).abs() < 1e-6);
+    }
+
+    // ============================================================================
+    // M32 — Hover transition 状态机 pure fn 单测。
+    // ============================================================================
+
+    /// 模拟 fire_hover 的状态机：纯函数版，不操作 timer / cx。
+    /// 返回 (新 state, 新 anim_count)。
+    fn hover_transition(
+        prev: HoverState,
+        prev_count: u64,
+        hovered: bool,
+        reduced_motion: bool,
+    ) -> (HoverState, u64) {
+        if hovered {
+            if matches!(prev, HoverState::Idle) {
+                if reduced_motion {
+                    (HoverState::Hovered, prev_count)
+                } else {
+                    let count = prev_count.wrapping_add(1);
+                    (HoverState::Entering { anim_count: count }, count)
+                }
+            } else {
+                (prev, prev_count)
+            }
+        } else if !matches!(prev, HoverState::Idle) {
+            (HoverState::Idle, prev_count)
+        } else {
+            (prev, prev_count)
+        }
+    }
+
+    #[test]
+    fn hover_idle_to_entering_on_enter() {
+        let (s, c) = hover_transition(HoverState::Idle, 0, true, false);
+        assert!(matches!(s, HoverState::Entering { anim_count } if anim_count == 1));
+        assert_eq!(c, 1);
+    }
+
+    #[test]
+    fn hover_entering_to_idle_on_leave() {
+        // 用户中断 enter 立即 leave
+        let (s, c) = hover_transition(HoverState::Entering { anim_count: 5 }, 5, false, false);
+        assert_eq!(s, HoverState::Idle);
+        assert_eq!(c, 5);
+    }
+
+    #[test]
+    fn hover_hovered_to_idle_on_leave() {
+        let (s, _) = hover_transition(HoverState::Hovered, 3, false, false);
+        assert_eq!(s, HoverState::Idle);
+    }
+
+    #[test]
+    fn hover_entering_no_change_on_repeat_enter() {
+        // 防快速重复触发：Entering + on_hover(true) 不变
+        let (s, c) = hover_transition(HoverState::Entering { anim_count: 7 }, 7, true, false);
+        assert!(matches!(s, HoverState::Entering { anim_count } if anim_count == 7));
+        assert_eq!(c, 7); // count 不增
+    }
+
+    #[test]
+    fn hover_reduced_motion_skips_entering() {
+        // D-7：reduced_motion=true 时跳过 Entering 直接 Hovered
+        let (s, c) = hover_transition(HoverState::Idle, 0, true, true);
+        assert_eq!(s, HoverState::Hovered);
+        assert_eq!(c, 0); // count 不增（无动画）
+    }
+
+    /// 模拟 timer fire 时的幂等 check — anim_count 必须等于 timer 启动时的
+    /// expected 才推 Entering → Hovered。
+    fn timer_advance_entering(prev: HoverState, expected_count: u64) -> HoverState {
+        if let HoverState::Entering { anim_count } = prev {
+            if anim_count == expected_count {
+                return HoverState::Hovered;
+            }
+        }
+        prev
+    }
+
+    #[test]
+    fn hover_entering_to_hovered_on_timer_match() {
+        let s = timer_advance_entering(HoverState::Entering { anim_count: 1 }, 1);
+        assert_eq!(s, HoverState::Hovered);
+    }
+
+    #[test]
+    fn hover_entering_to_hovered_skip_on_count_mismatch() {
+        // T0 enter → count=1，spawn timer expected=1
+        // T50ms leave + 立即 re-enter → count=2，spawn new timer expected=2
+        // T150ms 旧 timer fire（expected=1）→ count 已变（2）→ 不动
+        let s = timer_advance_entering(HoverState::Entering { anim_count: 2 }, 1);
+        assert!(matches!(s, HoverState::Entering { anim_count } if anim_count == 2));
+    }
+
+    #[test]
+    fn hover_timer_no_op_on_already_idle() {
+        // leave 后 timer fire（用户已 leave）→ Idle 状态不变
+        let s = timer_advance_entering(HoverState::Idle, 1);
+        assert_eq!(s, HoverState::Idle);
     }
 }
