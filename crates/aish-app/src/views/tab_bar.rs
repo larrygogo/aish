@@ -92,6 +92,9 @@ pub struct TabBarView {
     /// M31：每个 tab 的关闭 X IconButton entity，按 TabId 索引。
     /// render 前 retain_alive_entities 同步 tab 集合避免 entity 泄漏。
     close_buttons: std::collections::HashMap<TabId, Entity<aish_ui::IconButton>>,
+    /// M34: 每个 tab 的 TabItem entity（hover transition + press feedback），
+    /// 按 TabId 索引。同 close_buttons retain + ensure 模式。
+    tab_items: std::collections::HashMap<TabId, Entity<aish_ui::TabItem>>,
 }
 
 /// tab 右键菜单 item 数量。与 build menu items 数量一致（见 render 内
@@ -196,6 +199,7 @@ impl TabBarView {
             menu_tab_id: None,
             menu_active_idx: 0,
             close_buttons: std::collections::HashMap::new(),
+            tab_items: std::collections::HashMap::new(),
         }
     }
 
@@ -510,11 +514,13 @@ impl Render for TabBarView {
         }
         // M31：同步 close_buttons HashMap — retain 清掉关闭 tab 的 entity，
         // ensure 当前活跃 tab id 都有 entry（lazy create）。
+        // M34: tab_items 同步 retain。
         {
             let app = self.state.read(cx);
             let alive_ids: std::collections::HashSet<TabId> =
                 app.tabs.iter().map(|t| t.id).collect();
             crate::app::retain_alive_entities(&mut self.close_buttons, |k| alive_ids.contains(k));
+            crate::app::retain_alive_entities(&mut self.tab_items, |k| alive_ids.contains(k));
         }
         let tab_ids_snapshot: Vec<TabId> = self.state.read(cx).tabs.iter().map(|t| t.id).collect();
         for tab_id in &tab_ids_snapshot {
@@ -541,51 +547,91 @@ impl Render for TabBarView {
                 self.close_buttons.insert(id, btn);
             }
         }
+        // M34: ensure tab_items TabItem entity per tab id
+        for tab_id in &tab_ids_snapshot {
+            if !self.tab_items.contains_key(tab_id) {
+                let id = *tab_id;
+                let weak = cx.weak_entity();
+                let ti = cx.new(move |cx| {
+                    let mut t =
+                        aish_ui::TabItem::new(gpui::SharedString::from(format!("tab-{}", id)), cx);
+                    t.on_click(move |ev, w, cx| {
+                        if let Some(this) = weak.upgrade() {
+                            this.update(cx, |this, cx| {
+                                this.handle_tab_click(id, ev.click_count, w, cx);
+                            });
+                        }
+                    });
+                    t
+                });
+                self.tab_items.insert(id, ti);
+            }
+        }
 
-        let app = self.state.read(cx);
-        let selected = app.selected_tab;
-        let theme = aish_ui::theme(cx);
-        let colors = theme.colors;
-        let font_size = theme.font_size;
+        // M34 render split：phase A 包 app+theme borrow build per-tab owned 数据
+        // (editing inline editor 或 normal: prefix/title/suffix/is_selected)；
+        // phase B drop borrow 调 tab_entity.update + 包 wrap div；
+        // phase C 用 captured anatomy 组装 final layout（plus_btn / arrows）。
+        // 同 home render split 模式（M33 ac63224）。
+        enum TabRenderData {
+            Editing(gpui::AnyElement),
+            Normal {
+                prefix: gpui::AnyElement,
+                title_el: gpui::AnyElement,
+                suffix: gpui::AnyElement,
+                is_selected: bool,
+                title_for_preview: String,
+            },
+        }
 
-        let tab_items: Vec<gpui::AnyElement> = app
-            .tabs
-            .iter()
-            .map(|t| {
-                let id = t.id;
-                let title = t.title.clone();
-                let is_selected = selected == Some(id);
-                let is_connection = matches!(t.content, TabContent::Connection(_));
-                let is_editing = self.editing_tab == Some(id);
-                // connection tab 是否还有活跃 actor（actor 退出后 sessions 里
-                // 没了 → false）。用于绿/灰点 + 标题色的"在线/已断"指示。
-                let is_alive = match t.content {
-                    TabContent::Connection(c) => app.is_session_active(c),
-                    _ => false,
-                };
+        // Phase A: block scope 包 app + theme borrow + tab_render_data collect。
+        // Block 结束 borrow 释放，phase B 可调 tab_entity.update(cx) mut borrow。
+        let tab_render_data: Vec<(TabId, TabRenderData)> = {
+            let app = self.state.read(cx);
+            let selected = app.selected_tab;
+            let theme = aish_ui::theme(cx);
+            let colors = theme.colors;
+            let font_size = theme.font_size;
 
-                // editing 模式：跳过 TabItem，直接渲染一个**更宽、不裁切**的 inline
-                // editor box。原因：TabItem 设计目的是"展示长 title 不撑爆 tab bar"，
-                // 它的 max_w(200) + title 容器 overflow_hidden + text_ellipsis 会把
-                // input 的 cursor / 右侧文字直接裁掉（66px 留给 title，裁切再叠加）。
-                // editing 时这些约束反而是干扰，单独路径完全规避。
-                //
-                // 布局：[● 连接 dot]  [<TextInput>]   — 不带 close/badge（避免误触
-                // 丢编辑），bg 用 background (active 色，editing tab 一定是 selected)。
-                if is_editing {
-                    let dot_color = if is_alive {
-                        colors.success
-                    } else {
-                        colors.muted_foreground
+            app.tabs
+                .iter()
+                .map(|t| {
+                    let id = t.id;
+                    let title = t.title.clone();
+                    let is_selected = selected == Some(id);
+                    let is_connection = matches!(t.content, TabContent::Connection(_));
+                    let is_editing = self.editing_tab == Some(id);
+                    // connection tab 是否还有活跃 actor（actor 退出后 sessions 里
+                    // 没了 → false）。用于绿/灰点 + 标题色的"在线/已断"指示。
+                    let is_alive = match t.content {
+                        TabContent::Connection(c) => app.is_session_active(c),
+                        _ => false,
                     };
-                    // 整个 tab box 当 input 视觉外壳：
-                    // - bg colors.input：与 HostForm 里 TextInput 视觉一致
-                    // - 1px primary 全围 border：表明'编辑中'，替代 active bar
-                    //   （bar 在 borderless input 下会与 input cursor 冲突）
-                    // - cursor_text：鼠标移入显示文本光标，符合 input 体感
-                    // - my 2px：上下留 2px 让 border 不贴 tab bar 边沿，
-                    //   总高度仍是 40 + 4 = 44 但视觉上和 40px tab 接近
-                    return div()
+
+                    // editing 模式：跳过 TabItem，直接渲染一个**更宽、不裁切**的 inline
+                    // editor box。原因：TabItem 设计目的是"展示长 title 不撑爆 tab bar"，
+                    // 它的 max_w(200) + title 容器 overflow_hidden + text_ellipsis 会把
+                    // input 的 cursor / 右侧文字直接裁掉（66px 留给 title，裁切再叠加）。
+                    // editing 时这些约束反而是干扰，单独路径完全规避。
+                    //
+                    // 布局：[● 连接 dot]  [<TextInput>]   — 不带 close/badge（避免误触
+                    // 丢编辑），bg 用 background (active 色，editing tab 一定是 selected)。
+                    if is_editing {
+                        let dot_color = if is_alive {
+                            colors.success
+                        } else {
+                            colors.muted_foreground
+                        };
+                        // 整个 tab box 当 input 视觉外壳：
+                        // - bg colors.input：与 HostForm 里 TextInput 视觉一致
+                        // - 1px primary 全围 border：表明'编辑中'，替代 active bar
+                        //   （bar 在 borderless input 下会与 input cursor 冲突）
+                        // - cursor_text：鼠标移入显示文本光标，符合 input 体感
+                        // - my 2px：上下留 2px 让 border 不贴 tab bar 边沿，
+                        //   总高度仍是 40 + 4 = 44 但视觉上和 40px tab 接近
+                        // editing 分支：直接 build editing inline editor 作为
+                        // TabRenderData::Editing 返回（phase B 不再包 wrap div）
+                        let editing_el = div()
                         .id(gpui::SharedString::from(format!("tab-editing-{}", id)))
                         .h(px(36.0))
                         .my(px(2.0))
@@ -629,120 +675,145 @@ impl Render for TabBarView {
                                 .child(self.rename_input.clone()),
                         )
                         .into_any_element();
-                }
+                        return (id, TabRenderData::Editing(editing_el));
+                    }
 
-                // M31: 关闭按钮 — 从 close_buttons HashMap 取已建好的 entity
-                let close_btn = self
-                    .close_buttons
-                    .get(&id)
-                    .cloned()
-                    .expect("close_buttons 在 render 顶部已 ensure");
+                    // M31: 关闭按钮 — 从 close_buttons HashMap 取已建好的 entity
+                    let close_btn = self
+                        .close_buttons
+                        .get(&id)
+                        .cloned()
+                        .expect("close_buttons 在 render 顶部已 ensure");
 
-                // 连接 tab：活跃 = 绿点，已断 = 灰点；默认页 tab 不带前缀
-                let prefix: gpui::AnyElement = if is_connection {
-                    let dot_color = if is_alive {
-                        colors.success
+                    // 连接 tab：活跃 = 绿点，已断 = 灰点；默认页 tab 不带前缀
+                    let prefix: gpui::AnyElement = if is_connection {
+                        let dot_color = if is_alive {
+                            colors.success
+                        } else {
+                            colors.muted_foreground
+                        };
+                        div()
+                            .text_color(dot_color)
+                            .text_size(font_size.xs)
+                            .child("●")
+                            .into_any_element()
                     } else {
-                        colors.muted_foreground
+                        div().child("").into_any_element()
                     };
-                    div()
-                        .text_color(dot_color)
-                        .text_size(font_size.xs)
-                        .child("●")
-                        .into_any_element()
-                } else {
-                    div().child("").into_any_element()
-                };
 
-                let title_color = if is_connection && !is_alive {
-                    colors.muted_foreground
-                } else if is_selected {
-                    colors.foreground
-                } else {
-                    colors.secondary_foreground
-                };
-                let title_el = div()
-                    .text_color(title_color)
-                    .child(title)
-                    .into_any_element();
+                    let title_color = if is_connection && !is_alive {
+                        colors.muted_foreground
+                    } else if is_selected {
+                        colors.foreground
+                    } else {
+                        colors.secondary_foreground
+                    };
+                    let title_el = div()
+                        .text_color(title_color)
+                        .child(title)
+                        .into_any_element();
 
-                // suffix: SSH chip（connection tab 专属）+ 关闭按钮
-                let suffix = div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_2()
-                    .when(is_connection, |d| {
-                        d.child(aish_ui::Badge::new("SSH").primary())
-                    })
-                    .child(close_btn)
-                    .into_any_element();
-
-                let title_for_preview = t.title.clone();
-                let tab_item =
-                    aish_ui::TabItem::new(gpui::SharedString::from(format!("tab-{}", id)))
-                        .prefix(prefix)
-                        .title(title_el)
-                        .suffix(suffix)
-                        .active(is_selected)
-                        .on_click(cx.listener(move |this, ev: &MouseDownEvent, w, cx| {
-                            this.handle_tab_click(id, ev.click_count, w, cx);
-                        }));
-
-                // 包一层 stateful wrapper div 加 GPUI drag/drop。wrapper id 与
-                // TabItem 内部 id 不同避免冲突。
-                // - on_drag：drag 开始构造 TabDragPreview ghost；payload 含 source_id
-                // - on_drop<DraggedTab>：drop 触发时算 reorder（state.move_tab）
-                // - drag_over::<DraggedTab>：drag hover 时高亮 drop target（accent_active）
-                div()
-                    .id(gpui::SharedString::from(format!("tab-wrap-{}", id)))
-                    .flex_shrink_0()
-                    .on_drag(DraggedTab { source_id: id }, move |_p, _offset, _w, cx| {
-                        cx.new(|_| TabDragPreview {
-                            title: title_for_preview.clone(),
+                    // suffix: SSH chip（connection tab 专属）+ 关闭按钮
+                    let suffix = div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_2()
+                        .when(is_connection, |d| {
+                            d.child(aish_ui::Badge::new("SSH").primary())
                         })
-                    })
-                    .on_drop(cx.listener(move |this, dragged: &DraggedTab, _w, cx| {
-                        let src = dragged.source_id;
-                        this.state.update(cx, |s, cx| {
-                            if s.move_tab(src, id) {
+                        .child(close_btn)
+                        .into_any_element();
+
+                    // Phase 1：normal tab 仅 collect (id, owned slots data)。
+                    // tab_entity.update + wrap div build 留 Phase 2（drop borrow 后）。
+                    let title_for_preview = t.title.clone();
+                    (
+                        id,
+                        TabRenderData::Normal {
+                            prefix,
+                            title_el,
+                            suffix,
+                            is_selected,
+                            title_for_preview,
+                        },
+                    )
+                })
+                .collect()
+        };
+        // Phase A end — app + theme borrow 释放
+
+        // Phase B：drop borrow 完毕，可调 tab_entity.update + 包 wrap div
+        let tab_items: Vec<gpui::AnyElement> = tab_render_data
+            .into_iter()
+            .map(|(id, data)| match data {
+                TabRenderData::Editing(el) => el,
+                TabRenderData::Normal {
+                    prefix,
+                    title_el,
+                    suffix,
+                    is_selected,
+                    title_for_preview,
+                } => {
+                    let tab_entity = self
+                        .tab_items
+                        .get(&id)
+                        .cloned()
+                        .expect("tab_items 在 render 顶部已 ensure");
+                    tab_entity.update(cx, |t, _| {
+                        t.prefix(prefix)
+                            .title(title_el)
+                            .suffix(suffix)
+                            .active(is_selected);
+                    });
+                    // 包 stateful wrapper div 加 drag/drop + middle/right click
+                    div()
+                        .id(gpui::SharedString::from(format!("tab-wrap-{}", id)))
+                        .flex_shrink_0()
+                        .on_drag(DraggedTab { source_id: id }, move |_p, _offset, _w, cx| {
+                            cx.new(|_| TabDragPreview {
+                                title: title_for_preview.clone(),
+                            })
+                        })
+                        .on_drop(cx.listener(move |this, dragged: &DraggedTab, _w, cx| {
+                            let src = dragged.source_id;
+                            this.state.update(cx, |s, cx| {
+                                if s.move_tab(src, id) {
+                                    cx.notify();
+                                }
+                            });
+                        }))
+                        .drag_over::<DraggedTab>(|style, _dragged, _w, cx| {
+                            let mut s = style;
+                            s.background = Some(aish_ui::theme(cx).colors.accent_active.into());
+                            s
+                        })
+                        .on_mouse_down(
+                            gpui::MouseButton::Middle,
+                            cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
+                                this.handle_close(id, cx);
+                            }),
+                        )
+                        .on_mouse_down(
+                            gpui::MouseButton::Right,
+                            cx.listener(move |this, ev: &MouseDownEvent, _w, cx| {
+                                this.menu_tab_id = Some(id);
+                                this.menu_active_idx = 0;
+                                let pos = ev.position;
+                                this.context_menu.update(cx, |m, cx| m.open_at(pos, cx));
                                 cx.notify();
-                            }
-                        });
-                    }))
-                    .drag_over::<DraggedTab>(|style, _dragged, _w, cx| {
-                        // hover 标记 drop target —— 用 accent_active 与
-                        // M17 Card / NavItem / TabItem 的 mouse-down 反馈同色
-                        let mut s = style;
-                        s.background = Some(aish_ui::theme(cx).colors.accent_active.into());
-                        s
-                    })
-                    // 鼠标中键关闭 tab（Chrome / VSCode 标准）。on_mouse_down
-                    // 直接触发 close，不等 mouse_up —— 与 X 按钮 on_click 行为一致。
-                    .on_mouse_down(
-                        gpui::MouseButton::Middle,
-                        cx.listener(move |this, _ev: &MouseDownEvent, _w, cx| {
-                            this.handle_close(id, cx);
-                        }),
-                    )
-                    // 右键打开 context menu：菜单内容（DropdownMenu）由
-                    // render 主循环每帧根据 menu_tab_id 重设，避免 closure
-                    // 捕获问题。这里仅写 menu_tab_id + open_at(ev.position)。
-                    .on_mouse_down(
-                        gpui::MouseButton::Right,
-                        cx.listener(move |this, ev: &MouseDownEvent, _w, cx| {
-                            this.menu_tab_id = Some(id);
-                            // 键盘导航：每次新打开重置 active_idx = 0 (首项)
-                            this.menu_active_idx = 0;
-                            let pos = ev.position;
-                            this.context_menu.update(cx, |m, cx| m.open_at(pos, cx));
-                            cx.notify();
-                        }),
-                    )
-                    .child(tab_item)
-                    .into_any_element()
+                            }),
+                        )
+                        .child(tab_entity)
+                        .into_any_element()
+                }
             })
             .collect();
+
+        // Phase C：plus_btn / arrows / final layout — reborrow theme
+        let _app = self.state.read(cx);
+        let theme = aish_ui::theme(cx);
+        let colors = theme.colors;
 
         // 末尾 + 按钮新建默认页：Chrome 风格 mini-tab 外观
         // - 全高 40px 与 TabItem 一致，与 tab 同一 baseline 不悬浮

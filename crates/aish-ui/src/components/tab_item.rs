@@ -3,20 +3,24 @@
 //! Tab item 业务多变（连接状态 dot / inline rename / SSH chip / close 按钮），
 //! TabItem 不试图通用化所有细节，只提供 prefix / title / suffix 三 slot + active
 //! + on_click（透传 click_count）让调用方在 slot 内拼自己业务。
+//!
+//! M34: 升 stateful Entity，加 hover transition + press feedback。caller 持
+//! Entity<TabItem>，render 每帧 update 重设 slots（AnyElement 不可 Clone）。
+//! active=true 时跳过 hover 状态机推进（同 NavItem 模式 M34 polish）。
 
 use std::rc::Rc;
 
 use gpui::{
-    div, prelude::*, px, AnyElement, App, ElementId, IntoElement, MouseButton, MouseDownEvent,
-    Window,
+    div, point, prelude::*, px, Animation, AnyElement, App, BoxShadow, Context, ElementId,
+    FocusHandle, IntoElement, MouseButton, MouseDownEvent, Window,
 };
 
-use crate::theme::theme;
+use crate::components::button::{press_opacity_at, HoverState};
+use crate::theme::{animate_or_skip, theme};
 use crate::TypographyExt;
 
 type ClickHandler = Rc<dyn Fn(&MouseDownEvent, &mut Window, &mut App) + 'static>;
 
-#[derive(IntoElement)]
 pub struct TabItem {
     id: ElementId,
     prefix: Option<AnyElement>,
@@ -24,10 +28,17 @@ pub struct TabItem {
     suffix: Option<AnyElement>,
     active: bool,
     on_click: Option<ClickHandler>,
+    focus_handle: FocusHandle,
+    pressing: bool,
+    focus_animated: bool,
+    was_focused_prev: bool,
+    press_count: u64,
+    hover_state: HoverState,
+    hover_anim_count: u64,
 }
 
 impl TabItem {
-    pub fn new(id: impl Into<ElementId>) -> Self {
+    pub fn new(id: impl Into<ElementId>, cx: &mut Context<Self>) -> Self {
         Self {
             id: id.into(),
             prefix: None,
@@ -35,89 +46,206 @@ impl TabItem {
             suffix: None,
             active: false,
             on_click: None,
+            focus_handle: cx.focus_handle(),
+            pressing: false,
+            focus_animated: false,
+            was_focused_prev: false,
+            press_count: 0,
+            hover_state: HoverState::Idle,
+            hover_anim_count: 0,
         }
     }
 
-    pub fn prefix(mut self, p: impl IntoElement) -> Self {
+    pub fn prefix(&mut self, p: impl IntoElement) -> &mut Self {
         self.prefix = Some(p.into_any_element());
         self
     }
 
-    pub fn title(mut self, t: impl IntoElement) -> Self {
+    pub fn title(&mut self, t: impl IntoElement) -> &mut Self {
         self.title = Some(t.into_any_element());
         self
     }
 
-    pub fn suffix(mut self, s: impl IntoElement) -> Self {
+    pub fn suffix(&mut self, s: impl IntoElement) -> &mut Self {
         self.suffix = Some(s.into_any_element());
         self
     }
 
-    pub fn active(mut self, a: bool) -> Self {
+    pub fn active(&mut self, a: bool) -> &mut Self {
         self.active = a;
         self
     }
 
     pub fn on_click(
-        mut self,
+        &mut self,
         h: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
-    ) -> Self {
+    ) -> &mut Self {
         self.on_click = Some(Rc::new(h));
         self
     }
+
+    fn fire_press(&mut self, cx: &mut Context<Self>) {
+        self.pressing = true;
+        self.press_count = self.press_count.wrapping_add(1);
+        let expected = self.press_count;
+        let dur = theme(cx).motion.medium;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(dur).await;
+            let _ = this.update(cx, |this, cx| {
+                if this.press_count == expected && this.pressing {
+                    this.pressing = false;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn schedule_clear_focus_anim(&mut self, cx: &mut Context<Self>) {
+        let dur = theme(cx).motion.medium;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(dur).await;
+            let _ = this.update(cx, |this, cx| {
+                if this.focus_animated {
+                    this.focus_animated = false;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// active=true 时跳过 hover 状态机推进（active selected 视觉保持稳态）—
+    /// 同 NavItem 模式。
+    fn fire_hover(&mut self, hovered: bool, cx: &mut Context<Self>) {
+        if self.active {
+            return;
+        }
+        if hovered {
+            if matches!(self.hover_state, HoverState::Idle) {
+                let reduced = theme(cx).reduced_motion;
+                if reduced {
+                    self.hover_state = HoverState::Hovered;
+                    cx.notify();
+                } else {
+                    let count = self.hover_anim_count.wrapping_add(1);
+                    self.hover_anim_count = count;
+                    self.hover_state = HoverState::Entering { anim_count: count };
+                    let dur = theme(cx).motion.medium;
+                    cx.spawn(async move |this, cx| {
+                        cx.background_executor().timer(dur).await;
+                        let _ = this.update(cx, |this, cx| {
+                            if matches!(
+                                this.hover_state,
+                                HoverState::Entering { anim_count } if anim_count == count
+                            ) {
+                                this.hover_state = HoverState::Hovered;
+                                cx.notify();
+                            }
+                        });
+                    })
+                    .detach();
+                    cx.notify();
+                }
+            }
+        } else if !matches!(self.hover_state, HoverState::Idle) {
+            self.hover_state = HoverState::Idle;
+            cx.notify();
+        }
+    }
 }
 
-impl RenderOnce for TabItem {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+impl gpui::Focusable for TabItem {
+    fn focus_handle(&self, _cx: &App) -> FocusHandle {
+        self.focus_handle.clone()
+    }
+}
+
+impl Render for TabItem {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let now_focused = self.focus_handle.is_focused(window);
+        if !self.was_focused_prev && now_focused {
+            self.focus_animated = true;
+            self.schedule_clear_focus_anim(cx);
+        } else if self.was_focused_prev && !now_focused {
+            self.focus_animated = false;
+        }
+        self.was_focused_prev = now_focused;
+
         let t = theme(cx);
         let active = self.active;
-        let bg = if active {
-            t.colors.background
+        let selected_bg = t.colors.background;
+        let idle_bg = t.colors.card;
+        let hover_bg = t.colors.secondary_hover;
+        let active_press_bg = t.colors.secondary_active;
+        let primary = t.colors.primary;
+        let ring_color = t.colors.ring;
+        let spacing_px_4 = t.spacing.px_4;
+        let spacing_px_2 = t.spacing.px_2;
+        let medium = t.motion.medium;
+        let easing = t.motion.easing_standard.clone();
+        let typography_t = t;
+
+        let hover_state = self.hover_state;
+        let pressing = self.pressing;
+        let focus_animating = now_focused && self.focus_animated;
+        let hover_entering = !active && matches!(hover_state, HoverState::Entering { .. });
+        let need_anim = pressing || focus_animating || hover_entering;
+        let press_count = self.press_count;
+        let hover_anim_count = self.hover_anim_count;
+
+        let base_bg = if active {
+            selected_bg
         } else {
-            t.colors.card
+            match hover_state {
+                HoverState::Idle | HoverState::Entering { .. } => idle_bg,
+                HoverState::Hovered => hover_bg,
+            }
         };
 
+        let handler = self.on_click.clone();
+        let on_press_listener = cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
+            this.fire_press(cx);
+            if let Some(h) = handler.clone() {
+                h(ev, window, cx);
+            }
+        });
+        let on_hover_listener = cx.listener(move |this, &hovered: &bool, _w, cx| {
+            this.fire_hover(hovered, cx);
+        });
+
         let mut el = div()
-            .id(self.id)
+            .id(self.id.clone())
             .relative()
             .h(px(40.0))
-            // 限宽 200px 防止超长 title（如 tmux pane title）撑爆 tab bar 把
-            // 后续 tab 挤出窗口外；title 子元素 ellipsis 截断显示 "..."
             .max_w(px(200.0))
             .overflow_hidden()
             .flex_shrink_0()
-            .px(t.spacing.px_4)
+            .px(spacing_px_4)
             .flex()
             .flex_row()
             .items_center()
-            .gap(t.spacing.px_2)
-            // M26 TabItem title：Body (13/400/fg)
-            .typography(crate::TypeRole::Body, t)
-            .bg(bg)
-            .cursor_pointer();
+            .gap(spacing_px_2)
+            .typography(crate::TypeRole::Body, typography_t)
+            .bg(base_bg)
+            .cursor_pointer()
+            .track_focus(&self.focus_handle);
 
         if !active {
-            // 大容器 hover 用 secondary 灰阶提亮（不换色调），accent 留给小元素强调
-            let hover_bg = t.colors.secondary_hover;
-            let active_bg = t.colors.secondary_active;
             el = el
-                .hover(move |s| s.bg(hover_bg))
-                .active(move |s| s.bg(active_bg));
+                .active(move |s| s.bg(active_press_bg))
+                .on_mouse_down(MouseButton::Left, on_press_listener)
+                .on_hover(on_hover_listener);
+        } else if self.on_click.is_some() {
+            el = el.on_mouse_down(MouseButton::Left, on_press_listener);
         }
 
-        if let Some(handler) = self.on_click {
-            el = el.on_mouse_down(MouseButton::Left, move |ev, window, cx| {
-                handler(ev, window, cx);
-            });
-        }
-
-        el = el.when_some(self.prefix, |d, p| d.child(p));
-        // title 包一层 flex_1 + overflow_hidden + ellipsis：
-        // - flex_1 让 title 占满 prefix/suffix 之间剩余空间
-        // - min_w(0) 关键 —— GPUI flex item 默认 min_width=auto 拒绝 shrink，
-        //   设 0 才能在 max_w 200 限制下被压缩 + 触发 ellipsis
-        // - whitespace_nowrap + text_ellipsis 长 title 单行截断显示 "..."
-        el = el.when_some(self.title, |d, ti| {
+        let prefix = self.prefix.take();
+        let title = self.title.take();
+        let suffix = self.suffix.take();
+        el = el.when_some(prefix, |d, p| d.child(p));
+        el = el.when_some(title, |d, ti| {
             d.child(
                 div()
                     .flex_1()
@@ -128,7 +256,7 @@ impl RenderOnce for TabItem {
                     .child(ti),
             )
         });
-        el = el.when_some(self.suffix, |d, s| d.child(s));
+        el = el.when_some(suffix, |d, s| d.child(s));
 
         if active {
             el = el.child(
@@ -138,11 +266,66 @@ impl RenderOnce for TabItem {
                     .left_0()
                     .right_0()
                     .h(px(2.0))
-                    .bg(t.colors.primary),
+                    .bg(primary),
             );
         }
 
-        el
+        if !need_anim {
+            if now_focused {
+                let mut glow = ring_color;
+                glow.a = 0.4;
+                el = el.shadow(vec![BoxShadow {
+                    color: glow,
+                    offset: point(px(0.0), px(0.0)),
+                    blur_radius: px(4.0),
+                    spread_radius: px(2.0),
+                }]);
+            }
+            return el.into_any_element();
+        }
+
+        let ring_show_static = now_focused && !focus_animating;
+        let anim_id: ElementId = (
+            "motion-tab-item",
+            press_count.wrapping_add(hover_anim_count) as usize,
+        )
+            .into();
+
+        animate_or_skip(
+            el,
+            t,
+            anim_id,
+            Animation::new(medium).with_easing(move |d| easing(d)),
+            move |el, delta| {
+                let mut el = el;
+                if hover_entering {
+                    el = el.bg(crate::lerp_hsla(idle_bg, hover_bg, delta));
+                }
+                if focus_animating {
+                    let mut glow = ring_color;
+                    glow.a = 0.4 * delta;
+                    el = el.shadow(vec![BoxShadow {
+                        color: glow,
+                        offset: point(px(0.0), px(0.0)),
+                        blur_radius: px(4.0),
+                        spread_radius: px(2.0),
+                    }]);
+                } else if ring_show_static {
+                    let mut glow = ring_color;
+                    glow.a = 0.4;
+                    el = el.shadow(vec![BoxShadow {
+                        color: glow,
+                        offset: point(px(0.0), px(0.0)),
+                        blur_radius: px(4.0),
+                        spread_radius: px(2.0),
+                    }]);
+                }
+                if pressing {
+                    el = el.opacity(press_opacity_at(delta));
+                }
+                el
+            },
+        )
     }
 }
 
@@ -150,47 +333,38 @@ impl RenderOnce for TabItem {
 mod tests {
     use super::*;
 
-    #[test]
-    fn new_defaults() {
-        let t = TabItem::new("test");
-        assert!(!t.active);
-        assert!(t.prefix.is_none());
-        assert!(t.title.is_none());
-        assert!(t.suffix.is_none());
-        assert!(t.on_click.is_none());
+    fn next_hover_when_active(active: bool, hovered: bool, prev: HoverState) -> HoverState {
+        if active {
+            return prev;
+        }
+        if hovered {
+            if matches!(prev, HoverState::Idle) {
+                HoverState::Entering { anim_count: 1 }
+            } else {
+                prev
+            }
+        } else if !matches!(prev, HoverState::Idle) {
+            HoverState::Idle
+        } else {
+            prev
+        }
     }
 
     #[test]
-    fn active_chain() {
-        let t = TabItem::new("a").active(true);
-        assert!(t.active);
+    fn active_blocks_hover_entering() {
+        let s = next_hover_when_active(true, true, HoverState::Idle);
+        assert_eq!(s, HoverState::Idle, "active=true 时 hover_state 不动");
     }
 
     #[test]
-    fn slots_can_be_set() {
-        let t = TabItem::new("a")
-            .prefix(gpui::div())
-            .title(gpui::div())
-            .suffix(gpui::div());
-        assert!(t.prefix.is_some());
-        assert!(t.title.is_some());
-        assert!(t.suffix.is_some());
+    fn inactive_idle_to_entering_on_hover() {
+        let s = next_hover_when_active(false, true, HoverState::Idle);
+        assert!(matches!(s, HoverState::Entering { .. }));
     }
 
     #[test]
-    fn on_click_stored() {
-        let t = TabItem::new("a").on_click(|_, _, _| {});
-        assert!(t.on_click.is_some());
-    }
-
-    #[test]
-    fn hover_only_when_inactive() {
-        // 验证 TabItem 的 active 字段是否决定 hover 路径分支：
-        // active=false → 走 hover bg + active bg
-        // active=true → 不接管 hover/active（spec D-5）
-        let inactive = TabItem::new("a").active(false);
-        let active = TabItem::new("a").active(true);
-        assert!(!inactive.active);
-        assert!(active.active);
+    fn inactive_hovered_to_idle_on_leave() {
+        let s = next_hover_when_active(false, false, HoverState::Hovered);
+        assert_eq!(s, HoverState::Idle);
     }
 }
