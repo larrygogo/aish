@@ -10,19 +10,39 @@
 
 ## 当前状态
 
-- **活跃分支**：main（2026-05-15 完成 M22-M34 + hover leave fade-out）
+- **活跃分支**：main（2026-05-15 完成 M22-M34 + 后续 hover leave fade-out
+  + dead_code cleanup + list row hover + tab-indicator fade-in + nav-item
+  ring 去除 + 6 component hover stuck 防御性修复）
 - **motion 系统状态**：✅ **完整收尾**（M30 入场 + M31 press+focus + M32-M34
-  hover enter + hover leave fade-out 全套，5 个 entity 组件 Button /
-  IconButton / Card / NavItem / TabItem + Dialog + Toast 全部 motion 覆盖）
-- **下一里程碑候选**：list row hover (ROI 不足 defer) / Skeleton 业务接入
-  (UX 风险 defer) / **方向自选**（无新强需求 — motion + SSH 实用能力都
-  完整）
-- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **266** +
-  aish-app **153** + aish-secrets **8** + 其他 crate) 全过
+  hover enter + hover leave fade-out + tab indicator fade-in 全套，6 个
+  entity 组件 Button / IconButton / Card / NavItem / TabItem / ListRow +
+  Dialog + Toast 全部 motion 覆盖；GPUI .hover() fallback 防 hover stuck）
+- **下一里程碑候选**：**M35 UI/UX 整体提升**（spec + plan 已立，3-phase 11-14 天，
+  当前在 Phase A 起点）/ Skeleton 业务接入 (UX 风险 defer)
+- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **274** +
+  aish-app **150** + aish-secrets **8** + 其他 crate，共 539 tests) 全过
 
 ---
 
 ## Milestones（按时间倒序）
+
+### M35 UI/UX 整体提升（2026-05-15 立项）— 📋 **进行中**
+
+- 范围：基于 M22-M34 已建立的 design tokens + motion 系统底子做视觉层级
+  与信息密度的密度提升 + 定位明确化。3-phase 11-14 天，18 个 task。
+- 问题清单：13 个编号问题（P-1..P-13） — 视觉层级太「平」/ sidebar 60px
+  信息密度低 / Terminal ConnectionChip 视觉权重不足 / Motion 150ms 偏长 /
+  缺 Code typography role / accent 饱和度偏高 / 缺 elevation_focus /
+  Light theme 7 token 未补完 / HostForm 信息组织错 / SSH 失败仅 toast /
+  Settings 缺快捷键 + 关于页 / 全局缺 ⌘K palette
+- Phase A（v0.next）6 task — Motion 120ms / Code role / accent 调色 / Home
+  改名 hero section / sidebar icon+label / 设计原则 doc，1-2 天
+- Phase B（v0.next+1）6 task — ⌘K palette MVP / sidebar 220px / HostForm
+  单行输入 / ConnectionChip 升级 / inline ErrorState 替换 toast，5-7 天
+- Phase C（v0.next+2）6 task — StatusBar / KbdShortcut / Settings 快捷键 +
+  关于页 / Linux brand icon 补 8 个 / Light theme 实验性标签 / 大文件评估
+- Spec：[`specs/2026-05-15-aish-m35-uiux-overhaul-design.md`](specs/2026-05-15-aish-m35-uiux-overhaul-design.md)
+- Plan：[`plans/2026-05-15-aish-m35-uiux-overhaul.md`](plans/2026-05-15-aish-m35-uiux-overhaul.md)
 
 ### hover leave fade-out (motion 系统补完)（2026-05-15）— ✅ 已完成
 - 范围：M30-M34 motion 系统最后补完 — 5 个 entity 组件（Button /
