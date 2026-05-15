@@ -93,12 +93,7 @@ impl Render for SidebarNavView {
                 .flex()
                 .items_center()
                 .justify_center()
-                .child(
-                    div()
-                        .font_family(FONT_NAME)
-                        .text_size(px(16.0))
-                        .child(ch),
-                )
+                .child(div().font_family(FONT_NAME).text_size(px(16.0)).child(ch))
         };
         let home_icon = make_icon("\u{f015}");
         let term_icon = make_icon("\u{f120}");

@@ -382,6 +382,8 @@ struct RootView {
     settings: Entity<crate::views::SettingsView>,
     host_form: Entity<crate::views::HostFormModal>,
     session_picker: Entity<crate::views::SessionPickerView>,
+    /// M35 T8: 全局 ⌘K / Ctrl+P palette。state.pending_palette driven open。
+    command_palette: Entity<crate::views::CommandPaletteView>,
     /// M22：每个 ConnectionId 一个独立 InputBarView entity，草稿（文字 + 图片
     /// 缩略图 + TextInput cursor / IME）天然按 conn 隔离。lazy 创建于 render
     /// 内首次遇到该 conn 时；conn 销毁（state.connections 不再包含）→ observe
@@ -428,6 +430,9 @@ impl RootView {
             cx.new(|cx| crate::views::HostFormModal::new(state.clone(), bridge.clone(), cx));
         let session_picker =
             cx.new(|cx| crate::views::SessionPickerView::new(state.clone(), bridge.clone(), cx));
+        let command_palette = cx.new(|cx| {
+            crate::views::CommandPaletteView::new(state.clone(), bridge.clone(), tx.clone(), cx)
+        });
 
         let toast_manager = cx.global::<aish_ui::ToastHandle>().0.clone();
 
@@ -442,18 +447,39 @@ impl RootView {
             settings,
             host_form,
             session_picker,
+            command_palette,
             input_bars: HashMap::new(),
             toast_manager,
             focus_handle: cx.focus_handle(),
         }
     }
 
-    /// Ctrl+1/2/3 切 sidebar tab。Ctrl+W / Ctrl+T / Ctrl+Tab 仍只在 terminal_view
-    /// focused 时生效（涉及当前 tab 操作，Home/Settings 模式无意义）。
+    /// 全局快捷键路由：
+    /// - Ctrl+1/2/3 切 sidebar tab（Home/Terminal/Settings）
+    /// - Ctrl+P / Cmd+P / Cmd+K → 打开 ⌘K Command Palette（M35 T8）
+    ///
+    /// Ctrl+W / Ctrl+T / Ctrl+Tab 仍只在 terminal_view focused 时生效（涉及
+    /// 当前 tab 操作，Home/Settings 模式无意义）。
     fn handle_global_key(&mut self, ev: &gpui::KeyDownEvent, cx: &mut Context<Self>) {
         let key = ev.keystroke.key.as_str();
         let m = &ev.keystroke.modifiers;
-        if !m.control || m.shift || m.alt {
+
+        // M35 T8: Command Palette trigger — Ctrl+P (Linux/Win) / Cmd+P / Cmd+K (macOS)
+        // 不要求 shift / alt 不按；platform 简化只看 control 或 platform key。
+        let palette_combo = !m.shift
+            && !m.alt
+            && ((m.control && !m.platform && key == "p")
+                || (m.platform && !m.control && (key == "p" || key == "k")));
+        if palette_combo {
+            self.state.update(cx, |s, cx| {
+                s.pending_palette = !s.pending_palette; // toggle: 再按一次关闭
+                cx.notify();
+            });
+            return;
+        }
+
+        // Ctrl+1/2/3 sidebar 切换
+        if !m.control || m.shift || m.alt || m.platform {
             return;
         }
         let target = match key {
@@ -764,6 +790,11 @@ impl Render for RootView {
         if modal_open {
             root = root.child(self.host_form.clone());
         }
+
+        // M35 T8: Command Palette 在 root 顶层 mount（永驻，自身根据
+        // state.pending_palette 决定 open/close — Dialog 自管 backdrop）。
+        // 与 host_form / toast 同 z-layer，可在任意 sidebar / tab 触发。
+        root = root.child(self.command_palette.clone());
 
         // Context menus 在 root 顶层 mount —— tab_bar / home 自己 mount 时
         // paint 顺序在下游 view（terminal_view / session_picker）之前，会被

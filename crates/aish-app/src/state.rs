@@ -443,6 +443,11 @@ pub struct AppState {
     /// `None` = 无弹窗。
     pub pending_session_picker: Option<ConnectionId>,
 
+    /// M35 T8: 全局 Command Palette 开关。true = Ctrl+P / Cmd+P / Cmd+K
+    /// 触发；palette 显示后用户 fuzzy search hosts，Enter 直接 open_connection。
+    /// 通过 RootView handle_global_key 切换。
+    pub pending_palette: bool,
+
     pub modal: Option<HostFormState>,
     pub last_connected: HashMap<HostId, SystemTime>,
     pub sidebar: SidebarTab,
@@ -529,6 +534,7 @@ impl AppState {
             selected_tab: None,
             sidebar: SidebarTab::Home,
             pending_session_picker: None,
+            pending_palette: false,
             sessions: HashMap::new(),
             modal: None,
             last_connected: HashMap::new(),
