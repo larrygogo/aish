@@ -203,9 +203,16 @@ impl Render for SidebarNavView {
 
         // Icon helper：SVG IconName。GPUI svg() 颜色不从父 text_color 自动
         // 继承 — 必须显式 .text_color() 否则 stroke 不可见。
-        let icon_color = theme(cx).colors.muted_foreground;
+        // M35.1 D5: active 时 icon 切 primary 色对照 inset glow border / bg
+        // 的紫色 tint — 让 active 整体视觉一致（fill / border / icon 三处
+        // 同色调），inactive 保持 muted。
+        let muted_icon = theme(cx).colors.muted_foreground;
+        let primary_icon = theme(cx).colors.primary;
         // shadcn 参考 size-4 = 16px
-        let make_icon = move |name: IconName| icon(name).size(px(16.0)).text_color(icon_color);
+        let make_icon = move |name: IconName, active: bool| {
+            let color = if active { primary_icon } else { muted_icon };
+            icon(name).size(px(16.0)).text_color(color)
+        };
 
         // ── Phase B：read theme borrow，block scope → build inner body AnyElement ──
         let rows_phase1: Vec<(HostId, gpui::AnyElement)> = {
@@ -259,9 +266,13 @@ impl Render for SidebarNavView {
             .collect();
 
         // NavItem entity.update — orientation 由 expanded 决定
-        let home_icon = make_icon(IconName::Home);
-        let term_icon = make_icon(IconName::Terminal);
-        let settings_icon = make_icon(IconName::Settings);
+        // M35.1 D5: icon color 随 active 切（primary / muted），三处统一
+        let home_active = current == SidebarTab::Home;
+        let term_active = current == SidebarTab::Terminal;
+        let settings_active = current == SidebarTab::Settings;
+        let home_icon = make_icon(IconName::Home, home_active);
+        let term_icon = make_icon(IconName::Terminal, term_active);
+        let settings_icon = make_icon(IconName::Settings, settings_active);
         if expanded {
             self.home_item.update(cx, |n, _| {
                 n.icon(home_icon)

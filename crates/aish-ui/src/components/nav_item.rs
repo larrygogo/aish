@@ -212,12 +212,14 @@ impl Render for NavItem {
         let idle_bg = gpui::transparent_black();
         let hover_bg = t.colors.secondary_hover;
         let press_bg_color = t.colors.secondary_active;
-        // M35 redesign v5 (shadcn 风)：active 视觉用 \"纯 bg fill + font-medium\"，
-        // 不要 stripe（shadcn / Linear / Vercel sidebar 标准 — 现代 web app 模式
-        // 而非 IDE 模式）。Active bg 用 secondary_hover 与 hover 同 — 配合
-        // font_weight medium 通过文字加粗区分 active vs hover。
+        // M35.1 D5 (shadcn / Linear / Cursor 风)：active 视觉用 inset glow —
+        // primary 10% 半透明 bg + primary 25% inset border，比纯 secondary_hover
+        // fill 高 3 级 (fill 是低端做法)。inactive 同等 border_1 + transparent
+        // 防 layout shift（active border 出现时 inner 区域不挤压）。
         let has_label = self.label.is_some();
-        let selected_bg = t.colors.secondary_hover;
+        let selected_bg = t.colors.primary.opacity(0.10);
+        let selected_border = t.colors.primary.opacity(0.25);
+        let idle_border = gpui::transparent_black();
         let medium = t.motion.medium;
         let easing = t.motion.easing_standard.clone();
         let typography_t = t;
@@ -278,10 +280,15 @@ impl Render for NavItem {
                 .justify_center()
                 .gap(px(4.0)),
             NavItemOrientation::Horizontal => {
+                // M35.1 D5: 永久 border_1（active 出 inset glow 时不引起
+                // layout shift）— inactive 时透明，active 时 primary 25%。
+                let border_color = if active { selected_border } else { idle_border };
                 let mut e = el
                     .h(px(36.0))
                     .px(t.spacing.px_3)
                     .rounded(t.radius.lg)
+                    .border_1()
+                    .border_color(border_color)
                     .flex()
                     .flex_row()
                     .items_center()
