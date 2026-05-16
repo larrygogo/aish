@@ -240,37 +240,42 @@ impl Render for SidebarNavView {
                     } else {
                         muted_color
                     };
+                    // dot 与 label 同一 horizontal 行，items_center 让 dot
+                    // 中线对齐 label 文字中线（plan D4 字面"host 名字左边
+                    // 6px 圆点"语义）；time 单独行，pl(10) = dot(6) + gap(4)
+                    // 让 time 起点与 label 文字起点对齐。
                     let inner = div()
                         .flex()
-                        .flex_row()
-                        .items_center()
+                        .flex_col()
                         .gap(px(4.0))
                         .child(
                             div()
-                                .size(px(6.0))
-                                .rounded_full()
-                                .bg(dot_color)
-                                .flex_shrink_0(),
-                        )
-                        .child(
-                            div()
-                                .flex_1()
                                 .flex()
-                                .flex_col()
+                                .flex_row()
+                                .items_center()
                                 .gap(px(4.0))
                                 .child(
                                     div()
+                                        .size(px(6.0))
+                                        .rounded_full()
+                                        .bg(dot_color)
+                                        .flex_shrink_0(),
+                                )
+                                .child(
+                                    div()
+                                        .flex_1()
                                         .typography(aish_ui::TypeRole::Body, t)
                                         .overflow_hidden()
                                         .whitespace_nowrap()
                                         .text_ellipsis()
                                         .child(label.clone()),
-                                )
-                                .child(
-                                    div()
-                                        .typography(aish_ui::TypeRole::Caption, t)
-                                        .child(humanized),
                                 ),
+                        )
+                        .child(
+                            div()
+                                .pl(px(10.0))
+                                .typography(aish_ui::TypeRole::Caption, t)
+                                .child(humanized),
                         );
                     (*id, inner.into_any_element())
                 })
