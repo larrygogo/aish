@@ -163,7 +163,10 @@ impl SidebarNavView {
 impl Render for SidebarNavView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // ── Phase A：read app borrow，block scope → 取 owned snapshot ──
-        let (current, expanded, recent_snapshot) = {
+        // M35.1 D4: active_hosts = 当前所有活跃 ConnectionId 对应的 host_id 集合
+        // （多个 connection 可能指向同一 host，set 去重）。Phase B 用此 set 决定
+        // 每个最近 host 行的 status dot 色（success / muted 50%）。
+        let (current, expanded, recent_snapshot, active_hosts) = {
             let app = self.state.read(cx);
             let current = app.sidebar;
             let expanded = app.sidebar_expanded;
@@ -179,7 +182,9 @@ impl Render for SidebarNavView {
                 .collect();
             pairs.sort_by_key(|p| std::cmp::Reverse(p.1));
             pairs.truncate(RECENT_LIST_MAX);
-            (current, expanded, pairs)
+            let active_hosts: std::collections::HashSet<HostId> =
+                app.connections.values().map(|c| c.host_id).collect();
+            (current, expanded, pairs, active_hosts)
         };
         // app borrow dropped ✓
 
@@ -215,28 +220,54 @@ impl Render for SidebarNavView {
         };
 
         // ── Phase B：read theme borrow，block scope → build inner body AnyElement ──
+        // M35.1 D4: 每行 inner 改为 horizontal flex — status dot (6px) + label/time
+        // stack。dot 色：active connection → success #4FBB72；历史 host →
+        // muted_foreground 50% opacity（褪到背景。Warp 风\"视觉活物\"）。
+        // pixel budget：+10px 水平（6px dot + 4px gap），host name 区 ~200 → ~190 OK。
         let rows_phase1: Vec<(HostId, gpui::AnyElement)> = {
             let t = theme(cx);
+            let success_color = t.colors.success;
+            let muted_color = t.colors.muted_foreground.opacity(0.5);
             recent_snapshot
                 .iter()
                 .map(|(id, time, label)| {
                     let humanized = humanize_last_connected(*time);
+                    let dot_color = if active_hosts.contains(id) {
+                        success_color
+                    } else {
+                        muted_color
+                    };
                     let inner = div()
                         .flex()
-                        .flex_col()
+                        .flex_row()
+                        .items_center()
                         .gap(px(4.0))
                         .child(
                             div()
-                                .typography(aish_ui::TypeRole::Body, t)
-                                .overflow_hidden()
-                                .whitespace_nowrap()
-                                .text_ellipsis()
-                                .child(label.clone()),
+                                .size(px(6.0))
+                                .rounded_full()
+                                .bg(dot_color)
+                                .flex_shrink_0(),
                         )
                         .child(
                             div()
-                                .typography(aish_ui::TypeRole::Caption, t)
-                                .child(humanized),
+                                .flex_1()
+                                .flex()
+                                .flex_col()
+                                .gap(px(4.0))
+                                .child(
+                                    div()
+                                        .typography(aish_ui::TypeRole::Body, t)
+                                        .overflow_hidden()
+                                        .whitespace_nowrap()
+                                        .text_ellipsis()
+                                        .child(label.clone()),
+                                )
+                                .child(
+                                    div()
+                                        .typography(aish_ui::TypeRole::Caption, t)
+                                        .child(humanized),
+                                ),
                         );
                     (*id, inner.into_any_element())
                 })
