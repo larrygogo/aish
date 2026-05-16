@@ -27,7 +27,10 @@ use std::time::SystemTime;
 
 use aish_types::{HostId, TabId};
 use aish_ui::{icon, theme, IconName, ListRow, NavItem, TypographyExt};
-use gpui::{div, prelude::*, px, Context, Entity, MouseButton, MouseDownEvent, Window};
+use gpui::{
+    div, linear_color_stop, linear_gradient, prelude::*, px, Context, Entity, MouseButton,
+    MouseDownEvent, Window,
+};
 
 use crate::app::retain_alive_entities;
 use crate::bridge::Bridge;
@@ -446,12 +449,20 @@ impl Render for SidebarNavView {
                 None
             };
 
+        // M35.1 D1: sidebar bg 从纯 colors.background 升级为 vertical gradient
+        // sidebar_bg_top → background（OpenSFTP 风 elevation，ΔL≈2）。GPUI 原生
+        // 支持 linear_gradient（angle 180° = 朝下，from 在 top，CSS 同等）。
+        // 现存 border_r_1 保留（仍作 sidebar/main 物理分隔），与 elevation 互补。
         div()
             .w(px(width))
             .h_full()
             .flex()
             .flex_col()
-            .bg(colors.background)
+            .bg(linear_gradient(
+                180.0,
+                linear_color_stop(colors.sidebar_bg_top, 0.0),
+                linear_color_stop(colors.background, 1.0),
+            ))
             .border_r_1()
             .border_color(colors.border)
             .child(nav_section)

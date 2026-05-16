@@ -40,6 +40,11 @@ pub struct ColorTokens {
     // secondary_hover，Ghost active 若同等级色块会与容器融为一体；跳一档保证
     // active 状态在任何容器背景下都可识别。
     pub secondary_strongest: Hsla,
+    // M35.1 D1 新加：sidebar bg vertical gradient 顶色，与 `background` (=底色)
+    // 形成 OpenSFTP 风 elevation。ΔL ≈ 2 让眼睛说不出哪里变了但感觉"层次"。
+    // 仅 sidebar 容器使用，main 区仍纯 background。
+    // light theme 暂同 background（不引入渐变风险，与 T17 light 实验状态对齐）。
+    pub sidebar_bg_top: Hsla,
 }
 
 #[derive(Clone, Copy)]

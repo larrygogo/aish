@@ -69,6 +69,9 @@ impl Theme {
                 accent_active: hex(0x1f2236),
                 // M18 Ghost button 按下反馈，比 secondary_active 再亮一档
                 secondary_strongest: hex(0x4a4d55),
+                // M35.1 D1: sidebar 顶色，比 background #08090a 亮 ΔL≈2，
+                // 配合 linear_gradient(180°) 从 top 渐到 background 形成 elevation
+                sidebar_bg_top: hex(0x0a0b0e),
             },
             radius: Radius::default(),
             spacing: Spacing::default(),
