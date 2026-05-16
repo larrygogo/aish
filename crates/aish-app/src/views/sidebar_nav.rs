@@ -389,16 +389,23 @@ impl Render for SidebarNavView {
                         .flex_col()
                         .gap(px(4.0))
                         .child(
-                            // 11px MEDIUM secondary_fg — 显式 text_color 防 typography
-                            // inheritance 异常。secondary_fg 替代 muted_fg 让 11px 小字
-                            // 在 dark bg 上对比度 9:1 完全过 WCAG AA（之前 muted 在
-                            // secondary bg 上仅 3.7:1 不过 AA 正文标准）。
+                            // M35.1 D3: 11/SEMIBOLD + muted_foreground —
+                            // Linear / shadcn section header 标准（带"次要 label"
+                            // hierarchy）。weight 从 MEDIUM(500) 升 SEMIBOLD(600)
+                            // 强化 section 语义；color 从 secondary_fg(9:1) 降到
+                            // muted_fg 在 sidebar 主 bg (#08090A) 上仍 ≈6.7:1
+                            // 过 WCAG AA — 注：之前 muted 3.7:1 的注释是针对
+                            // secondary 色块容器，这里 sidebar bg 上无此问题。
+                            // GPUI TextStyle 无 letter_spacing 字段 — plan 原
+                            // 设计的 0.5px tracking 无法实现，靠 weight + color
+                            // 表达 section header 语义足够（中文 4 字短词本身
+                            // 不靠 letter-spacing 拉 hierarchy）。
                             div()
                                 .pl(spacing.px_2)
                                 .pb(spacing.px_1)
                                 .text_size(px(11.0))
-                                .font_weight(gpui::FontWeight::MEDIUM)
-                                .text_color(colors.secondary_foreground)
+                                .font_weight(gpui::FontWeight::SEMIBOLD)
+                                .text_color(colors.muted_foreground)
                                 .child("最近连接"),
                         )
                         .children(recent_row_entities)
