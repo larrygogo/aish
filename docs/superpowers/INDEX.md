@@ -92,6 +92,48 @@
 - 测试基线：aish-ui 274 → 278（+4 个新 pure-fn 测试），aish-app 150 →
   167（+17 parse_connection_string / fuzzy_score 单测），共 559 全过
 
+- **M35.1 follow-up — Sidebar 视觉质感补强（2026-05-17）— ✅ 已完成**
+  - 背景：M35 sidebar v1-v5 反复仍被判"丑"，决定**不再凭审美猜** —
+    对照 Warp / OrcaTerm / OpenSFTP 三个产品视觉质感取长补短，每条
+    改动标灵感来源 + 具体数值（80 行净变化、5 文件、7 commit）
+  - 5 条改动 + 1 对齐 fixup：
+    - **D2 NavItem 尺寸放大**（`6c5f34d`）：h(32→36) + px(px_2→px_3=12)
+      + radius(md→lg=8) + 容器 item 间距(4→8)。借自 shadcn/OrcaTerm
+      留白宽松
+    - **D5 Active inset glow**（`ff54779`）：active bg secondary_hover
+      → `primary.opacity(0.10)` + 新增 1px `primary.opacity(0.25)` border
+      + icon 切 primary 色。inactive 永久 border_1 + transparent 防
+      layout shift。从 fill 升级为 inset glow（Linear/Cursor/shadcn 最新
+      手法，比 fill 高 3 级）
+    - **D3 Section header SEMIBOLD + muted_fg**（`172eb36`）：weight
+      MEDIUM→SEMIBOLD + color secondary_fg→muted_fg。Linear/shadcn
+      section header 标准；letter-spacing 0.5px 因 GPUI TextStyle 无
+      letter_spacing 字段省略（中文短词不靠 tracking 表达 hierarchy）
+    - **D4 Host status dot**（`d3750f6` + `85052b1` 对齐 fix）：每行
+      左 6px 圆点，active connection → success #4FBB72；历史 host →
+      muted 50% opacity。dot 与 label 同 horizontal 行，time 单独行
+      pl(10) 对齐 label 起点。**Warp 风视觉活物** — plan 标这条最有效
+    - **D1 Sidebar bg gradient**（`1ed7259`）：从 `colors.background`
+      升 vertical gradient `sidebar_bg_top` (#0a0b0e) → `background`
+      (#08090a)，OpenSFTP 风 ΔL≈2 elevation。新增 `sidebar_bg_top`
+      token（dark/light/tokens 三处填）。GPUI 原生 `linear_gradient`
+      支持已 T0 调研确认（zed 内部 10+ 处用例）
+  - **Lessons**：
+    - **plan 起草必须核对当前代码** — T3 plan 写"当前 13/500"实际
+      是 11/500 (sidebar_nav.rs hardcode)，浪费 review 注意力。已 docs
+      commit `3ea198f` 把现状澄清入库
+    - **GPUI TextStyle 无 letter_spacing 字段** — 设计稿里 tracking
+      表达 section 语义时需提前验证 API；同理 `font_features` 是
+      OpenType feature list 不是数值字段
+    - **dot 与多行文本对齐** — `items_center` 居中到 stack 整体中线
+      ≠ 与首行对齐；plan "X 左边圆点" 语义要求 dot 与那一行同
+      horizontal flex（fix `85052b1`）
+    - **GPUI linear_gradient angle 约定** — `0.0 = top`（朝上），CW；
+      vertical 渐变（top → bottom）用 `180.0` + first stop 在 from 端
+  - Token：`sidebar_bg_top` 新加（dark `#0a0b0e` / light 暂同 `#fafbfc`）
+  - Plan：[`plans/2026-05-17-aish-sidebar-visual-polish.md`](plans/2026-05-17-aish-sidebar-visual-polish.md)
+  - 测试：571 全过（无新测试，纯视觉改动）
+
 ### hover leave fade-out (motion 系统补完)（2026-05-15）— ✅ 已完成
 - 范围：M30-M34 motion 系统最后补完 — 5 个 entity 组件（Button /
   IconButton / Card / NavItem / TabItem）的 hover leave 从 instant 改
