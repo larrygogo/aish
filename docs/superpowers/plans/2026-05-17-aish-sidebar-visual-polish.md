@@ -67,12 +67,18 @@ height 36 + radius 8；Linear 同样 36 + 8。
 
 ### D3 — Section header 重设计（Linear / shadcn 借鉴）
 
-**「最近连接」当前**：13/500 Body 风
+**「最近连接」当前**：~~13/500 Body 风~~ → 实际现状是 **11/500 MEDIUM + secondary_fg**
+（plan 起草时描述有误，实施时核对代码确认为 11px MEDIUM secondary_fg）
 **改后**：
-- 字号：11/600
-- 颜色：`muted_foreground` (#8b8d97)
-- letter-spacing：0.5px（中文不全大写，靠 spacing 表达"section header"语义）
-- 上下 padding：px_2 (8) / px_1 (4)
+- 字号：11（保持）
+- 字重：MEDIUM(500) → **SEMIBOLD(600)**
+- 颜色：`secondary_foreground` → **`muted_foreground`** (#8b8d97)
+- ~~letter-spacing：0.5px~~ — **GPUI TextStyle 无 letter_spacing 字段**，无法实现；
+  中文 "最近连接" 4 字短词本身不靠 letter-spacing 拉 hierarchy，weight + color 足够
+- 上下 padding：pl_2(8) / pb_1(4)（保持）
+
+**WCAG AA 验证**：muted_fg #8b8d97 在 sidebar 主 bg #08090A 上对比 ≈6.7:1 过 AA。
+（旧代码注释里 muted 3.7:1 是 secondary 色块容器内的情况，sidebar bg 不适用。）
 
 **字号风险**：当前 Typography 9 role 里 Micro 是 11/400，没有 11/600。
 **方案选择**：
