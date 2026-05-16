@@ -339,23 +339,25 @@ impl Render for SidebarNavView {
             );
 
         // settings + toggle 同区，两种模式共用 layout
+        // M35.1 D2: item 间距 gap_1(4) → gap_2(8) 对照 shadcn sidebar
         let bottom_section = div()
             .px(spacing.px_2)
             .pb(spacing.px_2)
             .flex()
             .flex_col()
-            .gap(px(4.0))
+            .gap(spacing.px_2)
             .child(self.settings_item.clone())
             .child(toggle_btn);
 
         // nav section — 两种模式都用 horizontal NavItem（rounded card 视觉），
         // 折叠模式 NavItem.no_label() icon-only + justify_center
+        // M35.1 D2: item 间距 gap_1(4) → gap_2(8)
         let nav_section = div()
             .px(spacing.px_2)
             .pt(spacing.px_2)
             .flex()
             .flex_col()
-            .gap(px(4.0))
+            .gap(spacing.px_2)
             .child(self.home_item.clone())
             .child(self.terminal_item.clone());
 

@@ -264,8 +264,9 @@ impl Render for NavItem {
             .bg(base_bg)
             .cursor_pointer();
 
-        // M35 v5: 删 border_l stripe（shadcn 风纯 bg fill + font-medium）。
-        // horizontal 模式：h(32) + px(8) shadcn p-2 对称，rounded(md) 通体圆角。
+        // M35.1 D2: 尺寸放大对照 shadcn / Linear / OrcaTerm sidebar 标准 —
+        // h36 + px(12) + radius lg(8) 比之前 h32 + px(8) + radius md(6) 视觉
+        // 更宽松，缓解 "廉价感"。icon-label gap 保持 px_2(8) 不动。
         // icon-only (no label) 时 justify_center 让 icon 居中。
         el = match orientation {
             NavItemOrientation::Vertical => el
@@ -278,9 +279,9 @@ impl Render for NavItem {
                 .gap(px(4.0)),
             NavItemOrientation::Horizontal => {
                 let mut e = el
-                    .h(px(32.0))
-                    .px(t.spacing.px_2)
-                    .rounded(t.radius.md)
+                    .h(px(36.0))
+                    .px(t.spacing.px_3)
+                    .rounded(t.radius.lg)
                     .flex()
                     .flex_row()
                     .items_center()
