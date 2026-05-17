@@ -787,7 +787,11 @@ impl Render for HomeView {
                                         };
                                     div()
                                         .text_size(px(10.0))
-                                        .font_family("JetBrains Mono")
+                                        // M35.2 T3: 之前 .font_family("JetBrains Mono")
+                                        // 是 bug —— bundle 字体名是 "JetBrainsMono Nerd Font"，
+                                        // "JetBrains Mono" 在 GPUI 找不到会 silent fallback。
+                                        // 改走 code_font() 同时挂 symbol fallback chain。
+                                        .font(aish_ui::code_font())
                                         .text_color(colors.muted_foreground)
                                         .whitespace_nowrap()
                                         .overflow_hidden()
