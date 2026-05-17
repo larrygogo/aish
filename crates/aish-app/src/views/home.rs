@@ -502,9 +502,10 @@ impl Render for HomeView {
                 let card_id: gpui::ElementId =
                     gpui::SharedString::from(format!("home-active-card-{}", cid)).into();
                 let weak = cx.weak_entity();
+                let primary = aish_ui::theme(cx).colors.primary;
                 let card = cx.new(move |c| {
                     let mut card = CardEntity::new(card_id, c);
-                    card.on_click(move |_ev, _w, cx| {
+                    card.hover_glow(primary).on_click(move |_ev, _w, cx| {
                         if let Some(this) = weak.upgrade() {
                             this.update(cx, |this, cx| this.handle_active_card_click(cid, cx));
                         }
@@ -539,17 +540,19 @@ impl Render for HomeView {
             if !self.host_cards.contains_key(id) {
                 let host_id = *id;
                 let weak = cx.weak_entity();
+                let primary = aish_ui::theme(cx).colors.primary;
                 let card = cx.new(move |cx| {
                     let mut c = CardEntity::new(
                         gpui::SharedString::from(format!("host-card-{}", host_id)),
                         cx,
                     );
-                    c.no_padding();
-                    c.on_click(move |_ev, _w, cx| {
-                        if let Some(this) = weak.upgrade() {
-                            this.update(cx, |this, cx| this.handle_card_click(host_id, cx));
-                        }
-                    });
+                    c.no_padding()
+                        .hover_glow(primary)
+                        .on_click(move |_ev, _w, cx| {
+                            if let Some(this) = weak.upgrade() {
+                                this.update(cx, |this, cx| this.handle_card_click(host_id, cx));
+                            }
+                        });
                     c
                 });
                 self.host_cards.insert(host_id, card);

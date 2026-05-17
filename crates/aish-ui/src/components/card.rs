@@ -22,8 +22,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    div, prelude::*, Animation, AnyElement, App, Context, ElementId, FocusHandle, IntoElement,
-    MouseButton, MouseDownEvent, Window,
+    div, prelude::*, Animation, AnyElement, App, Context, ElementId, FocusHandle, Hsla,
+    IntoElement, MouseButton, MouseDownEvent, Window,
 };
 
 use crate::components::button::{hover_bg_at, press_opacity_at, HoverState};
@@ -207,6 +207,11 @@ pub struct CardEntity {
     press_count: u64,
     hover_state: HoverState,
     hover_anim_count: u64,
+    /// M36 T7: hover state inset glow（与 sidebar M35.1 D5 同语言）。
+    /// 设了之后 hover bg = primary.opacity(0.05) + 永久 border 1px (idle
+    /// transparent / hover primary.opacity(0.25))，替代默认 secondary_hover
+    /// 灰阶。None 时走默认 hover bg 路径。
+    hover_glow_color: Option<Hsla>,
 }
 
 impl CardEntity {
@@ -226,7 +231,16 @@ impl CardEntity {
             press_count: 0,
             hover_state: HoverState::Idle,
             hover_anim_count: 0,
+            hover_glow_color: None,
         }
+    }
+
+    /// M36 T7: 启用 hover inset glow（spec §4.4 / M35.1 D5 同语言）。
+    /// idle: bg card / border transparent；hover: bg primary.opacity(0.05)
+    /// + border primary.opacity(0.25)。永久 border 1px 防 layout shift。
+    pub fn hover_glow(&mut self, primary: Hsla) -> &mut Self {
+        self.hover_glow_color = Some(primary);
+        self
     }
 
     pub fn no_padding(&mut self) -> &mut Self {
@@ -393,9 +407,15 @@ impl Render for CardEntity {
 
         let t = theme(cx);
         // Card 所有 variant 的 idle bg 都是 t.colors.card；hover/active 用 secondary
-        // 灰阶（与 stateless 时代逻辑一致，line 137-149）
+        // 灰阶（与 stateless 时代逻辑一致，line 137-149）。
+        // M36 T7: hover_glow_color 设了时改走 primary tint 路径（spec §4.4）。
         let idle_bg = t.colors.card;
-        let hover_bg = t.colors.secondary_hover;
+        let glow = self.hover_glow_color;
+        let hover_bg = match glow {
+            Some(g) => g.opacity(0.05),
+            None => t.colors.secondary_hover,
+        };
+        let hover_border = glow.map(|g| g.opacity(0.25));
         let active_bg = t.colors.secondary_active;
         let radius_lg = t.radius.lg;
         let border_color = t.colors.border;
@@ -439,7 +459,14 @@ impl Render for CardEntity {
             .rounded(radius_lg);
 
         match variant {
-            CardVariant::Default => {}
+            CardVariant::Default => {
+                // M36 T7: hover_glow 模式下 Default variant 也加 1px border
+                // 占位（idle transparent），让 hover border color 切换不引起
+                // layout shift。
+                if hover_border.is_some() {
+                    el = el.border_1().border_color(gpui::transparent_black());
+                }
+            }
             CardVariant::Outlined => {
                 el = el.border_1().border_color(border_color);
             }
@@ -493,8 +520,16 @@ impl Render for CardEntity {
 
         if !need_anim {
             // 非动画稳态：附 GPUI .hover() 作为真实视觉源（仅 has_click 时启用）。
+            // M36 T7: hover_glow 模式下 hover 同时切 bg + border_color。
             if has_click {
-                el = el.hover(move |s| s.bg(hover_bg));
+                el = el.hover(move |s| {
+                    let s = s.bg(hover_bg);
+                    if let Some(b) = hover_border {
+                        s.border_color(b)
+                    } else {
+                        s
+                    }
+                });
             }
             return el.into_any_element();
         }
@@ -520,6 +555,11 @@ impl Render for CardEntity {
                         hover_bg,
                         delta,
                     ));
+                    // M36 T7: hover_glow 模式下 border 在 Entering 期间立即设
+                    // hover_border（不 lerp，120ms 内 instant 切，视觉够干净）
+                    if let Some(b) = hover_border {
+                        el = el.border_color(b);
+                    }
                 } else if hover_leaving {
                     // M34 v2: 反向 lerp hover → idle
                     el = el.bg(hover_bg_at(
@@ -528,6 +568,11 @@ impl Render for CardEntity {
                         idle_bg,
                         delta,
                     ));
+                    // M36 T7: Leaving 期间 border 仍保留 hover color，动画结束
+                    // 后 hover_state → Idle，下次 render border 自动复位 transparent
+                    if let Some(b) = hover_border {
+                        el = el.border_color(b);
+                    }
                 }
                 if pressing {
                     el = el.opacity(press_opacity_at(delta));
