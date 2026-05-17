@@ -613,7 +613,10 @@ impl Render for HomeView {
                     let (preview, cursor_in_window) = if let Some(term) = term_opt {
                         let chars = extract_term_chars_or_empty(term);
                         let total_rows = chars.len();
-                        let rows = last_n_rows_from_chars(chars, 6);
+                        // M36.1 follow-up: 6 → 3 行 — GPUI div+text 行高
+                        // 受 font ascender/descender 强制 ~20-25px，多行 cells
+                        // 在小卡片里仍稀疏；减少行数让 preview 区视觉满 fit
+                        let rows = last_n_rows_from_chars(chars, 3);
                         // cursor 在 last 6 行窗口内才记录 (row 是 0-based 从 top)
                         let cursor_pt = term.grid().cursor.point;
                         let cursor_line_from_top = cursor_pt.line.0 as usize;
@@ -795,14 +798,12 @@ impl Render for HomeView {
                                             line
                                         };
                                     div()
-                                        .text_size(px(9.0))
-                                        // 三重保险：text_size 9 + line_height 10
-                                        // + box height 10。如果重 build 后行间距
-                                        // 还大，说明 GPUI 在 cell layout 阶段忽略
-                                        // 我们的尺寸约束，要换其他渲染路径
-                                        .line_height(px(10.0))
-                                        .h(px(10.0))
-                                        .min_h(px(0.0))
+                                        .text_size(px(11.0))
+                                        // GPUI div+text 行高被 font metrics 强制
+                                        // ~20-25px，无法靠 line_height/h 覆盖。
+                                        // 改路径：减少行数（3 行）+ 接受自然行高，
+                                        // 让 preview 区视觉满 fit；font 9→11 提一
+                                        // 点回来配合
                                         .font(aish_ui::code_font())
                                         .text_color(colors.muted_foreground)
                                         .whitespace_nowrap()
