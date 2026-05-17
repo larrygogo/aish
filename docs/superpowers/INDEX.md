@@ -10,21 +10,97 @@
 
 ## 当前状态
 
-- **活跃分支**：main（2026-05-15 完成 M22-M34 + 后续 hover leave fade-out
-  + dead_code cleanup + list row hover + tab-indicator fade-in + nav-item
-  ring 去除 + 6 component hover stuck 防御性修复）
+- **活跃分支**：main（2026-05-17 完成 M36 Home Launchpad：Warp 风 active 大卡
+  含 shell 缩略图 + 4 phase 兜底 + saved 卡 vertical 重设计 + 卡片 hover inset
+  glow；之前已完成 M22-M34 + M35 主体 + M35.1 sidebar polish + 后续 motion
+  收尾）
 - **motion 系统状态**：✅ **完整收尾**（M30 入场 + M31 press+focus + M32-M34
   hover enter + hover leave fade-out + tab indicator fade-in 全套，6 个
   entity 组件 Button / IconButton / Card / NavItem / TabItem / ListRow +
   Dialog + Toast 全部 motion 覆盖；GPUI .hover() fallback 防 hover stuck）
-- **下一里程碑候选**：**M35 UI/UX 整体提升**（spec + plan 已立，3-phase 11-14 天，
-  当前在 Phase A 起点）/ Skeleton 业务接入 (UX 风险 defer)
+- **下一里程碑候选**：M36 用户视觉验收后 polish（如有） / Skeleton 业务接入
+  (UX 风险 defer) / 长期 roadmap 看 [桌面版 Moshi Roadmap](roadmap-moshi-desktop.md)
 - **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **274** +
-  aish-app **150** + aish-secrets **8** + 其他 crate，共 539 tests) 全过
+  aish-app **162** + aish-secrets **8** + 其他 crate，共 **583** tests) 全过
 
 ---
 
 ## Milestones（按时间倒序）
+
+### M36 — Home Launchpad（信息架构重设计）（2026-05-17）— ✅ 已完成（manual GUI 验收 pending）
+
+- **范围**：Home 页改 Warp 风 launchpad — active session 大卡含 shell 缩略图
+  + 4 phase 兜底；saved hosts grid 卡 vertical 重设计；与 sidebar M35.1 视觉
+  同语言（inset glow hover）
+- **起源**：M35.1 sidebar polish 完成后用户提"Home 视觉上一个台阶"，第一轮
+  泛诉求被判定为 M35 反复 5 次仍判丑陷阱 → 锁定方法学"不凭审美猜，对照
+  参照系"（Warp / Raycast / Linear / TablePlus 4 选 → 雄心档位"大重做" →
+  layout 方向 B Warp launchpad → 招牌 visual hook = shell 缩略图）
+- **关键决策（spec ADR 10 条）**：
+  - D1 走 launchpad 方向 B（非 split panel / raycast）
+  - D2 shell 缩略图 v1 dim 统一色（ANSI 保色 v2 backlog）
+  - D3 不加 render throttle（实测先，5 active = ~2400 cells 对照 terminal_view
+    1680 char 基线）
+  - D5 saved 卡保留"● 活跃"chip（M35 T7 revert lesson — 跨组件删除前要 trace）
+  - D6 整卡 click = Attach (active) / Connect (saved)
+  - D10 hover state 同 sidebar M35.1 D5 inset glow
+- **7 commit + 175 行净变化 + 12 新测试**：
+  - **T1 home_preview pure-fn + 12 测试**（`d6b7215`）：抽 3 个 pure-fn
+    (last_n_rows_from_chars / preview_branch_for_phase / format_active_duration)
+    + 12 单元测试覆盖 empty / fewer / exactly / more / trim / 4 phase /
+    时长边界
+  - **T2 Phase A 收集 active_previews snapshot**（`a219e61`）：home.rs render
+    Phase A 内 owned 出 HashMap<ConnectionId, PreviewSnapshot> + alacritty Term
+    extract chars thin wrapper（依赖 alacritty 类型，pure 逻辑由 T1 测试覆盖）
+  - **T3 active 大卡 layout**（`4825c79`）：active_session_rows (ListRow) →
+    active_cards (CardEntity)；inner = header (phase dot + Title3 + tmux chip)
+    + meta (Code dim + Caption 存活时长) + preview 占位；grid 2 列
+    (.grid().grid_cols(2))
+  - **T4 active 大卡 4 phase 兜底**（`bee379d`）：preview 容器按 PreviewBranch
+    4 分支渲染 — ShowCells (10px JetBrains Mono dim + cursor █) /
+    WaitingForOutput / Loading (Loader icon) / DisconnectedHint (AlertTriangle
+    + destructive 5% bg)
+  - **T5 Attach button + 整卡 click 分流**（`b02d0b5`）：attach_buttons
+    HashMap + handle_active_card_click 按 phase 分流（Connected/Connecting
+    → handle_open_session attach；Disconnected → handle_reconnect 走
+    spawn_session + reopen_connection）
+  - **T6 saved 卡 vertical layout**（`0551097`）：horizontal (avatar + 3 行 +
+    chip + actions + chevron) → vertical (avatar top + name + connection +
+    time + 活跃 chip)；edit/delete IconButton 右下角 absolute
+  - **T7 卡片 hover inset glow**（`333d340`）：CardEntity 加 hover_glow(primary)
+    builder — hover bg = primary.opacity(0.05) + border = primary.opacity(0.25)
+    替代默认 secondary_hover 灰阶；active + saved 卡都接，视觉与 sidebar
+    NavItem active 一致
+- **Lessons**：
+  - **plan 与 codebase API 校对** — plan T3 step 2 写 `CardEntity::padding(x, y)`
+    + `.radius()` builder 但实际 API 不存在；实施时落到 CardAnatomy 默认值
+    16/12（spec 要 16/16 差 4px，验收阶段决定是否单独调）
+  - **TmuxState 不是 simple `session_name`** — plan T3 step 3 写
+    `app.tmux_state.get(conn_id).and_then(|s| s.session_name.clone())` 但
+    TmuxState 是 enum (NotChecked / NoTmux / Detected{sessions, attached})；
+    要从 attached SessionId find sessions name
+  - **dead_code wave 1**：T3 删 active_connections 后 `Connection.id` +
+    `Connection::humanize_opened_at` 失去 read 路径，加 `#[allow(dead_code)]`
+    保留而非删（struct 构造点多 / unit test 仍引用）
+  - **clippy `-D warnings` 严格模式下 mod-level dead 字段** — home_preview.rs
+    T1 完成时 fn/struct 暂时 dead，加 `#![allow(dead_code)]` 单点 mod
+    allow；T4 兜底视觉接入后移除（保留 disconnect_reason 单字段 allow）
+  - **GPUI grid 支持** — `.grid().grid_cols(2)` 在 GPUI styled.rs 有原生实现，
+    plan T3 预案的 flex_wrap+flex_basis 50% fallback 不需要
+  - **CardEntity hover state hardcode 灰阶 secondary_hover** — T7 加
+    hover_glow_color: Option<Hsla> + 永久 border_1 + transparent 占位防
+    layout shift；anim path closure 内同时 lerp bg + instant 切 border_color
+- **测试基线**：571 → **583**（+12 home_preview pure-fn 测试）
+- **Spec**：[`specs/2026-05-17-aish-m36-home-launchpad-design.md`](specs/2026-05-17-aish-m36-home-launchpad-design.md)
+- **Plan**：[`plans/2026-05-17-aish-m36-home-launchpad.md`](plans/2026-05-17-aish-m36-home-launchpad.md)
+- **Manual 验收 pending**（用户跑 GUI 验收 5 scenario）：
+  1. active 4 phase 切换流畅（启 SSH → Connecting → Connected → 空 buffer 等待
+     输出 → 输 ls 看 cells → kill sshd 看 DisconnectedHint）
+  2. 整卡 click 路径正确（Connected/Connecting → attach；Disconnected → reconnect）
+  3. saved 卡 vertical 视觉美观，hover edit/delete 右下角出现
+  4. 响应式列数（grid 2 列在 ≥ 1000px；T9 spike 实测 5+ active session 性能，
+     不达标开 M36.1 throttle）
+  5. empty state — 删空 hosts.json；error state — corrupt hosts.json
 
 ### M35 UI/UX 整体提升（2026-05-15）— ✅ **主体完成（17/18 task；T16 blocked on SVG 资产）**
 
