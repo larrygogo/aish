@@ -679,8 +679,17 @@ impl Render for HomeView {
                 use crate::state::TmuxState;
                 use crate::views::home_preview::format_active_duration;
 
+                // M36 fix（闪烁 root cause）：HashMap iter 顺序不稳定 →
+                // 多个 active session 时 grid children 位置每帧 swap → mouse
+                // 静止但 hover 目标在两卡间跳变 → fire_hover(true)/(false)
+                // 反复触发 → animate path 反复重启 → border/bg 视觉闪。
+                // 按 ConnectionId.0 (Uuid) 排序保证顺序稳定。
+                let mut sorted_previews: Vec<(&ConnectionId, &PreviewSnapshot)> =
+                    active_previews.iter().collect();
+                sorted_previews.sort_by_key(|(id, _)| id.0);
+
                 let mut out: Vec<(ConnectionId, gpui::AnyElement)> = Vec::new();
-                for (conn_id, snap) in active_previews.iter() {
+                for (conn_id, snap) in sorted_previews.iter().copied() {
                     let host_cfg_opt = app
                         .connections
                         .get(conn_id)
@@ -736,7 +745,14 @@ impl Render for HomeView {
                                 div()
                                     .typography(aish_ui::TypeRole::Code, theme)
                                     .text_color(colors.muted_foreground)
-                                    .child(format!("⌧ tmux:{}", t)),
+                                    // M35.2 T5 fix: ⌧ (U+2327 Misc Technical)
+                                    // 即使 fallback chain 挂上 Segoe UI Symbol，
+                                    // GPUI Windows DirectWrite 某些 case 仍渲染
+                                    // 不出来。改用 nf-dev-tmux (U+E712) PUA 区
+                                    // Nerd Font 图标 —— aish bundle 的
+                                    // JetBrainsMono Nerd Font 主字体直接含
+                                    // (glyph_idx=1970)，0 fallback 依赖。
+                                    .child(format!("\u{e712} tmux:{}", t)),
                             );
                     }
 
