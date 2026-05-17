@@ -210,6 +210,58 @@
   - Plan：[`plans/2026-05-17-aish-sidebar-visual-polish.md`](plans/2026-05-17-aish-sidebar-visual-polish.md)
   - 测试：571 全过（无新测试，纯视觉改动）
 
+- **M35.2 follow-up — 字体 fallback 系统（2026-05-17）— ✅ 已完成（manual 视觉验收 pending）**
+  - 背景：home.rs:739 `⌧` (U+2327 Miscellaneous Technical) 显示成方块 tofu。
+    根因调研发现 aish **所有字体调用都不挂 fallback chain** — `Styled::font_family()`
+    只设 family 不动 `font_fallbacks`，任何主字体（JetBrainsMono Nerd Font）
+    不带的 glyph 都直接 tofu 无兜底
+  - GPUI 原生支持 `FontFallbacks` (`text_system/font_fallbacks.rs`) + Font.fallbacks
+    字段，aish 一直没用
+  - 决策：跨平台 symbol fallback chain（**0 bundle 字体开销**）
+  - 5 commit + ~140 行：
+    - **T0 调研结论入 plan**（`db956fc`）：`Styled::font(Font)` 是唯一公开同时
+      设 family + fallbacks 的 API（`.font_family()` 只设 family）；TextStyleRefinement
+      经 `#[derive(Refineable)]` 生成；TextRun 带 fallbacks 全程贯通到渲染
+    - **T1 aish-ui/font 模块**（`50a12d3`）：FONT_FALLBACK_CHAIN 5 项常量
+      (`Symbols Nerd Font`, `Segoe UI Symbol`, `Apple Symbols`,
+      `Noto Sans Symbols 2`, `Noto Sans CJK SC`) + OnceLock 单例 fallbacks() +
+      `code_font()` / `sans_font()` helper + 5 单测；theme::typography 提升为
+      pub mod 让 font.rs 引用 CODE_FONT_NAME
+    - **T2 typography Code role 接 fallback**（`3ea195c`）：TypographyExt::typography
+      apply 分两支 — Code role 走 `.font(code_font())` 整套塞 family + fallbacks
+      + 当前 role weight；其他 role 走原 `.font_weight()` 路径
+    - **T3 home preview 替换 ad-hoc font_family**（`3749698`）：home.rs:790
+      之前 `.font_family("JetBrains Mono")` 是 **bug** — bundle 字体名是
+      `"JetBrainsMono Nerd Font"`，`"JetBrains Mono"` 在 GPUI 找不到会
+      silent fallback 到系统默认 mono；改走 `aish_ui::code_font()` 同时
+      拿正确字体名 + fallback chain
+    - **T4 终端字体接 fallback**（`8c28ac8`）：grid_renderer.rs
+      terminal_gpui_font() 挂 fallbacks；font.rs cell_size() 保持只查主字体
+      metric（fallback 字体是 proportional，cell width 不可信）
+  - **Lessons**：
+    - **`Styled::font_family(name)` 是设计陷阱** — 名字暗示只设 family，
+      实际上**清空了 fallback 链**（覆盖 text_style 字段而非 merge）。aish
+      之前所有字体调用都受这个 API 设计影响。如要保留 fallback，必须走
+      `.font(Font)`
+    - **bundle 字体名 vs 字体 family name 不一致** — aish bundle 的是
+      `JetBrainsMonoNerdFont-Regular.ttf`，但 GPUI 注册名 `"JetBrainsMono Nerd Font"`
+      （ttf 内嵌的 family name）；home.rs:790 用错了写成 `"JetBrains Mono"`
+      但因 silent fallback 没暴露问题，长期 mono 字体 fallback 到非 mono
+    - **`.SystemUIFont` 是 GPUI 跨平台 special name** — 自动展开为 Windows
+      Segoe UI / macOS SF Pro / Linux 系统 sans，比 hardcode 字体名稳
+    - **fallback chain 不挂 cell metric 查询** — terminal 字体 metric（'m'
+      advance width）应只查主字体，否则 fallback 到 proportional 字体会
+      算错 cell width 破坏对齐
+  - **不引入 bundle 字体** — 包大小 0 增长，仅引用系统字体名（平台找不到
+    自动跳过）
+  - Plan：[`plans/2026-05-17-aish-m35.2-font-fallback.md`](plans/2026-05-17-aish-m35.2-font-fallback.md)
+  - 测试：aish-ui 281 → **286**（+5 font 模块测试），workspace 全过
+  - **Manual 视觉验收 pending**（用户跑 GUI）：
+    1. home 页「继续工作」card "新加坡开发 · ⌧ tmux:aish" 的 ⌧ 不再是
+       方块（U+2327 走系统 Segoe UI Symbol 兜底）
+    2. terminal 内 `echo "⌧ ⊟ ⎇ ⌘ ◐ ♣"` 全部有 glyph 不 tofu
+    3. terminal cell 对齐不破坏（fallback 仅渲染层挂、metric 不变）
+
 ### hover leave fade-out (motion 系统补完)（2026-05-15）— ✅ 已完成
 - 范围：M30-M34 motion 系统最后补完 — 5 个 entity 组件（Button /
   IconButton / Card / NavItem / TabItem）的 hover leave 从 instant 改
