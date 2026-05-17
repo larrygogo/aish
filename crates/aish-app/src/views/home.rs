@@ -877,7 +877,9 @@ impl Render for HomeView {
                         // - 高 [154, 200]: width / 1.3 配套（max_h 200 保持
                         //   不变，与窄宽搭配实际比例 ~1.3）
                         .aspect_ratio(1.3)
-                        .w_full()
+                        // flex_wrap 父下不需要 .w_full() —— flex item 默认按
+                        // content/max-content 算宽，配合 min/max 自然落到区间
+                        .flex_shrink_0() // 防 flex 默认 shrink:1 压缩到 max_w 以下
                         .min_w(px(200.0))
                         .max_w(px(260.0))
                         .min_h(px(154.0))
@@ -1174,9 +1176,17 @@ impl Render for HomeView {
                     .gap_3()
                     .when_some(active_section_label, |d, l| d.child(l))
                     .child(
-                        // M36 T3: grid 2 列布局（spec §3.2，≥ 1000px 视窗）。
-                        // T9 性能实测后看是否需要响应式列数（< 700 / 700-1000）。
-                        div().grid().grid_cols(2).gap_3().children(active_cards_el),
+                        // M36.1 follow-up: grid 2 列改 flex_wrap —— grid 在
+                        // stretch 默认下让 grid item 撑满 column 宽度，导致卡片
+                        // max_w 失效（用户反馈"宽度没变"）。flex_wrap 让卡片
+                        // 按自身 [min_w, max_w] 自然 layout，宽度够就自动 +
+                        // 一列（响应式列数免费送）
+                        div()
+                            .flex()
+                            .flex_row()
+                            .flex_wrap()
+                            .gap_3()
+                            .children(active_cards_el),
                     )
                     .into_any_element(),
             )
