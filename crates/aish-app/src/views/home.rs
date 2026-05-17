@@ -796,6 +796,10 @@ impl Render for HomeView {
                                         };
                                     div()
                                         .text_size(px(10.0))
+                                        // GPUI 默认 line_height = 1.618×font_size
+                                        // = ~16px 对 10px 字太松；改 px(12) 紧凑
+                                        // 显示更多行
+                                        .line_height(px(12.0))
                                         .font(aish_ui::code_font())
                                         .text_color(colors.muted_foreground)
                                         .whitespace_nowrap()
