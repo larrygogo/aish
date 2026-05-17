@@ -390,6 +390,10 @@ impl HostFormDraft {
 /// 一个活跃连接的元数据（运行时数据，不持久化）。
 #[derive(Debug, Clone)]
 pub struct Connection {
+    // M36 T3: id 字段是 HashMap key 的副本，原 home.rs active_connections
+    // 迭代用 c.id；现在 home.rs 改走 `(id, conn)` iter pattern 后无 read 路径，
+    // 但保留字段方便 debug / 将来 actor 内 self-reference。
+    #[allow(dead_code)]
     pub id: ConnectionId,
     pub host_id: HostId,
     /// 显示用，自动生成 `"<host.label> #N"`。N 从 1 开始按 host 内自增。
@@ -495,6 +499,11 @@ pub struct AppState {
 
 impl Connection {
     /// 返回自 opened_at 到现在的 humanize 字符串，用于 Active Sessions 显示。
+    ///
+    /// M36 T3 起 home.rs 改用 `home_preview::format_active_duration`
+    /// （中文 "5m active" / "12h active" / "2d active"），本 method 保留
+    /// 供后续可能的过去时（"5m ago"）场景复用 + 自身 unit test 验证算法。
+    #[allow(dead_code)]
     pub fn humanize_opened_at(&self) -> String {
         let secs = self.opened_at.elapsed().unwrap_or_default().as_secs();
         if secs < 60 {
