@@ -337,6 +337,10 @@ pub fn run() {
             let bounds = Bounds::centered(None, size(px(1200.0), px(800.0)), cx);
             let window_options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
+                // M36.1 follow-up: 窗口最小尺寸 900×600 —— 保证 sidebar (240)
+                // + home grid 2 列 (2×320 + gap) + page padding 都能合理展示，
+                // 防用户拉到极小尺寸触发布局崩坏 / overlap
+                window_min_size: Some(size(px(900.0), px(600.0))),
                 titlebar: Some(TitlebarOptions {
                     title: Some(SharedString::from("aish")),
                     // 隐掉系统原生 titlebar 内容（macOS/Windows），由 RootView
