@@ -119,13 +119,13 @@ pub fn format_active_duration(connected_at: SystemTime, now: SystemTime) -> Stri
     let elapsed = now.duration_since(connected_at).unwrap_or(Duration::ZERO);
     let secs = elapsed.as_secs();
     if secs < 60 {
-        "刚刚 active".to_string()
+        "刚刚连接".to_string()
     } else if secs < 3600 {
-        format!("{}m active", secs / 60)
+        format!("已连接 {} 分钟", secs / 60)
     } else if secs < 86400 {
-        format!("{}h active", secs / 3600)
+        format!("已连接 {} 小时", secs / 3600)
     } else {
-        format!("{}d active", secs / 86400)
+        format!("已连接 {} 天", secs / 86400)
     }
 }
 
@@ -219,7 +219,7 @@ mod tests {
     fn format_active_duration_less_than_minute() {
         let now = SystemTime::UNIX_EPOCH + Duration::from_secs(100);
         let connected_at = SystemTime::UNIX_EPOCH + Duration::from_secs(70);
-        assert_eq!(format_active_duration(connected_at, now), "刚刚 active");
+        assert_eq!(format_active_duration(connected_at, now), "刚刚连接");
     }
 
     #[test]
@@ -228,17 +228,17 @@ mod tests {
         // 5 分钟
         assert_eq!(
             format_active_duration(base, base + Duration::from_secs(5 * 60)),
-            "5m active"
+            "已连接 5 分钟"
         );
         // 12 小时
         assert_eq!(
             format_active_duration(base, base + Duration::from_secs(12 * 3600)),
-            "12h active"
+            "已连接 12 小时"
         );
         // 2 天
         assert_eq!(
             format_active_duration(base, base + Duration::from_secs(2 * 86400)),
-            "2d active"
+            "已连接 2 天"
         );
     }
 
@@ -247,6 +247,6 @@ mod tests {
         // connected_at 在未来 → duration_since 失败 → 走 Duration::ZERO 路径 → "刚刚 active"
         let now = SystemTime::UNIX_EPOCH + Duration::from_secs(100);
         let connected_at = SystemTime::UNIX_EPOCH + Duration::from_secs(200);
-        assert_eq!(format_active_duration(connected_at, now), "刚刚 active");
+        assert_eq!(format_active_duration(connected_at, now), "刚刚连接");
     }
 }
