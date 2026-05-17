@@ -872,15 +872,16 @@ impl Render for HomeView {
                         // - aspect_ratio(1.6): 16:10 目标比例（Steam / Apple
                         //   Music album view 同款），GPUI taffy 在 grid item
                         //   下不一定严格生效，min/max 兜底
-                        // - 宽度区间 [280, 420]: 用户反馈"还是太大"，max
-                        //   从 520 收到 420，下限 320→280 防 grid 间距挤压
-                        // - 高度区间 [175, 263]: width / 1.6 配套
+                        // - 宽度区间 [240, 320]: 二次收紧（用户反馈仍太大），
+                        //   max 420 → 320，下限 280 → 240；目标卡片密度更高，
+                        //   1200px 窗口下 active 区不再占视觉主导
+                        // - 高度区间 [150, 200]: width / 1.6 配套
                         .aspect_ratio(1.6)
                         .w_full()
-                        .min_w(px(280.0))
-                        .max_w(px(420.0))
-                        .min_h(px(175.0))
-                        .max_h(px(263.0))
+                        .min_w(px(240.0))
+                        .max_w(px(320.0))
+                        .min_h(px(150.0))
+                        .max_h(px(200.0))
                         .overflow_hidden()
                         .child(
                             // 底层：preview 满铺
