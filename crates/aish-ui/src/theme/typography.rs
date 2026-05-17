@@ -163,16 +163,21 @@ impl Typography {
 pub trait TypographyExt: Styled + Sized {
     fn typography(self, role: TypeRole, t: &Theme) -> Self {
         let style = t.typography.role(role);
-        let mut s = self
+        let s = self
             .text_size(style.size)
-            .font_weight(style.weight)
             .text_color(style.default_color_role.resolve(&t.colors));
         // M35 T2: Code role 自动应用 monospace font_family，让 host /
         // user@host:port / 路径等 SSH 主题信息有 developer tool 等宽视觉。
+        // M35.2 T2: 走 .font(Font) 路径同时挂 fallback chain，weight 一并塞
+        // Font（.font() 会覆盖 text_style.font_weight）。非 Code role 走原
+        // .font_weight() 路径不动 family/fallback。
         if role == TypeRole::Code {
-            s = s.font_family(CODE_FONT_NAME);
+            let mut code = crate::font::code_font();
+            code.weight = style.weight;
+            s.font(code)
+        } else {
+            s.font_weight(style.weight)
         }
-        s
     }
 }
 
