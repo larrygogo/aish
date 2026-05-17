@@ -722,13 +722,23 @@ impl Render for HomeView {
                         header_row = header_row
                             .child(div().text_color(colors.muted_foreground).child("·"))
                             .child(
+                                // M36.1 follow-up: 之前用 Nerd Font PUA 字符
+                                // \u{e712} (nf-dev-tmux)，依赖 bundled 字体；
+                                // 改 SVG IconName::Tmux 跨字体稳，与 sidebar
+                                // SVG icon 系统一致。chip = icon + label 横排。
                                 div()
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap_1()
                                     .typography(aish_ui::TypeRole::Code, theme)
                                     .text_color(colors.muted_foreground)
-                                    // nf-dev-tmux (U+E712) PUA Nerd Font 图标 —
-                                    // aish bundle 的 JetBrainsMono Nerd Font 主字
-                                    // 体直接含 (glyph_idx=1970)，0 fallback 依赖。
-                                    .child(format!("\u{e712} tmux:{}", t)),
+                                    .child(
+                                        aish_ui::icon(aish_ui::IconName::Tmux)
+                                            .size(px(12.0))
+                                            .text_color(colors.muted_foreground),
+                                    )
+                                    .child(format!("tmux:{}", t)),
                             );
                     }
 
