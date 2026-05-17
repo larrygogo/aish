@@ -7,12 +7,14 @@
 
 pub mod animation;
 pub mod components;
+pub mod font;
 pub mod icons;
 pub mod prelude;
 pub mod theme;
 
 pub use animation::{lerp_hsla, lerp_px};
 pub use components::*;
+pub use font::{code_font, sans_font};
 pub use icons::{icon, AishUiAssets, IconName};
 pub use theme::{
     animate_or_skip, elevation_1, elevation_2, elevation_3, theme, Anatomy, CardAnatomy, ColorRole,

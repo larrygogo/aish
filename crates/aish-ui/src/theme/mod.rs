@@ -5,7 +5,7 @@ mod dark;
 mod light;
 mod motion;
 mod tokens;
-mod typography;
+pub mod typography;
 
 pub use anatomy::{
     Anatomy, CardAnatomy, DialogAnatomy, FormAnatomy, ListRowAnatomy, OverlayAnatomy, PageAnatomy,
