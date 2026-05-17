@@ -795,12 +795,14 @@ impl Render for HomeView {
                                             line
                                         };
                                     div()
-                                        .text_size(px(10.0))
-                                        // GPUI .line_height() 在某些 font 下不
-                                        // 严格生效（font metrics line gap 优先），
-                                        // 改用 .h(px(N)) 强制 box 高度兜底
-                                        .line_height(px(12.0))
-                                        .h(px(12.0))
+                                        .text_size(px(9.0))
+                                        // 三重保险：text_size 9 + line_height 10
+                                        // + box height 10。如果重 build 后行间距
+                                        // 还大，说明 GPUI 在 cell layout 阶段忽略
+                                        // 我们的尺寸约束，要换其他渲染路径
+                                        .line_height(px(10.0))
+                                        .h(px(10.0))
+                                        .min_h(px(0.0))
                                         .font(aish_ui::code_font())
                                         .text_color(colors.muted_foreground)
                                         .whitespace_nowrap()
