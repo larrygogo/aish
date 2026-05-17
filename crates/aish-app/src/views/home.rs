@@ -780,17 +780,16 @@ impl Render for HomeView {
                         PreviewBranch::ShowCells => {
                             let lines = snap.preview.clone();
                             let cursor = snap.cursor_in_window;
-                            // M36.1 follow-up: 接受 GPUI flex_col 自然行高
-                            // (~22px / 11px font)，让 8 行 cells 满铺整卡作为
-                            // 背景板。颜色降到 muted_fg.opacity(0.35) 更 dim，
-                            // 让 cells 退到背景层，overlay 文字突出
+                            // M36.1 follow-up: 字被裁 = flex_col 在 15 child
+                            // 撑不开时 shrink 把每行压到 < font height 触发
+                            // overflow 裁底。换 absolute 定位 — child 不参与
+                            // flex shrink，每行字自然撑开 + top 精确控制位置，
+                            // 15 行 × 16px = 240px 超过 200 卡片自然被外层
+                            // overflow_hidden 裁底部
+                            const LINE_PX: f32 = 16.0;
                             div()
                                 .size_full()
-                                .flex()
-                                .flex_col()
-                                // M36.1 follow-up: cells 边距 px_3/py_2 → px_2/
-                                // py_1 (8/4)，让 cells 更贴卡边；主信息层 overlay
-                                // 仍保持 px_3 pb_3 不变
+                                .relative()
                                 .px_2()
                                 .py_1()
                                 .children(lines.into_iter().enumerate().map(|(row_idx, line)| {
@@ -801,6 +800,10 @@ impl Render for HomeView {
                                             line
                                         };
                                     div()
+                                        .absolute()
+                                        .top(px(row_idx as f32 * LINE_PX))
+                                        .left_0()
+                                        .right_0()
                                         .text_size(px(11.0))
                                         .font(aish_ui::code_font())
                                         .text_color(colors.muted_foreground.opacity(0.35))
