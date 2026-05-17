@@ -59,14 +59,11 @@ pub struct HomeView {
     /// M33: 每张 host card 的 CardEntity（hover transition + press feedback），
     /// 按 HostId 索引。render 顶部 retain + ensure 同 host_card_buttons。
     host_cards: HashMap<HostId, Entity<CardEntity>>,
-    /// M36 T3: Active session 大卡（CardEntity）替代原 ListRow，
-    /// 按 ConnectionId 索引。render 顶部 retain + ensure 同
-    /// host_cards。每个大卡 inner = header + meta + preview + actions
-    /// 四段，由 phase B 在每帧灌 body。
+    /// M36 T3 + M36.1: Active session 大卡（CardEntity）替代原 ListRow，
+    /// 按 ConnectionId 索引。render 顶部 retain + ensure 同 host_cards。
+    /// M36.1 改 poster 风：body 内 z-stack（preview 满铺底层 + bottom
+    /// gradient scrim + overlay 文字顶层），由 phase B 在每帧灌 body。
     active_cards: HashMap<ConnectionId, Entity<CardEntity>>,
-    /// M36 T5: 每张 active 大卡右下角的 \"Attach\" primary Button entity，
-    /// 按 ConnectionId 索引。Disconnected phase 不渲染（整卡 click 走重连）。
-    attach_buttons: HashMap<ConnectionId, Entity<Button>>,
 }
 
 /// host 右键菜单 item 数量（编辑 / 复制 / 删除）。与 render 内 items() 匹配。
@@ -149,7 +146,6 @@ impl HomeView {
             session_open_buttons: HashMap::new(),
             host_cards: HashMap::new(),
             active_cards: HashMap::new(),
-            attach_buttons: HashMap::new(),
         }
     }
 
@@ -425,7 +421,6 @@ impl Render for HomeView {
             // M33: host_cards 同 host 集合同步
             retain_alive_entities(&mut self.host_cards, |k| host_ids.contains(k));
             retain_alive_entities(&mut self.active_cards, |k| conn_ids.contains(k));
-            retain_alive_entities(&mut self.attach_buttons, |k| conn_ids.contains(k));
         }
         // ensure entries (lazy create)
         let hosts_snapshot: Vec<HostId> = self.state.read(cx).hosts.iter().map(|h| h.id).collect();
@@ -514,26 +509,8 @@ impl Render for HomeView {
                 });
                 self.active_cards.insert(*conn_id, card);
             }
-            // M36 T5: attach button — 整卡 click 路径已能 attach，但卡内显式
-            // primary CTA \"Attach\" 让 affordance 明显（Warp launchpad 风）。
-            if !self.attach_buttons.contains_key(conn_id) {
-                let cid = *conn_id;
-                let weak = cx.weak_entity();
-                let btn = cx.new(move |cx| {
-                    let mut b =
-                        Button::new(gpui::SharedString::from(format!("home-attach-{}", cid)), cx);
-                    b.label("Attach ↵").primary().on_click(move |_ev, _w, cx| {
-                        if let Some(this) = weak.upgrade() {
-                            this.update(cx, |this, cx| {
-                                cx.stop_propagation();
-                                this.handle_open_session(cid, cx);
-                            });
-                        }
-                    });
-                    b
-                });
-                self.attach_buttons.insert(*conn_id, btn);
-            }
+            // M36.1 T1: 删 attach_buttons —— 整卡 click 已支持 attach/reconnect 分流
+            // （handle_active_card_click），attach button 视觉冗余。
         }
         // M33: ensure host_cards CardEntity for each host
         for id in &hosts_snapshot {
@@ -880,35 +857,15 @@ impl Render for HomeView {
                         .bg(preview_bg)
                         .child(preview_inner);
 
-                    // M36 T5: actions row — non-disconnected 时显示 Attach
-                    // button；disconnected 时整卡 click 走 reconnect，actions
-                    // 不渲染（hint 文字已在 preview 内表达）。
-                    let actions_row: Option<gpui::AnyElement> = if snap.phase_is_disconnected {
-                        None
-                    } else {
-                        let attach_btn = self
-                            .attach_buttons
-                            .get(conn_id)
-                            .cloned()
-                            .expect("attach_buttons 在 render 顶部已 ensure");
-                        Some(
-                            div()
-                                .flex()
-                                .flex_row()
-                                .justify_end()
-                                .child(attach_btn)
-                                .into_any_element(),
-                        )
-                    };
-
+                    // M36.1 T1: 删 actions_row (attach button) —— 整卡 click 已
+                    // 支持 attach/reconnect 分流，button 视觉冗余。
                     let inner = div()
                         .flex()
                         .flex_col()
                         .gap_3()
                         .child(header_row)
                         .child(meta_row)
-                        .child(preview_container)
-                        .when_some(actions_row, |d, a| d.child(a));
+                        .child(preview_container);
 
                     out.push((*conn_id, inner.into_any_element()));
                 }
