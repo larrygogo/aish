@@ -102,6 +102,50 @@
      不达标开 M36.1 throttle）
   5. empty state — 删空 hosts.json；error state — corrupt hosts.json
 
+- **M36.1 follow-up — active 大卡 Poster 风改造（2026-05-17）— ✅ 已完成（manual 视觉验收 pending）**
+  - 背景：M36 active 大卡 vertical stack (header + meta + preview 占位框 +
+    attach button) 被用户判信息密度低，preview 沦为陪衬。用户诉求：
+    preview 满铺整卡作背景，文字 overlay 浮底部带 gradient scrim，删 attach
+    button（整卡 click 已支持）
+  - 行业参照：Netflix / Spotify / Apple Music / Steam library / Plex —— 经典
+    poster 手法（cover art / preview 主体 + 元数据底部 gradient scrim overlay）
+  - 4 commit + ~76 行净变化：
+    - **T1 删 attach_buttons**（`4209630`）：HashMap 字段 + new() init + retain +
+      Phase B ensure 闭包 + Phase A actions_row 渲染分支全清除（-43 行）；整
+      卡 click 路径 handle_active_card_click 不动（4 phase 分流逻辑稳）
+    - **T2+T3 active card poster layout**（`99bf452`）：vertical stack → z-stack
+      - 父 inner: `relative + h(180px) + overflow_hidden`
+      - 底层 preview_layer: `absolute top/bottom/left/right=0` 满铺
+      - 顶层 scrim+overlay: `absolute bottom_0 + h(80px) +
+        linear_gradient(180°, card.opacity(0)→card)` + flex_col justify_end +
+        px_3 pb_3 + header_row + meta_row
+      - 4 phase 兜底统一 z-stack（合并 T3 到同 commit，避免临时中间态）：
+        ShowCells 满铺 cells / WaitingForOutput / Loading / DisconnectedHint
+        居中提示
+      - overlay 文字 3 阶 hierarchy 拉开：Title3 fg / Code secondary_fg /
+        Caption muted_fg
+  - **Lessons**：
+    - **GPUI z-stack 正确写法** — 父 `.relative()` + 子 `.absolute()` +
+      `.top_0().bottom_0().left_0().right_0()` 满铺；GPUI 无 `inset_0()`
+      helper，逐边写
+    - **plan task 耦合识别** — T2 改 z-stack 必须一次处理 4 phase（共享
+      inner 结构），T3 单独 phase 视觉优化在 T2 完成时已耦合实现 → 合并 1
+      commit 避免临时中间态
+    - **删按钮优于隐藏按钮** — attach button 与"整卡 click"双路径并存等于
+      让用户疑惑"button 与 click 是否同一动作"；删 button 直接消歧
+    - **height 固定的卡片才能 z-stack** — flex 自适应高度卡片下绝对定位
+      子元素 size 不稳；z-stack 父必须显式 `.h(px(N))` 给绝对定位 child
+      可参考的高度
+  - Plan：[`plans/2026-05-17-aish-m36.1-active-card-poster.md`](plans/2026-05-17-aish-m36.1-active-card-poster.md)
+  - 测试：583 全过（无新测试，纯视觉改动）
+  - **Manual 视觉验收 pending**（用户跑 GUI）：
+    1. active 大卡 preview 满铺、文字 overlay 浮底部、gradient scrim 平滑过渡
+    2. 无 Attach button，整卡 click 仍 attach（Connected/Connecting）/ reconnect
+       （Disconnected）
+    3. 4 phase 切换流畅，每个 phase 底层视觉协调（loader 居中 / disconnect
+       AlertTriangle / "等待输出..." 文字）
+    4. saved 卡（下方）不受影响
+
 ### M35 UI/UX 整体提升（2026-05-15）— ✅ **主体完成（17/18 task；T16 blocked on SVG 资产）**
 
 - 范围：基于 M22-M34 已建立的 design tokens + motion 系统底子做视觉层级
