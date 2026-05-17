@@ -3,6 +3,7 @@
 mod command_palette;
 mod empty_terminal;
 mod home;
+mod home_preview;
 mod host_form;
 mod input_bar;
 mod session_picker;
