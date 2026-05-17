@@ -70,6 +70,10 @@ pub enum PreviewBranch {
 /// 从 grid chars 二维数组取最后 n 行，每行 trim trailing whitespace 转 String。
 ///
 /// 输入 rows 个数 < n 时返回所有行；> n 时取最后 n 行。
+///
+/// **保留备用**：当前 home preview 走 [`last_n_non_empty_rows`]（filter 空行），
+/// 此 fn 保留供未来"显示全部行 incl 空行"场景复用；测试覆盖未删。
+#[allow(dead_code)]
 pub fn last_n_rows_from_chars(grid_chars: Vec<Vec<char>>, n: usize) -> Vec<String> {
     let total = grid_chars.len();
     let skip = total.saturating_sub(n);
@@ -78,6 +82,20 @@ pub fn last_n_rows_from_chars(grid_chars: Vec<Vec<char>>, n: usize) -> Vec<Strin
         .skip(skip)
         .map(|row| row.iter().collect::<String>().trim_end().to_string())
         .collect()
+}
+
+/// M36.1 follow-up: 取最后 n 个**非空**行（filter 掉 trim 后为空的 trailing
+/// 空行）。home preview 用于"显示最新内容" — 之前 last_n_rows_from_chars
+/// 包含 grid trailing 空行，导致 cursor 远离 banner 时 preview 全空。
+pub fn last_n_non_empty_rows(grid_chars: Vec<Vec<char>>, n: usize) -> Vec<String> {
+    let trimmed: Vec<String> = grid_chars
+        .into_iter()
+        .map(|row| row.iter().collect::<String>().trim_end().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let total = trimmed.len();
+    let skip = total.saturating_sub(n);
+    trimmed.into_iter().skip(skip).collect()
 }
 
 /// 根据 phase 和 preview 是否空决定视觉分支。
@@ -172,6 +190,49 @@ mod tests {
     fn last_n_rows_trim_trailing_whitespace() {
         let rows = vec![vec!['$', ' ', 'l', 's', ' ', ' ', ' ', ' ']];
         assert_eq!(last_n_rows_from_chars(rows, 6), vec!["$ ls".to_string()]);
+    }
+
+    // ---------- last_n_non_empty_rows ----------
+
+    #[test]
+    fn last_n_non_empty_empty_input() {
+        let rows: Vec<Vec<char>> = vec![];
+        assert_eq!(last_n_non_empty_rows(rows, 6), Vec::<String>::new());
+    }
+
+    #[test]
+    fn last_n_non_empty_filters_trailing_empty() {
+        // 真实 grid 场景：top 有 banner，后面是空行
+        let rows = vec![
+            vec!['$', ' ', 'l', 's'],
+            vec!['f', 'o', 'o'],
+            vec![' ', ' ', ' '], // 全空白 trim 后空
+            vec![],              // 直接空
+        ];
+        assert_eq!(
+            last_n_non_empty_rows(rows, 6),
+            vec!["$ ls".to_string(), "foo".to_string()]
+        );
+    }
+
+    #[test]
+    fn last_n_non_empty_skips_middle_empty() {
+        // 中间夹空行也 filter，只保留有内容的
+        let rows = vec![vec!['a'], vec![], vec!['b'], vec![' '], vec!['c']];
+        assert_eq!(
+            last_n_non_empty_rows(rows, 6),
+            vec!["a".to_string(), "b".to_string(), "c".to_string()]
+        );
+    }
+
+    #[test]
+    fn last_n_non_empty_takes_last_n_when_more() {
+        let rows: Vec<Vec<char>> = (0..10).map(|i| vec![char::from(b'a' + i)]).collect();
+        let result = last_n_non_empty_rows(rows, 3);
+        assert_eq!(
+            result,
+            vec!["h".to_string(), "i".to_string(), "j".to_string()]
+        );
     }
 
     // ---------- preview_branch_for_phase ----------

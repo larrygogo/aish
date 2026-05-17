@@ -18,7 +18,7 @@ use crate::state::{
     SshEvent, Tab, TabContent,
 };
 use crate::views::home_preview::{
-    extract_term_chars_or_empty, last_n_rows_from_chars, preview_branch_for_phase, PreviewBranch,
+    extract_term_chars_or_empty, last_n_non_empty_rows, preview_branch_for_phase, PreviewBranch,
     PreviewSnapshot,
 };
 
@@ -612,23 +612,13 @@ impl Render for HomeView {
 
                     let (preview, cursor_in_window) = if let Some(term) = term_opt {
                         let chars = extract_term_chars_or_empty(term);
-                        let total_rows = chars.len();
-                        // M36.1 follow-up: 取 15 行确保 cells 必然满铺整卡
-                        // （超出部分由 outer overflow_hidden 自然裁剪），消除
-                        // grid 实际行数 < 8 时背景空白
-                        let rows = last_n_rows_from_chars(chars, 15);
-                        // cursor 在 last 6 行窗口内才记录 (row 是 0-based 从 top)
-                        let cursor_pt = term.grid().cursor.point;
-                        let cursor_line_from_top = cursor_pt.line.0 as usize;
-                        let window_start = total_rows.saturating_sub(6);
-                        let cursor_in_window = if cursor_line_from_top >= window_start
-                            && cursor_line_from_top < total_rows
-                        {
-                            Some((cursor_line_from_top - window_start, cursor_pt.column.0))
-                        } else {
-                            None
-                        };
-                        (rows, cursor_in_window)
+                        // M36.1 follow-up: 取最后 15 个**非空**行 — 之前
+                        // last_n_rows_from_chars 含 grid trailing 空行，cursor
+                        // 远离 banner 时 preview 全空看不到"最新内容"。改用
+                        // last_n_non_empty_rows filter 掉空行只取真正有内容的
+                        // cursor 在 filter 空行后行号对不上，禁用 cursor █ 标记
+                        let rows = last_n_non_empty_rows(chars, 15);
+                        (rows, None)
                     } else {
                         (Vec::new(), None)
                     };
