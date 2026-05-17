@@ -14,8 +14,11 @@ use gpui::{div, prelude::*, px, rgb, Context, Entity, KeyDownEvent, MouseDownEve
 use crate::app::retain_alive_entities;
 use crate::bridge::Bridge;
 use crate::state::{
-    humanize_last_connected, AppState, HostFormDraft, HostFormState, SidebarTab, SshEvent, Tab,
-    TabContent,
+    humanize_last_connected, AppState, ConnectionPhase, HostFormDraft, HostFormState, SidebarTab,
+    SshEvent, Tab, TabContent,
+};
+use crate::views::home_preview::{
+    extract_term_chars_or_empty, last_n_rows_from_chars, PreviewSnapshot,
 };
 
 /// M31：每张 host card 的 edit/delete IconButton entity 对，
@@ -509,6 +512,7 @@ impl Render for HomeView {
             anatomy_outer_px,
             anatomy_outer_py_bottom,
             anatomy_list_gap,
+            _active_previews, // M36 T2: collect 占位；T3 phase B 改为消费时去掉 _ 前缀
         ) = {
             let app = self.state.read(cx);
             let theme = aish_ui::theme(cx);
@@ -547,6 +551,61 @@ impl Render for HomeView {
                     let time_str = c.humanize_opened_at();
                     let is_active = app.is_session_active(c.id);
                     (c.id, c.label.clone(), time_str, is_active)
+                })
+                .collect();
+
+            // M36 T2: 收集 active session preview snapshots (Phase A — owned)
+            // 走 owned 路径（chars 二维数组 + last_n_rows trim），drop app borrow 后
+            // T3/T4 phase B 用 snapshot 构造大卡 inner。3 phase enum → 3 个 bool
+            // 解耦本模块（home_preview 不依赖 state::ConnectionPhase 类型）。
+            let active_previews: HashMap<ConnectionId, PreviewSnapshot> = app
+                .connections
+                .iter()
+                .filter_map(|(id, conn)| {
+                    let phase = app.connection_phases.get(id).cloned()?;
+                    let term_opt = app.host_pty_term.get(id);
+
+                    let (phase_is_connected, phase_is_connecting, phase_is_disconnected, reason) =
+                        match &phase {
+                            ConnectionPhase::Connected => (true, false, false, None),
+                            ConnectionPhase::Connecting => (false, true, false, None),
+                            ConnectionPhase::Disconnected { reason } => {
+                                (false, false, true, Some(reason.clone()))
+                            }
+                        };
+
+                    let (preview, cursor_in_window) = if let Some(term) = term_opt {
+                        let chars = extract_term_chars_or_empty(term);
+                        let total_rows = chars.len();
+                        let rows = last_n_rows_from_chars(chars, 6);
+                        // cursor 在 last 6 行窗口内才记录 (row 是 0-based 从 top)
+                        let cursor_pt = term.grid().cursor.point;
+                        let cursor_line_from_top = cursor_pt.line.0 as usize;
+                        let window_start = total_rows.saturating_sub(6);
+                        let cursor_in_window = if cursor_line_from_top >= window_start
+                            && cursor_line_from_top < total_rows
+                        {
+                            Some((cursor_line_from_top - window_start, cursor_pt.column.0))
+                        } else {
+                            None
+                        };
+                        (rows, cursor_in_window)
+                    } else {
+                        (Vec::new(), None)
+                    };
+
+                    Some((
+                        *id,
+                        PreviewSnapshot {
+                            phase_is_connected,
+                            phase_is_connecting,
+                            phase_is_disconnected,
+                            disconnect_reason: reason,
+                            preview,
+                            cursor_in_window,
+                            opened_at: conn.opened_at,
+                        },
+                    ))
                 })
                 .collect();
 
@@ -855,6 +914,7 @@ impl Render for HomeView {
                 theme.anatomy.page.outer_px,
                 theme.anatomy.page.outer_py_bottom,
                 theme.anatomy.list_row.gap_spacious,
+                active_previews,
             )
         };
         // phase A end — app + theme borrow 释放

@@ -4,11 +4,53 @@
 //! 真实 Term grid 转 Vec<Vec<char>> 在 home.rs phase A 内 inline 做（thin
 //! wrapper 不测），本模块从 chars 二维数组开始 pure 操作。
 
-// T1 仅产出 pure-fn + 测试，home.rs 调用在 T2 接入；先 allow_dead_code 通过
-// clippy 门禁，T2 接入后移除此 attr。
+// T1/T2 部分 item 在 T3/T4 才被 home.rs 调用；先 allow_dead_code 通过
+// clippy 门禁，T4 兜底视觉接入后移除此 attr。
 #![allow(dead_code)]
 
 use std::time::{Duration, SystemTime};
+
+use alacritty_terminal::{
+    grid::Dimensions,
+    index::{Column, Line},
+    Term,
+};
+
+use crate::state::TitleListener;
+
+/// Phase A read app borrow 时 owned 出的 active session snapshot。
+/// 含 phase 标识 (3 bool) + preview 6 行 + cursor 位置（窗口内 Some / 外 None）。
+#[derive(Debug, Clone)]
+pub struct PreviewSnapshot {
+    pub phase_is_connected: bool,
+    pub phase_is_connecting: bool,
+    pub phase_is_disconnected: bool,
+    pub disconnect_reason: Option<String>,
+    pub preview: Vec<String>,
+    pub cursor_in_window: Option<(usize, usize)>,
+    pub opened_at: SystemTime,
+}
+
+/// 从 alacritty Term 提取 grid 全部可见行的 chars 二维数组。
+///
+/// thin wrapper，不写 unit test（依赖真实 Term）— 测试通过
+/// [`last_n_rows_from_chars`] 覆盖 pure 逻辑。
+pub fn extract_term_chars_or_empty(term: &Term<TitleListener>) -> Vec<Vec<char>> {
+    let grid = term.grid();
+    let cols = grid.columns();
+    let screen_lines = grid.screen_lines();
+    let bottom = grid.bottommost_line();
+    (0..screen_lines)
+        .map(|offset_from_top| {
+            // line_idx = bottom - (screen_lines - 1 - offset_from_top)
+            // 等价于 from-top 顺序：bottom-(n-1), bottom-(n-2), ..., bottom
+            let line_idx_i32 = bottom.0 - (screen_lines as i32 - 1 - offset_from_top as i32);
+            (0..cols)
+                .map(|col| grid[Line(line_idx_i32)][Column(col)].c)
+                .collect()
+        })
+        .collect()
+}
 
 /// 4 phase 兜底的视觉分支（spec §4.3）。
 ///
