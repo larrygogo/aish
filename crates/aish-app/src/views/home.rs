@@ -909,10 +909,11 @@ impl Render for HomeView {
             };
 
             // ───── Hosts grid ─────
-            // M33 续做：phase 1 cards iter 仅 collect (id, body_row)。phase 2
-            // 在 drop app/theme borrow 后调 host_cards entity.update(cx, |c, _|
-            // c.body(body_row)) + 包 wrap div。这样解锁 Card 升 Entity 的
-            // borrow 冲突（spec M33 §7 实施记录）。
+            // M36 T6: saved 卡 vertical layout 重设计。
+            // - avatar top-left → 3 行 text stack (label / connection / time + 活跃 chip)
+            // - edit/delete IconButton 右下角 absolute (group_hover 显形)
+            // - 删 SSH chip / chevron / 活跃数 Badge — 简化视觉信息密度
+            // - 活跃 chip 改弱视觉 inline 文本（11/SEMIBOLD/success），在 time 行尾
             let cards_phase1: Vec<(HostId, gpui::AnyElement)> = app
                 .hosts
                 .iter()
@@ -925,15 +926,13 @@ impl Render for HomeView {
                         .get(&id)
                         .map(|t| humanize_last_connected(*t));
 
-                    // 该 host 的活跃连接数
-                    let active_count = app.connections.values().filter(|c| c.host_id == id).count();
+                    // 该 host 是否有 active connection（不显示数量，只显 active chip）
+                    let active_for_this_host = app.connections.values().any(|c| c.host_id == id);
 
-                    // ───── 左侧 avatar：三种模式 ─────
-                    // 1. os_kind 已探测且 simpleicons SVG 已内置 → SVG + 品牌色
-                    //    (ubuntu/debian/arch/alpine/centos/fedora/redhat 7 个)
-                    // 2. os_kind 已探测但仅品牌色支持 → 单字母 + 品牌色
-                    //    (rocky/mint/manjaro/nixos/gentoo/opensuse/raspbian/elementary)
-                    // 3. os_kind 未探测 / 完全未识别 → fallback host label 首字母 + palette 色
+                    // ───── avatar：三种模式（M22 沿用）─────
+                    // 1. os_kind + SVG → 品牌色背景 + SVG icon
+                    // 2. os_kind + 仅 Letter → 单字母 + 品牌色
+                    // 3. fallback → label 首字母 + palette 色
                     let os_avatar = h.os_kind.as_deref().and_then(crate::avatar::os_avatar_for);
                     let avatar: gpui::AnyElement = match os_avatar {
                         Some(crate::avatar::OsAvatar::Svg { icon, bg }) => div()
@@ -981,33 +980,7 @@ impl Render for HomeView {
                         }
                     };
 
-                    // ───── SSH chip ─────
-                    let chip = aish_ui::Badge::new("SSH").primary();
-
-                    // ───── 活跃数 chip（仅当 active_count > 0） ─────
-                    let active_chip: Option<gpui::AnyElement> = if active_count > 0 {
-                        Some(
-                            aish_ui::Badge::new(format!("● {} 活跃", active_count))
-                                .success()
-                                .into_any_element(),
-                        )
-                    } else {
-                        None
-                    };
-
-                    // ───── 右侧 chevron ─────
-                    let chevron = div()
-                        .text_color(colors.muted_foreground)
-                        .text_size(font_size.lg)
-                        .child("›");
-
-                    // ───── 编辑 / 删除按钮（hover 才显形）─────
-                    // group/group_hover：body_row 标记 `.group(g)`，actions 子树
-                    // 默认 opacity(0)，body_row hover 时 actions opacity(1)。
-                    // 视觉上 default 仅 chevron，hover 多出 ✏ ⌫，chevron 位置不变
-                    // （actions 仍占 flex layout 空间，只是透明）。
                     let group_name = gpui::SharedString::from(format!("host-card-row-{}", id));
-                    // M31: edit / delete IconButton 走 host_card_buttons entity
                     let buttons = self
                         .host_card_buttons
                         .get(&id)
@@ -1015,82 +988,75 @@ impl Render for HomeView {
                     let edit_btn = buttons.edit.clone();
                     let delete_btn = buttons.delete.clone();
 
-                    let actions = div()
-                        .flex()
-                        .flex_row()
-                        .gap_1()
-                        .opacity(0.0)
-                        .group_hover(group_name.clone(), |s| s.opacity(1.0))
-                        .child(edit_btn)
-                        .child(delete_btn);
-
-                    // ───── 卡片主体 row ─────
-                    // M13 简化：放弃 absolute hover overlay（GPUI/Taffy absolute 子元素
-                    // 的 inset 在 flex container 内行为与 CSS 不一致，定位飘移），改为
-                    // actions inline 但透明，body_row 标记 group → actions
-                    // group_hover 显形。
-                    //
-                    // M27 anatomy：py 16 → 12，host card 更紧凑（Linear/Warp 风
-                    // dev tool 高密度），avatar 40 + 3 行 (14/13/12) = ~52 + py 24
-                    // = ~76px row 高，比之前 ~84px 略紧。
-                    let body_row = div()
-                        .group(group_name)
+                    // time + 活跃 chip — 弱视觉文本（active 时尾追 "· ● 活跃"）
+                    let time_meta = div()
                         .flex()
                         .flex_row()
                         .items_center()
-                        .gap_3()
-                        .px_4()
+                        .gap_1()
+                        .child(div().typography(aish_ui::TypeRole::Caption, theme).child(
+                            match last_conn_str {
+                                Some(s) => s,
+                                None => "未连接".to_string(),
+                            },
+                        ))
+                        .when(active_for_this_host, |d| {
+                            d.child(div().text_color(colors.muted_foreground).child("·"))
+                                .child(
+                                    div()
+                                        .text_size(px(11.0))
+                                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                                        .text_color(colors.success)
+                                        .child("● 活跃"),
+                                )
+                        });
+
+                    // ───── 卡片主体 vertical col ─────
+                    // avatar 顶部独占 row → 3 行 text stack → actions absolute 右下
+                    let body_col = div()
+                        .relative()
+                        .group(group_name.clone())
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .px_3()
                         .py_3()
                         .child(avatar)
                         .child(
                             div()
-                            .flex_1()
-                            .flex()
-                            .flex_col()
-                            .gap_0p5()
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_row()
-                                    .gap_2()
-                                    .items_center()
-                                    .child(
-                                        // M26 T4: host label 用 Title3 (14/600/fg)
-                                        // 之前 xl(18) + 手工 SEMIBOLD 偏大抢眼；
-                                        // Title3 让 label 视觉略强于 body 但不超过
-                                        // page title (Title1 20)，hierarchy 清晰
-                                        div()
-                                            .typography(aish_ui::TypeRole::Title3, theme)
-                                            .child(label),
-                                    )
-                                    .child(chip)
-                                    .children(active_chip),
-                            )
-                            .child(
-                                // M35 T2: user@host:port → Code (JetBrains Mono 等宽)
-                                // 给 SSH 主题信息 developer tool 视觉
-                                div()
-                                    .typography(aish_ui::TypeRole::Code, theme)
-                                    .text_color(colors.secondary_foreground)
-                                    .child(host_text),
-                            )
-                            // M26 T5: 上次连接 / 未连接 meta → Caption
-                            // (12/400/muted) 替代 hardcoded px(11)
-                            .child(
-                                div()
-                                    .typography(aish_ui::TypeRole::Caption, theme)
-                                    .child(match last_conn_str {
-                                        Some(s) => format!("上次连接 {}", s),
-                                        None => "未连接".to_string(),
-                                    }),
-                            ),
+                                .flex()
+                                .flex_col()
+                                .gap_0p5()
+                                .child(
+                                    div()
+                                        .typography(aish_ui::TypeRole::Title3, theme)
+                                        .child(label),
+                                )
+                                .child(
+                                    div()
+                                        .typography(aish_ui::TypeRole::Code, theme)
+                                        .text_color(colors.secondary_foreground)
+                                        .child(host_text),
+                                )
+                                .child(time_meta),
                         )
-                        .child(actions)
-                        .child(chevron);
+                        .child(
+                            // edit/delete IconButton 右下角 absolute
+                            // group_hover 显形（与 M22 horizontal layout 同 pattern）
+                            div()
+                                .absolute()
+                                .bottom_2()
+                                .right_2()
+                                .flex()
+                                .flex_row()
+                                .gap_1()
+                                .opacity(0.0)
+                                .group_hover(group_name, |s| s.opacity(1.0))
+                                .child(edit_btn)
+                                .child(delete_btn),
+                        );
 
-                    // Phase 1 cards iter: 仅返回 (id, body_row.into_any_element())。
-                    // wrap div + Card entity.update 在 phase 2（drop app/theme 后）做。
-                    (id, body_row.into_any_element())
+                    (id, body_col.into_any_element())
                 })
                 .collect();
 
