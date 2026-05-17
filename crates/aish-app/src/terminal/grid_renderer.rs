@@ -84,8 +84,13 @@ struct LineBatch {
 }
 
 /// 获取用于 text_system 的终端字体（Normal weight + Normal style）。
+///
+/// M35.2 T4: 挂跨平台 symbol fallback chain，让终端内罕见 Unicode（CJK 罕用字 /
+/// Miscellaneous Technical / 数学符号）走系统 symbol 字体兜底，不再 tofu。
 fn terminal_gpui_font() -> Font {
-    font(terminal_font::FONT_NAME)
+    let mut f = font(terminal_font::FONT_NAME);
+    f.fallbacks = Some(aish_ui::font::fallbacks());
+    f
 }
 
 /// 渲染 Term grid 快照到 GPUI Window。
