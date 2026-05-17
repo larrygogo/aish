@@ -333,7 +333,7 @@ impl Render for CommandPaletteView {
                         .child(
                             div()
                                 .typography(aish_ui::TypeRole::Caption, t)
-                                .child("Enter"),
+                                .child("回车"),
                         );
                     (*id, inner.into_any_element(), is_kb_selected)
                 })

@@ -315,19 +315,19 @@ impl Render for SidebarNavView {
         if expanded {
             self.home_item.update(cx, |n, _| {
                 n.icon(home_icon)
-                    .label("Home")
+                    .label("主页")
                     .horizontal()
                     .active(current == SidebarTab::Home);
             });
             self.terminal_item.update(cx, |n, _| {
                 n.icon(term_icon)
-                    .label("Terminal")
+                    .label("终端")
                     .horizontal()
                     .active(current == SidebarTab::Terminal);
             });
             self.settings_item.update(cx, |n, _| {
                 n.icon(settings_icon)
-                    .label("Settings")
+                    .label("设置")
                     .horizontal()
                     .active(current == SidebarTab::Settings);
             });

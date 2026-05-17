@@ -476,7 +476,7 @@ impl Render for HomeView {
                         gpui::SharedString::from(format!("active-session-open-{}", cid)),
                         cx,
                     );
-                    b.label("Open ▶").secondary().on_click(move |_ev, _w, cx| {
+                    b.label("打开 ▶").secondary().on_click(move |_ev, _w, cx| {
                         if let Some(this) = weak_o.upgrade() {
                             this.update(cx, |this, cx| {
                                 cx.stop_propagation();
@@ -580,7 +580,7 @@ impl Render for HomeView {
                     // M26 T2: page title 用 Title1 (20/600/fg) 替代 xl size-only
                     div()
                         .typography(aish_ui::TypeRole::Title1, theme)
-                        .child("Home"),
+                        .child("主页"),
                 )
                 .child(add_btn);
 
@@ -833,7 +833,7 @@ impl Render for HomeView {
                                 div()
                                     .typography(aish_ui::TypeRole::Caption, theme)
                                     .text_color(colors.muted_foreground)
-                                    .child("Connecting..."),
+                                    .child("连接中..."),
                             )
                             .into_any_element(),
                         PreviewBranch::DisconnectedHint => div()
@@ -853,7 +853,7 @@ impl Render for HomeView {
                                 div()
                                     .typography(aish_ui::TypeRole::Caption, theme)
                                     .text_color(colors.destructive)
-                                    .child("Disconnected · 点击重连"),
+                                    .child("已断开 · 点击重连"),
                             )
                             .into_any_element(),
                     };

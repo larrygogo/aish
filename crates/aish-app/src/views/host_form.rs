@@ -177,7 +177,7 @@ impl HostFormModal {
         let dialog = cx.new(Dialog::new);
         let weak = cx.weak_entity();
         dialog.update(cx, move |d, _cx| {
-            d.title("Host");
+            d.title("主机");
             d.width(gpui::px(480.0)); // M29 D-8: 460 → 480 让 label-on-top + Radio 更宽松
             d.on_close(move |_window, cx| {
                 if let Some(this) = weak.upgrade() {
@@ -190,7 +190,7 @@ impl HostFormModal {
         let delete_dialog = cx.new(Dialog::new);
         let weak_del = cx.weak_entity();
         delete_dialog.update(cx, move |d, _cx| {
-            d.title("删除 Host?");
+            d.title("删除主机？");
             d.width(gpui::px(380.0));
             d.on_close(move |_window, cx| {
                 if let Some(this) = weak_del.upgrade() {
@@ -208,7 +208,7 @@ impl HostFormModal {
         });
         let label_input = cx.new(|cx| {
             let mut i = TextInput::new(cx);
-            i.placeholder("My Server (可选)");
+            i.placeholder("我的服务器（可选）");
             i
         });
         let host_input = cx.new(|cx| {
@@ -288,7 +288,7 @@ impl HostFormModal {
         });
         let password_input = cx.new(|cx| {
             let mut i = TextInput::new(cx);
-            i.placeholder("password")
+            i.placeholder("密码")
                 .mask_char(Some('•'))
                 .show_mask_toggle(true);
             i
@@ -298,7 +298,7 @@ impl HostFormModal {
         let weak_dc = cx.weak_entity();
         let delete_cancel_btn = cx.new(|cx| {
             let mut b = Button::new("delete-cancel", cx);
-            b.label("Cancel").on_click(move |_ev, _w, cx| {
+            b.label("取消").on_click(move |_ev, _w, cx| {
                 if let Some(this) = weak_dc.upgrade() {
                     this.update(cx, |this, cx| this.cancel(cx));
                 }
@@ -328,30 +328,28 @@ impl HostFormModal {
         let weak_hd = cx.weak_entity();
         let host_delete_btn = cx.new(|cx| {
             let mut b = Button::new("host-delete", cx);
-            b.label("Delete")
-                .destructive()
-                .on_click(move |_ev, _w, cx| {
-                    if let Some(this) = weak_hd.upgrade() {
-                        this.update(cx, |this, cx| {
-                            // 从 Editing 切到 DeleteConfirm
-                            this.state.update(cx, |s, cx| {
-                                if let Some(HostFormState::Editing { id, draft }) = &s.modal {
-                                    s.modal = Some(HostFormState::DeleteConfirm {
-                                        id: *id,
-                                        label: draft.label.clone(),
-                                    });
-                                    cx.notify();
-                                }
-                            });
+            b.label("删除").destructive().on_click(move |_ev, _w, cx| {
+                if let Some(this) = weak_hd.upgrade() {
+                    this.update(cx, |this, cx| {
+                        // 从 Editing 切到 DeleteConfirm
+                        this.state.update(cx, |s, cx| {
+                            if let Some(HostFormState::Editing { id, draft }) = &s.modal {
+                                s.modal = Some(HostFormState::DeleteConfirm {
+                                    id: *id,
+                                    label: draft.label.clone(),
+                                });
+                                cx.notify();
+                            }
                         });
-                    }
-                });
+                    });
+                }
+            });
             b
         });
         let weak_hc = cx.weak_entity();
         let host_cancel_btn = cx.new(|cx| {
             let mut b = Button::new("host-cancel", cx);
-            b.label("Cancel").on_click(move |_ev, _w, cx| {
+            b.label("取消").on_click(move |_ev, _w, cx| {
                 if let Some(this) = weak_hc.upgrade() {
                     this.update(cx, |this, cx| this.cancel(cx));
                 }
@@ -361,7 +359,7 @@ impl HostFormModal {
         let weak_hs = cx.weak_entity();
         let host_save_btn = cx.new(|cx| {
             let mut b = Button::new("host-save", cx);
-            b.label("Save").primary().on_click(move |_ev, _w, cx| {
+            b.label("保存").primary().on_click(move |_ev, _w, cx| {
                 if let Some(this) = weak_hs.upgrade() {
                     this.update(cx, |this, cx| this.save(cx));
                 }
@@ -758,7 +756,7 @@ impl Render for HostFormModal {
                     .gap(spacing.px_3)
                     .child(
                         aish_ui::Radio::new("host-form-auth-keyfile")
-                            .label("Key File")
+                            .label("私钥文件")
                             .checked(matches!(auth_kind, AuthKind::KeyFile))
                             .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
                                 this.auth_kind = AuthKind::KeyFile;
@@ -767,7 +765,7 @@ impl Render for HostFormModal {
                     )
                     .child(
                         aish_ui::Radio::new("host-form-auth-password")
-                            .label("Password")
+                            .label("密码")
                             .checked(matches!(auth_kind, AuthKind::Password))
                             .on_click(cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
                                 this.auth_kind = AuthKind::Password;
@@ -781,7 +779,7 @@ impl Render for HostFormModal {
                     // passphrase 复用 password_input entity（已含 mask + show_toggle），
                     // runtime 切 placeholder 让 UI 语义明确（passphrase ≠ password）
                     self.password_input.update(cx, |i, _| {
-                        i.placeholder("passphrase (optional, for encrypted keys)");
+                        i.placeholder("密钥短语（可选，用于加密的私钥）");
                     });
                     let kf = self.keyfile_input.clone();
                     div()
@@ -791,7 +789,7 @@ impl Render for HostFormModal {
                         .child(keyfile_row(kf, self.pick_keyfile_btn.clone(), cx))
                         .child(field_row(
                             cx,
-                            "passphrase",
+                            "密钥短语",
                             self.password_input.clone(),
                             None,
                         ))
@@ -799,9 +797,9 @@ impl Render for HostFormModal {
                 }
                 AuthKind::Password => {
                     self.password_input.update(cx, |i, _| {
-                        i.placeholder("password");
+                        i.placeholder("密码");
                     });
-                    field_row(cx, "password", self.password_input.clone(), None)
+                    field_row(cx, "密码", self.password_input.clone(), None)
                         .into_any_element()
                 }
             })
@@ -896,7 +894,7 @@ fn keyfile_row(
             let t = theme(cx);
             div()
                 .typography(aish_ui::TypeRole::Label, t)
-                .child("key path")
+                .child("私钥路径")
         })
         .child(
             // input + picker button 横排

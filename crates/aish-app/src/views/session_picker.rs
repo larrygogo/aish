@@ -50,7 +50,7 @@ impl SessionPickerView {
         let weak = cx.weak_entity();
         let weak_key = cx.weak_entity();
         dialog.update(cx, move |d, _cx| {
-            d.title("Tmux Sessions");
+            d.title("Tmux 会话");
             d.width(gpui::px(480.0));
             d.on_close(move |_window, cx| {
                 if let Some(this) = weak.upgrade() {
@@ -252,7 +252,7 @@ impl Render for SessionPickerView {
                         .child(
                             div()
                                 .typography(aish_ui::TypeRole::Caption, t)
-                                .child("Enter"),
+                                .child("回车"),
                         );
                     (s.id.clone(), inner.into_any_element(), is_kb_selected)
                 })

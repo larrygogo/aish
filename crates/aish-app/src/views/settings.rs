@@ -183,7 +183,7 @@ impl Render for SettingsView {
         let page_title = div()
             .pb(t.anatomy.page.header_to_content_gap)
             .typography(aish_ui::TypeRole::Title1, t)
-            .child("Settings");
+            .child("设置");
 
         // ───── Appearance ─────
         // M18-light 启用：toggle 真切 Theme global + 持久化到 app_state.toml
@@ -235,7 +235,7 @@ impl Render for SettingsView {
         let appearance_card = Card::new("settings-appearance")
             .outlined()
             .no_padding() // M27: section_header + row helpers 都自带 px_4，opt-out 防双重
-            .header(section_header("Appearance", t))
+            .header(section_header("外观", t))
             .body(
                 div()
                     .flex()
@@ -245,8 +245,8 @@ impl Render for SettingsView {
                     // fallback 未完整调优，用户切到 light 后部分色彩可能不
                     // 协调。明示「实验性」让用户预期对齐。
                     .child(control_row(
-                        "Dark mode",
-                        Some("关闭后切到 Light 主题（实验性，部分色彩未完整调优）"),
+                        "深色模式",
+                        Some("关闭后切到浅色主题（实验性，部分色彩未完整调优）"),
                         dark_switch,
                         t,
                     ))
@@ -265,18 +265,18 @@ impl Render for SettingsView {
         let shortcuts_card = Card::new("settings-shortcuts")
             .outlined()
             .no_padding() // M27: section_header + row helpers 都自带 px_4，opt-out 防双重
-            .header(section_header("Keyboard Shortcuts", t))
+            .header(section_header("快捷键", t))
             .body(
                 div()
                     .flex()
                     .flex_col()
                     .child(shortcut_row("sc-palette", "Ctrl+P / ⌘K", "打开命令面板", t))
                     .child(shortcut_row("sc-paste", "Ctrl+Shift+V", "粘贴", t))
-                    .child(shortcut_row("sc-new-tab", "Ctrl+T", "新建 tab", t))
-                    .child(shortcut_row("sc-close-tab", "Ctrl+W", "关闭 tab", t))
-                    .child(shortcut_row("sc-home", "Ctrl+1", "切到 Home", t))
-                    .child(shortcut_row("sc-terminal", "Ctrl+2", "切到 Terminal", t))
-                    .child(shortcut_row("sc-settings", "Ctrl+3", "切到 Settings", t)),
+                    .child(shortcut_row("sc-new-tab", "Ctrl+T", "新建标签页", t))
+                    .child(shortcut_row("sc-close-tab", "Ctrl+W", "关闭标签页", t))
+                    .child(shortcut_row("sc-home", "Ctrl+1", "切到主页", t))
+                    .child(shortcut_row("sc-terminal", "Ctrl+2", "切到终端", t))
+                    .child(shortcut_row("sc-settings", "Ctrl+3", "切到设置", t)),
             );
 
         // ───── About（版本信息 + 实际可点交互按钮）─────
@@ -318,16 +318,16 @@ impl Render for SettingsView {
         let about_card = Card::new("settings-about")
             .outlined()
             .no_padding() // M27: section_header + row helpers 都自带 px_4，opt-out 防双重
-            .header(section_header("About", t))
+            .header(section_header("关于", t))
             .body(
                 div()
                     .flex()
                     .flex_col()
                     .child(about_hero)
-                    .child(two_column_row("Version", &version_str, t))
-                    .child(two_column_row("Build date", build_date, t))
-                    .child(two_column_row("Repository", "github.com/larrygogo/aish", t))
-                    .child(two_column_row("License", "MIT", t))
+                    .child(two_column_row("版本", &version_str, t))
+                    .child(two_column_row("构建日期", build_date, t))
+                    .child(two_column_row("代码仓库", "github.com/larrygogo/aish", t))
+                    .child(two_column_row("许可证", "MIT", t))
                     .child(actions_row),
             );
 
