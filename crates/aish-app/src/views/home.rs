@@ -868,7 +868,11 @@ impl Render for HomeView {
                     let card_bg = colors.card;
                     let inner = div()
                         .relative()
-                        .h(px(180.0))
+                        // M36.1 follow-up: 180 → 240，W/H 比例从 ~2.44:1
+                        // (440×180) 降到 ~1.83:1 (440×240)，preview 满铺
+                        // 部分可见行数 +6 (240/10px = 24 行 vs 180/10=18 行)，
+                        // 信息密度提升的同时视觉重量更平衡
+                        .h(px(240.0))
                         .w_full()
                         .overflow_hidden()
                         .child(
