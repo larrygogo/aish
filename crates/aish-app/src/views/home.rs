@@ -64,6 +64,9 @@ pub struct HomeView {
     /// host_cards。每个大卡 inner = header + meta + preview + actions
     /// 四段，由 phase B 在每帧灌 body。
     active_cards: HashMap<ConnectionId, Entity<CardEntity>>,
+    /// M36 T5: 每张 active 大卡右下角的 \"Attach\" primary Button entity，
+    /// 按 ConnectionId 索引。Disconnected phase 不渲染（整卡 click 走重连）。
+    attach_buttons: HashMap<ConnectionId, Entity<Button>>,
 }
 
 /// host 右键菜单 item 数量（编辑 / 复制 / 删除）。与 render 内 items() 匹配。
@@ -146,6 +149,7 @@ impl HomeView {
             session_open_buttons: HashMap::new(),
             host_cards: HashMap::new(),
             active_cards: HashMap::new(),
+            attach_buttons: HashMap::new(),
         }
     }
 
@@ -313,6 +317,41 @@ impl HomeView {
         });
     }
 
+    /// M36 T5: active 大卡 click 按 phase 分流。
+    /// - Connected/Connecting: 走 attach 路径（handle_open_session 复用）
+    /// - Disconnected: 走 reconnect 路径（重 spawn actor + reopen_connection）
+    fn handle_active_card_click(&mut self, conn_id: ConnectionId, cx: &mut Context<Self>) {
+        let is_disconnected = matches!(
+            self.state.read(cx).connection_phases.get(&conn_id),
+            Some(ConnectionPhase::Disconnected { .. })
+        );
+        if is_disconnected {
+            self.handle_reconnect(conn_id, cx);
+        } else {
+            self.handle_open_session(conn_id, cx);
+        }
+    }
+
+    /// M36 T5: 重连 — 复用同一 ConnectionId 重 spawn actor，phase 回 Connecting。
+    /// 顺序按 state.rs:766 doc：先 spawn 拿 sender，再调 reopen_connection。
+    fn handle_reconnect(&mut self, conn_id: ConnectionId, cx: &mut Context<Self>) {
+        let config = {
+            let app = self.state.read(cx);
+            app.connections
+                .get(&conn_id)
+                .and_then(|c| app.hosts.iter().find(|h| h.id == c.host_id).cloned())
+        };
+        let Some(config) = config else {
+            tracing::warn!(?conn_id, "home: reconnect skipped — host config missing");
+            return;
+        };
+        let sender = self.bridge.spawn_session(conn_id, config, self.tx.clone());
+        self.state.update(cx, |s, cx| {
+            s.reopen_connection(conn_id, sender);
+            cx.notify();
+        });
+    }
+
     fn handle_open_session(&mut self, conn_id: ConnectionId, cx: &mut Context<Self>) {
         self.state.update(cx, |s, cx| {
             let tab_id = s
@@ -386,6 +425,7 @@ impl Render for HomeView {
             // M33: host_cards 同 host 集合同步
             retain_alive_entities(&mut self.host_cards, |k| host_ids.contains(k));
             retain_alive_entities(&mut self.active_cards, |k| conn_ids.contains(k));
+            retain_alive_entities(&mut self.attach_buttons, |k| conn_ids.contains(k));
         }
         // ensure entries (lazy create)
         let hosts_snapshot: Vec<HostId> = self.state.read(cx).hosts.iter().map(|h| h.id).collect();
@@ -453,9 +493,10 @@ impl Render for HomeView {
                 });
                 self.session_open_buttons.insert(*conn_id, btn);
             }
-            // M36 T3: active session 大卡（CardEntity），inner = header + meta
-            // + preview + actions 由 phase B 灌 body。整卡 click → attach
-            // (T5 真接入；T3 阶段先复用 handle_open_session 走原路径)。
+            // M36 T3/T5: active session 大卡（CardEntity），inner = header + meta
+            // + preview + actions 由 phase B 灌 body。整卡 click → 路由到
+            // handle_active_card_click 内按 phase 分流（Connected/Connecting
+            // → handle_open_session attach；Disconnected → handle_reconnect）。
             if !self.active_cards.contains_key(conn_id) {
                 let cid = *conn_id;
                 let card_id: gpui::ElementId =
@@ -465,12 +506,32 @@ impl Render for HomeView {
                     let mut card = CardEntity::new(card_id, c);
                     card.on_click(move |_ev, _w, cx| {
                         if let Some(this) = weak.upgrade() {
-                            this.update(cx, |this, cx| this.handle_open_session(cid, cx));
+                            this.update(cx, |this, cx| this.handle_active_card_click(cid, cx));
                         }
                     });
                     card
                 });
                 self.active_cards.insert(*conn_id, card);
+            }
+            // M36 T5: attach button — 整卡 click 路径已能 attach，但卡内显式
+            // primary CTA \"Attach\" 让 affordance 明显（Warp launchpad 风）。
+            if !self.attach_buttons.contains_key(conn_id) {
+                let cid = *conn_id;
+                let weak = cx.weak_entity();
+                let btn = cx.new(move |cx| {
+                    let mut b =
+                        Button::new(gpui::SharedString::from(format!("home-attach-{}", cid)), cx);
+                    b.label("Attach ↵").primary().on_click(move |_ev, _w, cx| {
+                        if let Some(this) = weak.upgrade() {
+                            this.update(cx, |this, cx| {
+                                cx.stop_propagation();
+                                this.handle_open_session(cid, cx);
+                            });
+                        }
+                    });
+                    b
+                });
+                self.attach_buttons.insert(*conn_id, btn);
             }
         }
         // M33: ensure host_cards CardEntity for each host
@@ -796,13 +857,35 @@ impl Render for HomeView {
                         .bg(preview_bg)
                         .child(preview_inner);
 
+                    // M36 T5: actions row — non-disconnected 时显示 Attach
+                    // button；disconnected 时整卡 click 走 reconnect，actions
+                    // 不渲染（hint 文字已在 preview 内表达）。
+                    let actions_row: Option<gpui::AnyElement> = if snap.phase_is_disconnected {
+                        None
+                    } else {
+                        let attach_btn = self
+                            .attach_buttons
+                            .get(conn_id)
+                            .cloned()
+                            .expect("attach_buttons 在 render 顶部已 ensure");
+                        Some(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .justify_end()
+                                .child(attach_btn)
+                                .into_any_element(),
+                        )
+                    };
+
                     let inner = div()
                         .flex()
                         .flex_col()
                         .gap_3()
                         .child(header_row)
                         .child(meta_row)
-                        .child(preview_container);
+                        .child(preview_container)
+                        .when_some(actions_row, |d, a| d.child(a));
 
                     out.push((*conn_id, inner.into_any_element()));
                 }
