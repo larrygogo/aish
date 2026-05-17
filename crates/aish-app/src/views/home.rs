@@ -18,7 +18,8 @@ use crate::state::{
     SshEvent, Tab, TabContent,
 };
 use crate::views::home_preview::{
-    extract_term_chars_or_empty, last_n_rows_from_chars, PreviewSnapshot,
+    extract_term_chars_or_empty, last_n_rows_from_chars, preview_branch_for_phase, PreviewBranch,
+    PreviewSnapshot,
 };
 
 /// M31：每张 host card 的 edit/delete IconButton entity 对，
@@ -694,14 +695,106 @@ impl Render for HomeView {
                                 .child(duration_str),
                         );
 
-                    // T3 占位 preview 容器（T4 填 4 phase 兜底视觉）
-                    let preview_placeholder = div()
+                    // M36 T4: preview 容器按 PreviewBranch 4 分支渲染
+                    let preview_empty = snap.preview.iter().all(|line| line.is_empty());
+                    let branch = preview_branch_for_phase(
+                        snap.phase_is_connected,
+                        snap.phase_is_connecting,
+                        snap.phase_is_disconnected,
+                        preview_empty,
+                    );
+
+                    let preview_inner: gpui::AnyElement = match branch {
+                        PreviewBranch::ShowCells => {
+                            let lines = snap.preview.clone();
+                            let cursor = snap.cursor_in_window;
+                            div()
+                                .flex()
+                                .flex_col()
+                                .px_2()
+                                .py_2()
+                                .children(lines.into_iter().enumerate().map(|(row_idx, line)| {
+                                    // cursor 在该 row 时追 █（视觉简化，不区分 col）
+                                    let line_with_cursor =
+                                        if cursor.map(|(r, _)| r) == Some(row_idx) {
+                                            format!("{}█", line)
+                                        } else {
+                                            line
+                                        };
+                                    div()
+                                        .text_size(px(10.0))
+                                        .font_family("JetBrains Mono")
+                                        .text_color(colors.muted_foreground)
+                                        .whitespace_nowrap()
+                                        .overflow_hidden()
+                                        .child(line_with_cursor)
+                                        .into_any_element()
+                                }))
+                                .into_any_element()
+                        }
+                        PreviewBranch::WaitingForOutput => div()
+                            .h_full()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(
+                                div()
+                                    .typography(aish_ui::TypeRole::Caption, theme)
+                                    .child("等待输出..."),
+                            )
+                            .into_any_element(),
+                        PreviewBranch::Loading => div()
+                            .h_full()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .justify_center()
+                            .gap_2()
+                            .child(
+                                aish_ui::icon(aish_ui::IconName::Loader)
+                                    .size(px(16.0))
+                                    .text_color(colors.muted_foreground),
+                            )
+                            .child(
+                                div()
+                                    .typography(aish_ui::TypeRole::Caption, theme)
+                                    .child("Connecting..."),
+                            )
+                            .into_any_element(),
+                        PreviewBranch::DisconnectedHint => div()
+                            .h_full()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .justify_center()
+                            .gap_2()
+                            .child(
+                                aish_ui::icon(aish_ui::IconName::AlertTriangle)
+                                    .size(px(16.0))
+                                    .text_color(colors.destructive),
+                            )
+                            .child(
+                                div()
+                                    .typography(aish_ui::TypeRole::Caption, theme)
+                                    .text_color(colors.destructive)
+                                    .child("Disconnected · 点击重连"),
+                            )
+                            .into_any_element(),
+                    };
+
+                    let preview_bg = if snap.phase_is_disconnected {
+                        colors.destructive.opacity(0.05)
+                    } else {
+                        colors.background
+                    };
+                    let preview_container = div()
                         .h(px(120.0))
                         .w_full()
                         .rounded(theme.radius.md)
                         .border_1()
                         .border_color(colors.secondary_strongest)
-                        .bg(colors.background);
+                        .bg(preview_bg)
+                        .child(preview_inner);
 
                     let inner = div()
                         .flex()
@@ -709,7 +802,7 @@ impl Render for HomeView {
                         .gap_3()
                         .child(header_row)
                         .child(meta_row)
-                        .child(preview_placeholder);
+                        .child(preview_container);
 
                     out.push((*conn_id, inner.into_any_element()));
                 }

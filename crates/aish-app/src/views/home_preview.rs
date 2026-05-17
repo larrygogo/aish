@@ -4,10 +4,6 @@
 //! 真实 Term grid 转 Vec<Vec<char>> 在 home.rs phase A 内 inline 做（thin
 //! wrapper 不测），本模块从 chars 二维数组开始 pure 操作。
 
-// T1/T2 部分 item 在 T3/T4 才被 home.rs 调用；先 allow_dead_code 通过
-// clippy 门禁，T4 兜底视觉接入后移除此 attr。
-#![allow(dead_code)]
-
 use std::time::{Duration, SystemTime};
 
 use alacritty_terminal::{
@@ -25,6 +21,9 @@ pub struct PreviewSnapshot {
     pub phase_is_connected: bool,
     pub phase_is_connecting: bool,
     pub phase_is_disconnected: bool,
+    /// 断开原因（T4 当前仅显示 "Disconnected · 点击重连" 固定文本，
+    /// 保留字段供未来扩展为 "Disconnected: connection reset · 点击重连"）。
+    #[allow(dead_code)]
     pub disconnect_reason: Option<String>,
     pub preview: Vec<String>,
     pub cursor_in_window: Option<(usize, usize)>,
