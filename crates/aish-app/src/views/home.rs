@@ -868,12 +868,16 @@ impl Render for HomeView {
                     let card_bg = colors.card;
                     let inner = div()
                         .relative()
-                        // M36.1 follow-up: 固定 px 高度在窗口 resize 下 W/H
-                        // 失控（grid 列宽随窗口变 → 卡越来越扁）；改 aspect_ratio
-                        // 锁 16:10 (1.6) —— Steam library / Apple Music album
-                        // 同款比例，无论窗口宽度都保持视觉一致
+                        // M36.1 follow-up: aspect_ratio + max bounds
+                        // - aspect_ratio(1.6): 16:10 锁比例（Steam / Apple Music
+                        //   album view 同款）—— 窗口宽窄 W/H 恒定
+                        // - max_w(px(520)): 防超宽窗口下卡片巨大化
+                        //   (1600px 窗口 / 2 列 → 单卡 ~780px 太夸张)
+                        // - max_h(px(325)): max_w(520) / 1.6 ≈ 325，对应锁高
                         .aspect_ratio(1.6)
                         .w_full()
+                        .max_w(px(520.0))
+                        .max_h(px(325.0))
                         .overflow_hidden()
                         .child(
                             // 底层：preview 满铺
