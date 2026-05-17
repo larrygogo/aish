@@ -780,14 +780,17 @@ impl Render for HomeView {
                         PreviewBranch::ShowCells => {
                             let lines = snap.preview.clone();
                             let cursor = snap.cursor_in_window;
-                            // 满铺 cells 到卡片 edge，pt_3 让顶部 cells 不被
-                            // overlay 文字 absolute 区域贴住（虽然 overlay 在
-                            // 底，header 在底而非顶 → 顶部不需要避让）；保留
-                            // px_3 让 cells 不顶卡片左右 edge 太紧
+                            // M36.1 follow-up: flex_col 让 GPUI 按 font-metrics
+                            // 排 child 行高 ~22-30px 控制不住。改 absolute 定位
+                            // 手动排行 —— 每行 .top(idx * LINE_PX) 精确控制位置，
+                            // 行自身 box 高度被 font 撑开也不影响 layout（绝对
+                            // 定位不参与 flex layout，互相 overlap 时只看 top）。
+                            // LINE_PX 13 = 11px font + 2px 微 leading，紧凑但
+                            // 不糊
+                            const LINE_PX: f32 = 13.0;
                             div()
                                 .size_full()
-                                .flex()
-                                .flex_col()
+                                .relative()
                                 .px_3()
                                 .py_2()
                                 .children(lines.into_iter().enumerate().map(|(row_idx, line)| {
@@ -798,12 +801,11 @@ impl Render for HomeView {
                                             line
                                         };
                                     div()
+                                        .absolute()
+                                        .top(px(row_idx as f32 * LINE_PX))
+                                        .left_0()
+                                        .right_0()
                                         .text_size(px(11.0))
-                                        // GPUI div+text 行高被 font metrics 强制
-                                        // ~20-25px，无法靠 line_height/h 覆盖。
-                                        // 改路径：减少行数（3 行）+ 接受自然行高，
-                                        // 让 preview 区视觉满 fit；font 9→11 提一
-                                        // 点回来配合
                                         .font(aish_ui::code_font())
                                         .text_color(colors.muted_foreground)
                                         .whitespace_nowrap()
