@@ -613,10 +613,10 @@ impl Render for HomeView {
                     let (preview, cursor_in_window) = if let Some(term) = term_opt {
                         let chars = extract_term_chars_or_empty(term);
                         let total_rows = chars.len();
-                        // M36.1 follow-up: 让 cells 真正满铺整卡作为背景板，
-                        // 接受 GPUI 自然行高 ~22px，8 行 × 22 ≈ 176px 满 200
-                        // 卡片 fit；cells 颜色降到更 dim 让"背景感"突出
-                        let rows = last_n_rows_from_chars(chars, 8);
+                        // M36.1 follow-up: 取 15 行确保 cells 必然满铺整卡
+                        // （超出部分由 outer overflow_hidden 自然裁剪），消除
+                        // grid 实际行数 < 8 时背景空白
+                        let rows = last_n_rows_from_chars(chars, 15);
                         // cursor 在 last 6 行窗口内才记录 (row 是 0-based 从 top)
                         let cursor_pt = term.grid().cursor.point;
                         let cursor_line_from_top = cursor_pt.line.0 as usize;
@@ -788,8 +788,11 @@ impl Render for HomeView {
                                 .size_full()
                                 .flex()
                                 .flex_col()
-                                .px_3()
-                                .py_2()
+                                // M36.1 follow-up: cells 边距 px_3/py_2 → px_2/
+                                // py_1 (8/4)，让 cells 更贴卡边；主信息层 overlay
+                                // 仍保持 px_3 pb_3 不变
+                                .px_2()
+                                .py_1()
                                 .children(lines.into_iter().enumerate().map(|(row_idx, line)| {
                                     let line_with_cursor =
                                         if cursor.map(|(r, _)| r) == Some(row_idx) {
