@@ -697,6 +697,8 @@ impl Render for HomeView {
                         colors.destructive
                     };
 
+                    // M36.1 T2: header overlay 文字（host_label + tmux chip）—
+                    // foreground 高对比 + Title3，作为 poster 顶部信息。
                     let mut header_row = div()
                         .flex()
                         .flex_row()
@@ -713,6 +715,7 @@ impl Render for HomeView {
                         .child(
                             div()
                                 .typography(aish_ui::TypeRole::Title3, theme)
+                                .text_color(colors.foreground)
                                 .child(host_label.clone()),
                         );
                     if let Some(t) = tmux_label {
@@ -722,13 +725,9 @@ impl Render for HomeView {
                                 div()
                                     .typography(aish_ui::TypeRole::Code, theme)
                                     .text_color(colors.muted_foreground)
-                                    // M35.2 T5 fix: ⌧ (U+2327 Misc Technical)
-                                    // 即使 fallback chain 挂上 Segoe UI Symbol，
-                                    // GPUI Windows DirectWrite 某些 case 仍渲染
-                                    // 不出来。改用 nf-dev-tmux (U+E712) PUA 区
-                                    // Nerd Font 图标 —— aish bundle 的
-                                    // JetBrainsMono Nerd Font 主字体直接含
-                                    // (glyph_idx=1970)，0 fallback 依赖。
+                                    // nf-dev-tmux (U+E712) PUA Nerd Font 图标 —
+                                    // aish bundle 的 JetBrainsMono Nerd Font 主字
+                                    // 体直接含 (glyph_idx=1970)，0 fallback 依赖。
                                     .child(format!("\u{e712} tmux:{}", t)),
                             );
                     }
@@ -749,10 +748,13 @@ impl Render for HomeView {
                         .child(
                             div()
                                 .typography(aish_ui::TypeRole::Caption, theme)
+                                .text_color(colors.muted_foreground)
                                 .child(duration_str),
                         );
 
-                    // M36 T4: preview 容器按 PreviewBranch 4 分支渲染
+                    // M36 T4 + M36.1 T2/T3: preview 内容按 PreviewBranch 4 分支
+                    // 渲染。M36.1 改 poster 风：每个分支返回**满铺底层**内容，
+                    // 不再独立 padding（py_2 / py_2 / 中央居中由各 phase 自己挂）
                     let preview_empty = snap.preview.iter().all(|line| line.is_empty());
                     let branch = preview_branch_for_phase(
                         snap.phase_is_connected,
@@ -761,17 +763,21 @@ impl Render for HomeView {
                         preview_empty,
                     );
 
-                    let preview_inner: gpui::AnyElement = match branch {
+                    let preview_layer: gpui::AnyElement = match branch {
                         PreviewBranch::ShowCells => {
                             let lines = snap.preview.clone();
                             let cursor = snap.cursor_in_window;
+                            // 满铺 cells 到卡片 edge，pt_3 让顶部 cells 不被
+                            // overlay 文字 absolute 区域贴住（虽然 overlay 在
+                            // 底，header 在底而非顶 → 顶部不需要避让）；保留
+                            // px_3 让 cells 不顶卡片左右 edge 太紧
                             div()
+                                .size_full()
                                 .flex()
                                 .flex_col()
-                                .px_2()
+                                .px_3()
                                 .py_2()
                                 .children(lines.into_iter().enumerate().map(|(row_idx, line)| {
-                                    // cursor 在该 row 时追 █（视觉简化，不区分 col）
                                     let line_with_cursor =
                                         if cursor.map(|(r, _)| r) == Some(row_idx) {
                                             format!("{}█", line)
@@ -780,10 +786,6 @@ impl Render for HomeView {
                                         };
                                     div()
                                         .text_size(px(10.0))
-                                        // M35.2 T3: 之前 .font_family("JetBrains Mono")
-                                        // 是 bug —— bundle 字体名是 "JetBrainsMono Nerd Font"，
-                                        // "JetBrains Mono" 在 GPUI 找不到会 silent fallback。
-                                        // 改走 code_font() 同时挂 symbol fallback chain。
                                         .font(aish_ui::code_font())
                                         .text_color(colors.muted_foreground)
                                         .whitespace_nowrap()
@@ -794,18 +796,19 @@ impl Render for HomeView {
                                 .into_any_element()
                         }
                         PreviewBranch::WaitingForOutput => div()
-                            .h_full()
+                            .size_full()
                             .flex()
                             .items_center()
                             .justify_center()
                             .child(
                                 div()
                                     .typography(aish_ui::TypeRole::Caption, theme)
+                                    .text_color(colors.muted_foreground)
                                     .child("等待输出..."),
                             )
                             .into_any_element(),
                         PreviewBranch::Loading => div()
-                            .h_full()
+                            .size_full()
                             .flex()
                             .flex_row()
                             .items_center()
@@ -819,16 +822,18 @@ impl Render for HomeView {
                             .child(
                                 div()
                                     .typography(aish_ui::TypeRole::Caption, theme)
+                                    .text_color(colors.muted_foreground)
                                     .child("Connecting..."),
                             )
                             .into_any_element(),
                         PreviewBranch::DisconnectedHint => div()
-                            .h_full()
+                            .size_full()
                             .flex()
                             .flex_row()
                             .items_center()
                             .justify_center()
                             .gap_2()
+                            .bg(colors.destructive.opacity(0.05))
                             .child(
                                 aish_ui::icon(aish_ui::IconName::AlertTriangle)
                                     .size(px(16.0))
@@ -843,29 +848,51 @@ impl Render for HomeView {
                             .into_any_element(),
                     };
 
-                    let preview_bg = if snap.phase_is_disconnected {
-                        colors.destructive.opacity(0.05)
-                    } else {
-                        colors.background
-                    };
-                    let preview_container = div()
-                        .h(px(120.0))
-                        .w_full()
-                        .rounded(theme.radius.md)
-                        .border_1()
-                        .border_color(colors.secondary_strongest)
-                        .bg(preview_bg)
-                        .child(preview_inner);
-
-                    // M36.1 T1: 删 actions_row (attach button) —— 整卡 click 已
-                    // 支持 attach/reconnect 分流，button 视觉冗余。
+                    // M36.1 T2: Poster z-stack
+                    // - 父 relative + 固定高度（180px ≈ 原 vertical stack 总高）
+                    // - 子1 preview_layer：absolute inset 0 满铺底层
+                    // - 子2 scrim+overlay：absolute 浮底部，linear_gradient
+                    //   transparent → card_bg 覆盖下 ~45% (px 80)，内含 header+meta
+                    // - overflow_hidden 防 ShowCells 多余行溢出卡片
+                    use gpui::{linear_color_stop, linear_gradient};
+                    let card_bg = colors.card;
                     let inner = div()
-                        .flex()
-                        .flex_col()
-                        .gap_3()
-                        .child(header_row)
-                        .child(meta_row)
-                        .child(preview_container);
+                        .relative()
+                        .h(px(180.0))
+                        .w_full()
+                        .overflow_hidden()
+                        .child(
+                            // 底层：preview 满铺
+                            div()
+                                .absolute()
+                                .top_0()
+                                .bottom_0()
+                                .left_0()
+                                .right_0()
+                                .child(preview_layer),
+                        )
+                        .child(
+                            // 顶层：bottom gradient scrim + overlay 文字
+                            div()
+                                .absolute()
+                                .bottom_0()
+                                .left_0()
+                                .right_0()
+                                .h(px(80.0))
+                                .bg(linear_gradient(
+                                    180.0,
+                                    linear_color_stop(card_bg.opacity(0.0), 0.0),
+                                    linear_color_stop(card_bg, 1.0),
+                                ))
+                                .flex()
+                                .flex_col()
+                                .justify_end()
+                                .px_3()
+                                .pb_3()
+                                .gap_1()
+                                .child(header_row)
+                                .child(meta_row),
+                        );
 
                     out.push((*conn_id, inner.into_any_element()));
                 }
