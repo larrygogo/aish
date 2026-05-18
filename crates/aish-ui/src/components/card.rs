@@ -212,6 +212,10 @@ pub struct CardEntity {
     /// transparent / hover primary.opacity(0.25))，替代默认 secondary_hover
     /// 灰阶。None 时走默认 hover bg 路径。
     hover_glow_color: Option<Hsla>,
+    /// M37: 启用玻璃质感 — idle_bg 改半透明，让背景 aurora 透出。
+    /// 仅 home active/saved 等"漂浮"卡片用，dialog/settings 等需要 solid
+    /// 背景的 Card 保持默认 opaque。
+    glass: bool,
 }
 
 impl CardEntity {
@@ -232,6 +236,7 @@ impl CardEntity {
             hover_state: HoverState::Idle,
             hover_anim_count: 0,
             hover_glow_color: None,
+            glass: false,
         }
     }
 
@@ -245,6 +250,13 @@ impl CardEntity {
 
     pub fn no_padding(&mut self) -> &mut Self {
         self.padding = false;
+        self
+    }
+
+    /// M37: 启用玻璃质感 — idle_bg 从 colors.card 改 colors.card.opacity(0.4)，
+    /// 让 App 背景 aurora 透出。配合 hover_glow 共用同一卡片视觉语言。
+    pub fn glass(&mut self) -> &mut Self {
+        self.glass = true;
         self
     }
 
@@ -434,7 +446,12 @@ impl Render for CardEntity {
         // Card 所有 variant 的 idle bg 都是 t.colors.card；hover/active 用 secondary
         // 灰阶（与 stateless 时代逻辑一致，line 137-149）。
         // M36 T7: hover_glow_color 设了时改走 primary tint 路径（spec §4.4）。
-        let idle_bg = t.colors.card;
+        // M37: glass 模式下 bg 半透明让 aurora 透出（home active/saved 用）
+        let idle_bg = if self.glass {
+            t.colors.card.opacity(0.4)
+        } else {
+            t.colors.card
+        };
         let glow = self.hover_glow_color;
         let hover_bg = match glow {
             Some(g) => g.opacity(0.05),

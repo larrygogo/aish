@@ -500,11 +500,13 @@ impl Render for HomeView {
                 let primary = aish_ui::theme(cx).colors.primary;
                 let card = cx.new(move |c| {
                     let mut card = CardEntity::new(card_id, c);
-                    card.hover_glow(primary).on_click(move |_ev, _w, cx| {
-                        if let Some(this) = weak.upgrade() {
-                            this.update(cx, |this, cx| this.handle_active_card_click(cid, cx));
-                        }
-                    });
+                    card.glass()
+                        .hover_glow(primary)
+                        .on_click(move |_ev, _w, cx| {
+                            if let Some(this) = weak.upgrade() {
+                                this.update(cx, |this, cx| this.handle_active_card_click(cid, cx));
+                            }
+                        });
                     card
                 });
                 self.active_cards.insert(*conn_id, card);
@@ -524,6 +526,7 @@ impl Render for HomeView {
                         cx,
                     );
                     c.no_padding()
+                        .glass()
                         .hover_glow(primary)
                         .on_click(move |_ev, _w, cx| {
                             if let Some(this) = weak.upgrade() {
