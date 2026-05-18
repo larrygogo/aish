@@ -1140,7 +1140,9 @@ impl Render for HomeView {
                 hosts_section_label.into_any_element(),
                 app.hosts_load_error.clone(),
                 app.hosts.is_empty(),
-                colors.background,
+                // M37: home 改 transparent 让 main 层 aurora 渐变光晕透出，
+                // 否则 colors.background solid 把 aurora 全遮，玻璃质感看不到
+                gpui::transparent_black(),
                 theme.anatomy.page.outer_px,
                 theme.anatomy.page.outer_py_bottom,
                 theme.anatomy.list_row.gap_spacious,

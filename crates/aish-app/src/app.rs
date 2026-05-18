@@ -590,7 +590,8 @@ impl Render for RootView {
         // 用 2 层 absolute linear_gradient 叠出"色斑光晕"模拟玻璃质感的
         // 底层色相分布。后续卡片可以半透明透出这层光晕呈现玻璃感。
         let primary = colors.primary; // indigo #5e6ad2
-        let cyan_glow: gpui::Hsla = gpui::hsla(190.0 / 360.0, 0.5, 0.4, 0.07);
+                                      // opacity 调高到 0.18 / 0.14 让 aurora 在透明 view 下明显可见
+        let cyan_glow: gpui::Hsla = gpui::hsla(190.0 / 360.0, 0.6, 0.45, 0.14);
         let main = div()
             .relative()
             .flex()
@@ -609,7 +610,7 @@ impl Render for RootView {
                     .h(gpui::relative(0.6))
                     .bg(gpui::linear_gradient(
                         135.0,
-                        gpui::linear_color_stop(primary.opacity(0.08), 0.0),
+                        gpui::linear_color_stop(primary.opacity(0.18), 0.0),
                         gpui::linear_color_stop(primary.opacity(0.0), 1.0),
                     )),
             )
