@@ -378,8 +378,33 @@ impl CardEntity {
                     }
                 }
                 HoverState::Entering { .. } => {
-                    self.hover_state = HoverState::Idle;
-                    cx.notify();
+                    // M36.1 follow-up 反闪修复：之前 Entering→leave 立即 Idle，
+                    // bg 从 hover 半透明位置突变回 idle 是"闪"的根因。
+                    // 改走 Leaving 反向动画，与 Hovered→leave 一致
+                    let reduced = theme(cx).reduced_motion;
+                    if reduced {
+                        self.hover_state = HoverState::Idle;
+                        cx.notify();
+                    } else {
+                        let count = self.hover_anim_count.wrapping_add(1);
+                        self.hover_anim_count = count;
+                        self.hover_state = HoverState::Leaving { anim_count: count };
+                        let dur = theme(cx).motion.medium;
+                        cx.spawn(async move |this, cx| {
+                            cx.background_executor().timer(dur).await;
+                            let _ = this.update(cx, |this, cx| {
+                                if matches!(
+                                    this.hover_state,
+                                    HoverState::Leaving { anim_count } if anim_count == count
+                                ) {
+                                    this.hover_state = HoverState::Idle;
+                                    cx.notify();
+                                }
+                            });
+                        })
+                        .detach();
+                        cx.notify();
+                    }
                 }
                 HoverState::Idle | HoverState::Leaving { .. } => {}
             }
