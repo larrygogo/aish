@@ -248,25 +248,40 @@ impl TerminalView {
         // 符合 Mac 用户原生预期；Win/Linux 上 platform 是 Win/Super 键留给
         // 系统，不接管 → 仍走 Ctrl+Shift 路径
         let cmd_mac = cfg!(target_os = "macos") && event.keystroke.modifiers.platform;
+        // Windows 终端惯例（Windows Terminal / WezTerm 同款）：plain Ctrl+C/V
+        // 也走复制粘贴 — Ctrl+C 仅在有选区时复制（无选区透传 SIGINT 保 unix
+        // 中断语义），Ctrl+V 直接粘贴（牺牲 ^V quoted-insert，普通用户基本不用）
+        let win_plain_ctrl = cfg!(target_os = "windows") && ctrl && !shift && !alt;
 
-        // 复制：Win/Linux Ctrl+Shift+C / macOS Cmd+C → 选中文本写本机剪贴板
-        let is_copy = (ctrl && shift && !alt && key.eq_ignore_ascii_case("c"))
-            || (cmd_mac && !ctrl && !alt && !shift && key.eq_ignore_ascii_case("c"));
-        if is_copy {
-            let text = self
-                .state
+        // 复制：
+        // - Ctrl+Shift+C (Win/Linux 通用)
+        // - Cmd+C (macOS)
+        // - Ctrl+C 且有选区 (Windows 惯例)
+        let selected_text_opt = || {
+            self.state
                 .read(cx)
                 .term_of(conn)
-                .and_then(crate::terminal::selection::selected_text);
-            if let Some(text) = text {
+                .and_then(crate::terminal::selection::selected_text)
+        };
+        let kc = key.eq_ignore_ascii_case("c");
+        let is_copy_shift = ctrl && shift && !alt && kc;
+        let is_copy_cmd = cmd_mac && !ctrl && !alt && !shift && kc;
+        let is_copy_win_ctrl = win_plain_ctrl && kc && selected_text_opt().is_some();
+        if is_copy_shift || is_copy_cmd || is_copy_win_ctrl {
+            if let Some(text) = selected_text_opt() {
                 cx.write_to_clipboard(ClipboardItem::new_string(text));
             }
             return;
         }
 
-        // 粘贴：Win/Linux Ctrl+Shift+V / macOS Cmd+V → bracketed paste mode 自动检测
-        let is_paste = (ctrl && shift && !alt && key.eq_ignore_ascii_case("v"))
-            || (cmd_mac && !ctrl && !alt && !shift && key.eq_ignore_ascii_case("v"));
+        // 粘贴：
+        // - Ctrl+Shift+V (Win/Linux 通用)
+        // - Cmd+V (macOS)
+        // - Ctrl+V (Windows 直接粘贴，牺牲 ^V quoted-insert)
+        let kv = key.eq_ignore_ascii_case("v");
+        let is_paste = (ctrl && shift && !alt && kv)
+            || (cmd_mac && !ctrl && !alt && !shift && kv)
+            || (win_plain_ctrl && kv);
         if is_paste {
             self.paste(conn, cx);
             return;
