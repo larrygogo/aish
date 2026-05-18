@@ -337,6 +337,29 @@ impl TerminalView {
             return;
         }
 
+        // M37 macOS native readline mapping —— Mac 系统约定:
+        // - Cmd+Backspace = delete to beginning of line (Cocoa text fields)
+        // - Cmd+Left/Right = move to beginning/end of line
+        // - Alt+Backspace 已通过 encode_key 自然走 ESC+DEL (backward-kill-word)
+        // 让 Mac 用户在终端 readline 里用熟悉的快捷键
+        if cmd_mac && !ctrl && !shift && !alt {
+            let mapped: Option<&[u8]> = match key {
+                "backspace" => Some(b"\x15"), // Ctrl+U = kill-line (to beginning)
+                "left" | "arrowleft" => Some(b"\x01"), // Ctrl+A = beginning-of-line
+                "right" | "arrowright" => Some(b"\x05"), // Ctrl+E = end-of-line
+                _ => None,
+            };
+            if let Some(bytes) = mapped {
+                if let Some(sender) = self.state.read(cx).sessions.get(&conn).cloned() {
+                    let payload = bytes.to_vec();
+                    self.bridge.spawn(async move {
+                        let _ = sender.send(SessionCommand::SendBytes(payload)).await;
+                    });
+                }
+                return;
+            }
+        }
+
         // 有 key_char 且满足以下任一条件时，交由 WM_CHAR → InputHandler 路径发送：
         //   a) 无 Ctrl/Alt 修饰（普通可打印字符、IME 拼音字母）
         //   b) prefer_character_input（AltGr 欧洲键盘，Ctrl+Alt 实为一个字符键）
