@@ -508,6 +508,20 @@ impl RootView {
             return;
         }
 
+        // M37: macOS Cmd+, → 打开 Settings（所有 macOS native app 通用约定，
+        // System Preferences / Xcode / 浏览器全用此快捷键）。Linux/Win 用户
+        // 走 Ctrl+3 / Cmd+3 已能切，不必再加快捷键
+        if cfg!(target_os = "macos") && m.platform && !m.control && !m.shift && !m.alt && key == ","
+        {
+            self.state.update(cx, |s, cx| {
+                if s.sidebar != SidebarTab::Settings {
+                    s.sidebar = SidebarTab::Settings;
+                    cx.notify();
+                }
+            });
+            return;
+        }
+
         // 切 sidebar 的主修饰键：macOS = Cmd (platform)，其他 = Ctrl
         // M37: 让 Mac 用户用 Cmd+1/2/3 切 sidebar（浏览器 Cmd+1/2/3 切 tab 同款
         // 习惯），其他平台保留 Ctrl+1/2/3
