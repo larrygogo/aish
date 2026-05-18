@@ -27,6 +27,77 @@
 
 ## Milestones（按时间倒序）
 
+### M37 — 跨平台原生体验（2026-05-18）— ✅ 主线完成（30+ commit 持续 polish）
+
+- **范围**：让 aish 在 macOS / Windows / Linux 各自呈现 OS native 体验，覆盖
+  键盘 / 鼠标 / 字体 / 窗口 / UI 5 层。无 spec/plan，按 /loop dynamic mode
+  分轮渐进推进，用户反馈 + 推断 ROI 双驱动
+- **起源**：用户反馈"我希望用户在不同的系统上都能体验到原生的感觉"，触发
+  跨平台 polish 周期。通过 /loop 1500s 自循环 self-pace 实施
+- **键盘（macOS Cmd 全套 + Win/Linux 兼容）**：
+  - **macOS Cmd+C/V** (`28d76a6`) — 复制粘贴
+  - **Windows Ctrl+C/V** (`2f674dd`) — Win Terminal 同款（有选区 Ctrl+C 复制，
+    无选区透传 SIGINT）
+  - **macOS Cmd+1/2/3 sidebar / Cmd+T/W tab** (`db79ed0`)
+  - **macOS Cmd+, Settings** (`4f35d3e`) — Mac native 通用约定
+  - **macOS Cmd+Backspace/Left/Right** (`8f3efad`) — readline 等价（kill-line /
+    beginning-of-line / end-of-line），Cocoa text 系统约定
+  - **Alt+Left/Right** (`fc5b53a`) — readline word movement `\x1bb` / `\x1bf`，
+    跨平台
+  - **Ctrl+Enter → LF (0x0A)** (`0583358`) — CC / Python REPL 等当换行而非
+    submit；CSI u 协议 `0ee3131` 路径备用兜底
+- **鼠标（terminal 标准 UX）**：
+  - **右键智能复制/粘贴** (`8b0e302`) — GNOME Terminal / xterm 同款，有选区
+    Ctrl+C 复制 / 无选区粘贴
+  - **双击选词 / 三击选行** (`b075c55`) — alacritty Semantic/Lines selection type
+  - **OSC 52 透传剪贴板** (`66880c4`) — tmux copy-mode "y" / vim "+y" 远端
+    复制直接写本机系统剪贴板
+- **字体（fallback chain 全平台 CJK）**：
+  - 链 5 项 → 11 项 (`22bd214`)：图标 (Symbols Nerd Font / Segoe UI Symbol /
+    Apple Symbols / Noto Sans Symbols 2) + 简中 (PingFang SC / Microsoft YaHei
+    / Source Han Sans SC / Noto Sans CJK SC / WenQuanYi Micro Hei) + 日韩
+    (Hiragino Sans / Yu Gothic)
+- **窗口（native vibrancy）**：
+  - **macOS Blurred / Windows 11 Mica** (`b616eba`) — 平台 native 窗口磨砂材质，
+    透出桌面背景
+  - **macOS 双击标题栏 zoom** (`dcbd790`) — Mac native 默认行为，自绘 titlebar
+    手动绑 window.zoom_window()
+  - 窗口最小尺寸 900×600（M36.1 已有）
+- **UI 视觉（aurora glass）**：
+  - **背景 aurora 渐变光晕** (`672d7fc` + `a881442` + `601487d`) — 2 层 absolute
+    linear_gradient（indigo top-left + cyan bottom-right），拉到 1.4x viewport
+    消除硬边
+  - **CardEntity .glass() builder** (`36cc7a1` + `c2cdca3`) — home active/saved
+    卡片 bg = hsla(0,0,0.04,0.75) 中性黑 75% opacity 透出 aurora，不染色
+- **HostForm / Settings 跨平台**：
+  - **HostForm Cmd+S / Ctrl+S / Ctrl+Enter 保存** (`44d5fa5`) — 删除确认 Enter
+    直接确认
+  - **keyfile placeholder 跨平台** (`ab7d842`) — Win 显示 %USERPROFILE%\.ssh，
+    其他保留 ~/.ssh
+  - **collect_draft 字段 trim** (`62ba85a`) — 防粘贴 trailing 空白导致 SSH
+    解析失败
+  - **Settings 快捷键列表按 OS 显示** (`3a597cb`) — Mac ⌘ / Win/Linux Ctrl
+- **i18n 全面中文化** (`0bea109` + `10d9ee1`) — 用户可见界面统一中文，保留品牌
+  / 技术名（aish / tmux / SSH / Esc / placeholder example values）
+- **测试**：aish-ui 286 / aish-app 184+，全 workspace pass。新增覆盖：font
+  fallback (5)、compute_paste_payload trim (1)、encode_ctrl_special_keys (1)、
+  encode_alt_arrows_word_movement (1)、last_n_non_empty_rows (4)
+- **Lessons**：
+  - **跨平台原生 = cfg!(target_os) 分流 + GPUI modifiers.platform** 是
+    主套路；macOS 用 platform key，其他用 control
+  - **CSI u 协议 vs 0x0A LF** — Ctrl+Enter 用 LF 兼容性远胜 CSI u（CSI u 需 app
+    主动 enable kitty keyboard protocol）
+  - **GPUI 没 backdrop-filter blur** — 真玻璃磨砂做不出；用 multi-layer 渐变
+    + 半透明卡 + 窗口级 vibrancy 视觉模拟 90%
+  - **aurora gradient transition zone** — gradient stop 落 viewport 内会形成
+    硬边；layer 拉到 1.4x viewport 让 stop 移出视野，视野内全是平滑过渡
+  - **半透明 card bg 用纯黑而非 colors.card** — GPUI 没 backdrop blur 无法
+    降饱和，colors.card #101113 半透明被 aurora 染色；hsla(0,0,0.04,0.75)
+    纯黑只透"漂浮"不透"色相"
+  - **GPUI flex_col + div+text 行高不受 line_height/h(N) 控制** — taffy 让
+    font ascender/descender 撑开 child box，CSS line_height 在多 div 路径
+    无效。改路径用 absolute 定位手动 top 排行 / 或减行数接受自然行高
+
 ### M36 — Home Launchpad（信息架构重设计）（2026-05-17）— ✅ 已完成（manual GUI 验收 pending）
 
 - **范围**：Home 页改 Warp 风 launchpad — active session 大卡含 shell 缩略图
