@@ -537,14 +537,27 @@ impl HostFormModal {
     /// 从 6 个 input + auth_kind 拼出 HostFormDraft 用于 save。
     fn collect_draft(&self, cx: &App) -> HostFormDraft {
         let auth_kind = self.auth_kind;
+        // M37: 字段 trim 兜底 — 用户从外部粘贴 host/user/port 时常带 trailing
+        // 空格或 \n（命令行复制 / wiki 表格复制），不 trim 会导致 SSH 解析失败
+        // 或 keyring 查 key 失败。label/password 保留 trim_end（防末尾换行）
+        // 但允许中间空格（密码可能含空格）；其他字段全 trim 两端
+        let trim = |s: String| s.trim().to_string();
         HostFormDraft {
-            label: self.label_input.read(cx).text().to_string(),
-            host: self.host_input.read(cx).text().to_string(),
-            port: self.port_input.read(cx).text().to_string(),
-            user: self.user_input.read(cx).text().to_string(),
+            label: trim(self.label_input.read(cx).text().to_string()),
+            host: trim(self.host_input.read(cx).text().to_string()),
+            port: trim(self.port_input.read(cx).text().to_string()),
+            user: trim(self.user_input.read(cx).text().to_string()),
             auth_kind,
-            key_path: self.keyfile_input.read(cx).text().to_string(),
-            password: self.password_input.read(cx).text().to_string(),
+            key_path: trim(self.keyfile_input.read(cx).text().to_string()),
+            // 密码保留两端字符（用户可能故意用空格作密码一部分），仅 trim
+            // trailing newline（粘贴时常带 \n）
+            password: self
+                .password_input
+                .read(cx)
+                .text()
+                .to_string()
+                .trim_end_matches(['\n', '\r'])
+                .to_string(),
             error: None,
         }
     }
