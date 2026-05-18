@@ -477,6 +477,14 @@ pub fn encode_key(key: &str, ctrl: bool, alt: bool) -> Vec<u8> {
 
     // Alt：在基础序列前加 ESC 前缀（标准 Meta 键编码）
     if alt {
+        // M37: Alt + 方向键走 readline word movement（macOS Terminal.app /
+        // iTerm2 / gnome-terminal 同款），而不是 ESC + CSI 方向序列
+        // 让 Alt+Left/Right 在 bash/zsh readline 内 backward/forward-word
+        match key.to_lowercase().as_str() {
+            "left" | "arrowleft" => return b"\x1bb".to_vec(), // backward-word
+            "right" | "arrowright" => return b"\x1bf".to_vec(), // forward-word
+            _ => {}
+        }
         let mut out = Vec::with_capacity(base.len() + 1);
         out.push(0x1b);
         out.extend_from_slice(&base);
@@ -911,6 +919,20 @@ mod tests {
             encode_key("backspace", true, false),
             b"\x1b[127;5u".to_vec()
         );
+    }
+
+    /// M37: Alt + 方向键走 readline word movement
+    /// macOS Terminal.app / iTerm2 / gnome-terminal 同款 — bash/zsh 内
+    /// Alt+Left = backward-word，Alt+Right = forward-word
+    #[test]
+    fn encode_alt_arrows_word_movement() {
+        assert_eq!(encode_key("left", false, true), b"\x1bb".to_vec());
+        assert_eq!(encode_key("ArrowLeft", false, true), b"\x1bb".to_vec());
+        assert_eq!(encode_key("right", false, true), b"\x1bf".to_vec());
+        assert_eq!(encode_key("ArrowRight", false, true), b"\x1bf".to_vec());
+        // Alt + 其他方向键仍走原 ESC 前缀路径
+        assert_eq!(encode_key("up", false, true), b"\x1b\x1b[A".to_vec());
+        assert_eq!(encode_key("down", false, true), b"\x1b\x1b[B".to_vec());
     }
 
     #[test]
