@@ -1876,7 +1876,12 @@ impl Render for TextInput {
                 .viewport_bounds
                 .map(|b| b.size.width)
                 .unwrap_or(px(400.0));
-            let vls_for_h = compute_visual_lines(&self.text, container_w, font_size_sm);
+            // M37: 算高度时先 trim_end 文本 — paste 后 trailing \n / 空白被
+            // visual_lines 算成多空行，让 outer_h 撑到 max_lines 上限即使内容
+            // 只 1-2 行。兜底 compute_paste_payload 的 trim（防其他 set_text
+            // 路径没 trim）
+            let text_for_h = self.text.trim_end();
+            let vls_for_h = compute_visual_lines(text_for_h, container_w, font_size_sm);
             let n_lines = vls_for_h.len();
             let visible_lines = n_lines.clamp(1, self.max_lines);
             let outer_h = line_h * visible_lines as f32 + py * 2.0;
