@@ -418,14 +418,14 @@ pub(crate) async fn connection_task(
 /// 例：Alt+F → \x1bf（bash readline forward-word）。
 pub fn encode_key(key: &str, ctrl: bool, alt: bool) -> Vec<u8> {
     if ctrl {
-        // M37: Ctrl + 特殊键走 CSI u 协议（kitty keyboard protocol / xterm
-        // modifyOtherKeys），让 Claude Code 等 modern TUI 能识别 Ctrl+Enter /
-        // Ctrl+Tab 等组合。格式：\x1b[<keycode>;<modifier>u
-        // - modifier: 1=none, 2=Shift, 3=Alt, 4=Shift+Alt, 5=Ctrl, 6=Shift+Ctrl
-        //   (实际 modifier = (shift?1:0) + (alt?2:0) + (ctrl?4:0) + 1，这里只
-        //    处理 Ctrl 分支，固定 5；caller 如要 Shift+Ctrl 等需扩展接口)
+        // M37: Ctrl + 特殊键的兼容编码
+        // - Ctrl+Enter → LF (0x0A) — readline / Claude Code 等多数 TUI 把 LF 当
+        //   换行而不是 submit（普通 Enter = CR 0x0D 触发 submit）。比 CSI u 协议
+        //   兼容性更好（CSI u 需 app 主动 enable kitty keyboard protocol）
+        // - Ctrl+Tab / Ctrl+Backspace 走 CSI u 协议（kitty / modifyOtherKeys），
+        //   modern TUI 大概率能识别
         match key.to_lowercase().as_str() {
-            "enter" => return b"\x1b[13;5u".to_vec(),
+            "enter" => return vec![b'\n'],
             "tab" => return b"\x1b[9;5u".to_vec(),
             "backspace" => return b"\x1b[127;5u".to_vec(),
             _ => {}
@@ -897,15 +897,16 @@ mod tests {
         assert_eq!(encode_key("Z", true, false), vec![0x1a]);
     }
 
-    /// M37: Ctrl + 特殊键走 CSI u 协议（kitty keyboard / xterm modifyOtherKeys），
-    /// 让 Claude Code 等 modern TUI 能识别 Ctrl+Enter 触发换行
+    /// M37: Ctrl + 特殊键的兼容编码
+    /// - Ctrl+Enter → LF (0x0A) 让 readline/CC 当换行而非 submit
+    /// - Ctrl+Tab / Ctrl+Backspace → CSI u 协议
     #[test]
-    fn encode_ctrl_special_keys_csi_u() {
-        // Ctrl+Enter → CSI u "13;5u" (13 = Enter keycode, 5 = Ctrl modifier)
-        assert_eq!(encode_key("enter", true, false), b"\x1b[13;5u".to_vec());
-        // Ctrl+Tab → "9;5u" (9 = Tab keycode)
+    fn encode_ctrl_special_keys() {
+        // Ctrl+Enter → LF (0x0A) — CR (0x0D) 是 submit，LF 是 newline
+        assert_eq!(encode_key("enter", true, false), vec![b'\n']);
+        // Ctrl+Tab → CSI u "9;5u" (9 = Tab keycode, 5 = Ctrl modifier)
         assert_eq!(encode_key("tab", true, false), b"\x1b[9;5u".to_vec());
-        // Ctrl+Backspace → "127;5u" (127 = Backspace keycode)
+        // Ctrl+Backspace → CSI u "127;5u" (127 = Backspace keycode)
         assert_eq!(
             encode_key("backspace", true, false),
             b"\x1b[127;5u".to_vec()
