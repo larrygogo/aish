@@ -1332,8 +1332,13 @@ pub(crate) fn compute_copy_payload(
 pub(crate) fn compute_paste_payload(raw: &str, multiline: bool) -> String {
     if multiline {
         // \r\n → \n 优先（不能让 \r 单独留下，否则 \r 字符 render 异常）；
-        // 然后单独 \r → \n
-        raw.replace("\r\n", "\n").replace('\r', "\n")
+        // 然后单独 \r → \n；trim_end 去 trailing whitespace（含 \n 空行），
+        // 防 home preview / terminal selection 复制时尾部带 grid 空白行导致
+        // InputBar 高度撑得离谱（visual_lines 把 trailing \n 算成多空行）
+        raw.replace("\r\n", "\n")
+            .replace('\r', "\n")
+            .trim_end()
+            .to_string()
     } else {
         match raw.find(['\n', '\r']) {
             Some(idx) => raw[..idx].to_string(),
@@ -2466,6 +2471,25 @@ mod tests {
         // 单行：剪贴板只有换行时，截到首行 = 空串
         assert!(super::compute_paste_payload("\n", false).is_empty());
         assert!(super::compute_paste_payload("\r\n", false).is_empty());
+    }
+
+    #[test]
+    fn compute_paste_payload_multiline_trims_trailing_whitespace() {
+        // M37: 复制时常带 trailing \n / 空行（home preview 选 grid cells），
+        // 防 InputBar 高度因 trailing empty visual_lines 撑离谱
+        assert_eq!(
+            super::compute_paste_payload("line1\nline2\n\n\n", true),
+            "line1\nline2"
+        );
+        assert_eq!(
+            super::compute_paste_payload("line1\nline2   \n", true),
+            "line1\nline2"
+        );
+        // 中间的空行保留
+        assert_eq!(
+            super::compute_paste_payload("para1\n\npara2\n\n", true),
+            "para1\n\npara2"
+        );
     }
 
     #[test]
