@@ -176,6 +176,7 @@ impl HostFormModal {
 
         let dialog = cx.new(Dialog::new);
         let weak = cx.weak_entity();
+        let weak_for_key = cx.weak_entity();
         dialog.update(cx, move |d, _cx| {
             d.title("主机");
             d.width(gpui::px(480.0)); // M29 D-8: 460 → 480 让 label-on-top + Radio 更宽松
@@ -184,17 +185,45 @@ impl HostFormModal {
                     this.update(cx, |this, cx| this.cancel(cx));
                 }
             });
+            // M37: Cmd+S (macOS) / Ctrl+S (Win/Linux) / Ctrl+Enter 都提交保存
+            // — 表单原生预期键盘提交，不用鼠标点保存按钮
+            d.on_key(move |ev, _w, cx| {
+                let m = &ev.keystroke.modifiers;
+                let k = ev.keystroke.key.as_str();
+                let save_combo = if cfg!(target_os = "macos") {
+                    // macOS: Cmd+S / Cmd+Enter
+                    m.platform && !m.shift && !m.alt && !m.control && (k == "s" || k == "enter")
+                } else {
+                    // Win/Linux: Ctrl+S / Ctrl+Enter
+                    m.control && !m.shift && !m.alt && !m.platform && (k == "s" || k == "enter")
+                };
+                if save_combo {
+                    if let Some(this) = weak_for_key.upgrade() {
+                        this.update(cx, |this, cx| this.save(cx));
+                    }
+                }
+            });
         });
 
         // M29 D-6: delete confirm 独立 dialog（380 窄 + 标题改 "删除 Host?"）
         let delete_dialog = cx.new(Dialog::new);
         let weak_del = cx.weak_entity();
+        let weak_del_key = cx.weak_entity();
         delete_dialog.update(cx, move |d, _cx| {
             d.title("删除主机？");
             d.width(gpui::px(380.0));
             d.on_close(move |_window, cx| {
                 if let Some(this) = weak_del.upgrade() {
                     this.update(cx, |this, cx| this.cancel(cx));
+                }
+            });
+            // M37: 删除确认 dialog 上 Enter 直接确认删除（最常见操作 = 确认）
+            d.on_key(move |ev, _w, cx| {
+                let m = &ev.keystroke.modifiers;
+                if !m.modified() && ev.keystroke.key.as_str() == "enter" {
+                    if let Some(this) = weak_del_key.upgrade() {
+                        this.update(cx, |this, cx| this.save(cx));
+                    }
                 }
             });
         });
