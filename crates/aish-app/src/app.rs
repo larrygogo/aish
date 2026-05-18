@@ -585,14 +585,48 @@ impl Render for RootView {
             SidebarTab::Settings => self.settings.clone().into_any_element(),
         };
 
-        // 外层：sidebar + 主区横排
+        // 外层：sidebar + 主区横排 + 背景 aurora 光晕层
+        // M37: aurora glassmorphism 模拟 — GPUI 无 backdrop-filter blur，
+        // 用 2 层 absolute linear_gradient 叠出"色斑光晕"模拟玻璃质感的
+        // 底层色相分布。后续卡片可以半透明透出这层光晕呈现玻璃感。
+        let primary = colors.primary; // indigo #5e6ad2
+        let cyan_glow: gpui::Hsla = gpui::hsla(190.0 / 360.0, 0.5, 0.4, 0.07);
         let main = div()
+            .relative()
             .flex()
             .flex_row()
             .size_full()
             // root bg 跟随 theme：dark=#050505 / light=#fafafa（colors.background
             // global，theme 切换时 refresh_windows 让所有 view re-render 拿新值）
             .bg(colors.background)
+            // Aurora layer 1: top-left indigo bloom（main brand 色光晕）
+            .child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .w(gpui::relative(0.7))
+                    .h(gpui::relative(0.6))
+                    .bg(gpui::linear_gradient(
+                        135.0,
+                        gpui::linear_color_stop(primary.opacity(0.08), 0.0),
+                        gpui::linear_color_stop(primary.opacity(0.0), 1.0),
+                    )),
+            )
+            // Aurora layer 2: bottom-right cyan bloom（冷色补色让光晕有层次）
+            .child(
+                div()
+                    .absolute()
+                    .bottom_0()
+                    .right_0()
+                    .w(gpui::relative(0.7))
+                    .h(gpui::relative(0.6))
+                    .bg(gpui::linear_gradient(
+                        315.0,
+                        gpui::linear_color_stop(cyan_glow, 0.0),
+                        gpui::linear_color_stop(cyan_glow.opacity(0.0), 1.0),
+                    )),
+            )
             .child(self.sidebar_nav.clone())
             // 主区 flex_1 必须 min_w(0) + min_h(0)，否则 main_body 内任何
             // 超长子（如 tab_bar 内的 tab items 总宽 > viewport - sidebar，
