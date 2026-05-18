@@ -13,19 +13,40 @@ use gpui::{font, Font, FontFallbacks};
 
 use crate::theme::typography::CODE_FONT_NAME;
 
-/// fallback chain — 按"图标 > 系统符号 > CJK"顺序，平台找不到的字体自动跳过。
+/// fallback chain — 按"图标 > 系统符号 > 简中 CJK > 繁中/日韩"顺序，平台
+/// 找不到的字体自动跳过。
 ///
+/// 图标 / 符号：
 /// - **Symbols Nerd Font**：Nerd Font 图标符号专用，Linux/macOS Homebrew 常装
 /// - **Segoe UI Symbol**：Windows 内置，覆盖 Miscellaneous Technical（含 U+2327）
 /// - **Apple Symbols**：macOS 内置，同上覆盖
 /// - **Noto Sans Symbols 2**：Linux 多数发行版预装 / Google Noto
-/// - **Noto Sans CJK SC**：CJK 罕用字兜底
+///
+/// 简中 CJK（按系统默认优先）：
+/// - **PingFang SC**：macOS 系统中文默认（macOS 10.11+）
+/// - **Microsoft YaHei**：Windows 系统中文默认（Win 7+）
+/// - **Source Han Sans SC** / **思源黑体**：Adobe + Google 跨平台开源，部分 Linux 装
+/// - **Noto Sans CJK SC**：Google Noto，Linux 多数发行版 noto-cjk 包提供
+/// - **WenQuanYi Micro Hei** / **文泉驿微米黑**：老 Linux 发行版默认
+///
+/// 日韩（罕用兜底）：
+/// - **Hiragino Sans**：macOS 日文默认
+/// - **Yu Gothic**：Windows 日文默认
 const FONT_FALLBACK_CHAIN: &[&str] = &[
+    // 图标 / 符号
     "Symbols Nerd Font",
     "Segoe UI Symbol",
     "Apple Symbols",
     "Noto Sans Symbols 2",
+    // 简中 CJK（按系统默认顺序）
+    "PingFang SC",
+    "Microsoft YaHei",
+    "Source Han Sans SC",
     "Noto Sans CJK SC",
+    "WenQuanYi Micro Hei",
+    // 日韩
+    "Hiragino Sans",
+    "Yu Gothic",
 ];
 
 static FALLBACKS: OnceLock<FontFallbacks> = OnceLock::new();
@@ -74,12 +95,32 @@ mod tests {
     }
 
     #[test]
-    fn fallback_chain_has_five_entries() {
+    fn fallback_chain_has_entries() {
         let fb = fallbacks();
-        assert_eq!(
-            fb.fallback_list().len(),
-            5,
-            "fallback chain 应有 5 项（Symbols Nerd Font + 3 系统 symbol + 1 CJK）"
+        let list = fb.fallback_list();
+        assert!(
+            list.len() >= 10,
+            "fallback chain 应至少 10 项（图标 + 简中 CJK + 日韩）实际 {}",
+            list.len()
+        );
+    }
+
+    #[test]
+    fn fallback_chain_covers_cjk_per_os() {
+        let fb = fallbacks();
+        let list = fb.fallback_list();
+        // 每个平台都至少有一个 CJK 字体兜底
+        assert!(
+            list.iter().any(|s| s == "PingFang SC"),
+            "macOS CJK 默认 PingFang SC 缺失"
+        );
+        assert!(
+            list.iter().any(|s| s == "Microsoft YaHei"),
+            "Windows CJK 默认 Microsoft YaHei 缺失"
+        );
+        assert!(
+            list.iter().any(|s| s == "Noto Sans CJK SC"),
+            "Linux CJK Noto 缺失"
         );
     }
 
