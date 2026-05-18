@@ -259,25 +259,45 @@ impl Render for SettingsView {
             );
 
         // ───── Keyboard Shortcuts ─────
-        // M35 T15: shortcut 改用 Kbd chip 视觉化按键。M35 T8 加的
-        // Ctrl+P/Cmd+P/Cmd+K palette 也加入列表。Ctrl+1/2/3 由 RootView
-        // 全局接管；Ctrl+W / Ctrl+T / Ctrl+Tab 走 terminal_view focused 路径。
+        // M35 T15: shortcut 改用 Kbd chip 视觉化按键。
+        // M37: 按 OS 显示对应快捷键（macOS Cmd / 其他 Ctrl）。Mac 用户看到
+        // ⌘ 符号 + Win/Linux 用户看到 Ctrl，原生体验对齐
+        let mac = cfg!(target_os = "macos");
+        let k_palette = if mac { "⌘P / ⌘K" } else { "Ctrl+P" };
+        let k_paste = if mac { "⌘V" } else { "Ctrl+Shift+V" };
+        let k_copy = if mac { "⌘C" } else { "Ctrl+Shift+C" };
+        let k_new_tab = if mac { "⌘T" } else { "Ctrl+T" };
+        let k_close_tab = if mac { "⌘W" } else { "Ctrl+W" };
+        let k_home = if mac { "⌘1" } else { "Ctrl+1" };
+        let k_terminal = if mac { "⌘2" } else { "Ctrl+2" };
+        let k_settings_nav = if mac { "⌘3" } else { "Ctrl+3" };
         let shortcuts_card = Card::new("settings-shortcuts")
             .outlined()
             .no_padding() // M27: section_header + row helpers 都自带 px_4，opt-out 防双重
             .header(section_header("快捷键", t))
-            .body(
-                div()
+            .body({
+                let mut body = div()
                     .flex()
                     .flex_col()
-                    .child(shortcut_row("sc-palette", "Ctrl+P / ⌘K", "打开命令面板", t))
-                    .child(shortcut_row("sc-paste", "Ctrl+Shift+V", "粘贴", t))
-                    .child(shortcut_row("sc-new-tab", "Ctrl+T", "新建标签页", t))
-                    .child(shortcut_row("sc-close-tab", "Ctrl+W", "关闭标签页", t))
-                    .child(shortcut_row("sc-home", "Ctrl+1", "切到主页", t))
-                    .child(shortcut_row("sc-terminal", "Ctrl+2", "切到终端", t))
-                    .child(shortcut_row("sc-settings", "Ctrl+3", "切到设置", t)),
-            );
+                    .child(shortcut_row("sc-palette", k_palette, "打开命令面板", t))
+                    .child(shortcut_row("sc-copy", k_copy, "复制选中文本", t))
+                    .child(shortcut_row("sc-paste", k_paste, "粘贴", t))
+                    .child(shortcut_row("sc-new-tab", k_new_tab, "新建标签页", t))
+                    .child(shortcut_row("sc-close-tab", k_close_tab, "关闭标签页", t))
+                    .child(shortcut_row("sc-home", k_home, "切到主页", t))
+                    .child(shortcut_row("sc-terminal", k_terminal, "切到终端", t))
+                    .child(shortcut_row("sc-settings", k_settings_nav, "切到设置", t));
+                if mac {
+                    // macOS native Cmd+, 打开 Settings（Mac 通用约定）
+                    body = body.child(shortcut_row(
+                        "sc-mac-settings",
+                        "⌘,",
+                        "打开设置（macOS 通用）",
+                        t,
+                    ));
+                }
+                body
+            });
 
         // ───── About（版本信息 + 实际可点交互按钮）─────
         // 按钮走 outline variant，与卡片视觉一致；handler 内调 cx.open_url /
