@@ -500,7 +500,8 @@ impl Render for HomeView {
                 let primary = aish_ui::theme(cx).colors.primary;
                 let card = cx.new(move |c| {
                     let mut card = CardEntity::new(card_id, c);
-                    card.glass()
+                    card.no_padding()
+                        .glass()
                         .hover_glow(primary)
                         .on_click(move |_ev, _w, cx| {
                             if let Some(this) = weak.upgrade() {
