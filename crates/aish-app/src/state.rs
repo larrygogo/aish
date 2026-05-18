@@ -126,6 +126,12 @@ pub enum SshEvent {
         conn: ConnectionId,
         title: String,
     },
+    /// 远端通过 OSC 52 escape sequence 把文本写入本机剪贴板（tmux copy-mode
+    /// "y" / vim "+y" / 任何 set-clipboard on 的工具）。alacritty 已 base64
+    /// decode，text 是明文。app.rs 收到后 cx.write_to_clipboard 真正落盘。
+    ClipboardWrite {
+        text: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -204,6 +210,11 @@ impl EventListener for TitleListener {
                     conn: self.conn,
                     title: String::new(),
                 });
+            }
+            // OSC 52 - 远端要求写本机剪贴板（tmux copy-mode / vim "+y" 等）。
+            // alacritty 已 base64 decode，text 是明文。
+            TermEvent::ClipboardStore(_ty, text) => {
+                let _ = tx.try_send(SshEvent::ClipboardWrite { text });
             }
             _ => {}
         }

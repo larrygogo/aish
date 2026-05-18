@@ -328,6 +328,15 @@ pub fn run() {
                                 cx.notify();
                             }
                         }
+                        SshEvent::ClipboardWrite { text } => {
+                            // 远端 OSC 52 → 写本机系统剪贴板。tmux copy-mode
+                            // "y" / vim "+y" 等触发，要求远端配置
+                            // `set -g set-clipboard on`（tmux）/ `set
+                            // clipboard=unnamedplus`（vim）启用 OSC 52 输出。
+                            cx.write_to_clipboard(
+                                gpui::ClipboardItem::new_string(text),
+                            );
+                        }
                     });
                 }
             })
