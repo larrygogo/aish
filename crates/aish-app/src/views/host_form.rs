@@ -312,7 +312,15 @@ impl HostFormModal {
         });
         let keyfile_input = cx.new(|cx| {
             let mut i = TextInput::new(cx);
-            i.placeholder("~/.ssh/id_rsa");
+            // M37: placeholder 按 OS 显示对应路径风格 — Win 用户看 ~/.ssh
+            // 不直观（虽然 OpenSSH for Windows 也认 ~），改 %USERPROFILE%\.ssh
+            // 更贴近 Win 用户认知；macOS/Linux 保留 ~/.ssh/id_rsa
+            let placeholder = if cfg!(target_os = "windows") {
+                "%USERPROFILE%\\.ssh\\id_rsa"
+            } else {
+                "~/.ssh/id_rsa"
+            };
+            i.placeholder(placeholder);
             i
         });
         let password_input = cx.new(|cx| {
