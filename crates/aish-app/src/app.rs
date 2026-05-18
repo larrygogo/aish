@@ -601,13 +601,15 @@ impl Render for RootView {
             // global，theme 切换时 refresh_windows 让所有 view re-render 拿新值）
             .bg(colors.background)
             // Aurora layer 1: top-left indigo bloom（main brand 色光晕）
+            // 拉到 1.4x viewport（130% × 110% 偏移 -20%/-10%），让 gradient
+            // 的 transparent stop 移出视野，消除卡片中间的硬边
             .child(
                 div()
                     .absolute()
-                    .top_0()
-                    .left_0()
-                    .w(gpui::relative(0.7))
-                    .h(gpui::relative(0.6))
+                    .top(gpui::relative(-0.2))
+                    .left(gpui::relative(-0.2))
+                    .w(gpui::relative(1.4))
+                    .h(gpui::relative(1.2))
                     .bg(gpui::linear_gradient(
                         135.0,
                         gpui::linear_color_stop(primary.opacity(0.18), 0.0),
@@ -618,10 +620,10 @@ impl Render for RootView {
             .child(
                 div()
                     .absolute()
-                    .bottom_0()
-                    .right_0()
-                    .w(gpui::relative(0.7))
-                    .h(gpui::relative(0.6))
+                    .bottom(gpui::relative(-0.2))
+                    .right(gpui::relative(-0.2))
+                    .w(gpui::relative(1.4))
+                    .h(gpui::relative(1.2))
                     .bg(gpui::linear_gradient(
                         315.0,
                         gpui::linear_color_stop(cyan_glow, 0.0),
