@@ -244,9 +244,15 @@ impl TerminalView {
         let shift = event.keystroke.modifiers.shift;
         let alt = event.keystroke.modifiers.alt;
         let key = event.keystroke.key.as_str();
+        // M37: macOS 用 Cmd (modifiers.platform) 作复制/粘贴 secondary modifier，
+        // 符合 Mac 用户原生预期；Win/Linux 上 platform 是 Win/Super 键留给
+        // 系统，不接管 → 仍走 Ctrl+Shift 路径
+        let cmd_mac = cfg!(target_os = "macos") && event.keystroke.modifiers.platform;
 
-        // Ctrl+Shift+C：复制选中文本到剪贴板，不发到远端
-        if ctrl && shift && key.eq_ignore_ascii_case("c") {
+        // 复制：Win/Linux Ctrl+Shift+C / macOS Cmd+C → 选中文本写本机剪贴板
+        let is_copy = (ctrl && shift && !alt && key.eq_ignore_ascii_case("c"))
+            || (cmd_mac && !ctrl && !alt && !shift && key.eq_ignore_ascii_case("c"));
+        if is_copy {
             let text = self
                 .state
                 .read(cx)
@@ -258,8 +264,10 @@ impl TerminalView {
             return;
         }
 
-        // Ctrl+Shift+V：从剪贴板粘贴。bracketed paste mode 自动检测。
-        if ctrl && shift && key.eq_ignore_ascii_case("v") {
+        // 粘贴：Win/Linux Ctrl+Shift+V / macOS Cmd+V → bracketed paste mode 自动检测
+        let is_paste = (ctrl && shift && !alt && key.eq_ignore_ascii_case("v"))
+            || (cmd_mac && !ctrl && !alt && !shift && key.eq_ignore_ascii_case("v"));
+        if is_paste {
             self.paste(conn, cx);
             return;
         }
