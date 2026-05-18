@@ -581,6 +581,26 @@ impl TerminalView {
             }
         }
 
+        // M37: 右键 = 智能复制/粘贴（GNOME Terminal / xterm 默认行为，跨平台
+        // 用户高频肌肉记忆）
+        // - 有选区时复制选区到剪贴板
+        // - 无选区时直接粘贴
+        // 走到这里说明远端不是 mouse mode（mode 那段已 return），右键不会发
+        // 给远端，本地处理
+        if matches!(ev.button, MouseButton::Right) {
+            let text = self
+                .state
+                .read(cx)
+                .term_of(conn)
+                .and_then(crate::terminal::selection::selected_text);
+            if let Some(text) = text {
+                cx.write_to_clipboard(ClipboardItem::new_string(text));
+            } else {
+                self.paste(conn, cx);
+            }
+            return;
+        }
+
         // 本地 selection 路径（原行为）— 仅左键
         if !matches!(ev.button, MouseButton::Left) {
             return;
