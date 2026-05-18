@@ -446,9 +446,11 @@ impl Render for CardEntity {
         // Card 所有 variant 的 idle bg 都是 t.colors.card；hover/active 用 secondary
         // 灰阶（与 stateless 时代逻辑一致，line 137-149）。
         // M36 T7: hover_glow_color 设了时改走 primary tint 路径（spec §4.4）。
-        // M37: glass 模式下 bg 半透明让 aurora 透出（home active/saved 用）
+        // M37: glass 模式下 bg 改纯黑 75% opacity —— colors.card #101113 半透明
+        // 会被 aurora indigo/cyan 染色（GPUI 没 backdrop blur 无法降饱和），
+        // 用 hsla(0,0,0.04,0.75) 中性黑只透"漂浮"不透"色相"，避免冲突
         let idle_bg = if self.glass {
-            t.colors.card.opacity(0.4)
+            gpui::hsla(0.0, 0.0, 0.04, 0.75)
         } else {
             t.colors.card
         };
