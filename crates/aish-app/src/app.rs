@@ -6,7 +6,7 @@ use std::sync::Arc;
 use aish_types::ConnectionId;
 use gpui::{
     div, prelude::*, px, size, App, Bounds, Context, Entity, SharedString, TitlebarOptions, Window,
-    WindowBounds, WindowControlArea, WindowOptions,
+    WindowBackgroundAppearance, WindowBounds, WindowControlArea, WindowOptions,
 };
 use gpui_platform::application;
 
@@ -344,12 +344,23 @@ pub fn run() {
 
             // 开窗口
             let bounds = Bounds::centered(None, size(px(1200.0), px(800.0)), cx);
+            // M37: 窗口背景按平台选 native 材质 — macOS vibrancy / Windows 11
+            // Mica，让 aish 看着像系统原生应用。Linux 多数 WM 不支持 vibrancy →
+            // 回退 Opaque
+            let window_background = if cfg!(target_os = "macos") {
+                WindowBackgroundAppearance::Blurred
+            } else if cfg!(target_os = "windows") {
+                WindowBackgroundAppearance::MicaBackdrop
+            } else {
+                WindowBackgroundAppearance::Opaque
+            };
             let window_options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 // M36.1 follow-up: 窗口最小尺寸 900×600 —— 保证 sidebar (240)
                 // + home grid 2 列 (2×320 + gap) + page padding 都能合理展示，
                 // 防用户拉到极小尺寸触发布局崩坏 / overlap
                 window_min_size: Some(size(px(900.0), px(600.0))),
+                window_background,
                 titlebar: Some(TitlebarOptions {
                     title: Some(SharedString::from("aish")),
                     // 隐掉系统原生 titlebar 内容（macOS/Windows），由 RootView
