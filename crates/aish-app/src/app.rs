@@ -737,8 +737,15 @@ impl Render for RootView {
                 )
             })
             .window_control_area(WindowControlArea::Drag)
-            .on_mouse_down(gpui::MouseButton::Left, |_ev, window, _cx| {
-                window.start_window_move()
+            .on_mouse_down(gpui::MouseButton::Left, |ev, window, _cx| {
+                // M37: macOS 双击标题栏 zoom（Mac native 通用行为）
+                // - 系统设置 "Double-click a window's title bar to" 默认 zoom
+                // - Win/Linux 走 window_control_area(Drag) → WM 自己处理 double-click
+                if cfg!(target_os = "macos") && ev.click_count == 2 {
+                    window.zoom_window();
+                } else {
+                    window.start_window_move();
+                }
             });
 
         // 左侧区域：
