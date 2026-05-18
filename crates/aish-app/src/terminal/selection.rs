@@ -56,6 +56,28 @@ pub fn start_selection(
     ));
 }
 
+/// M37: 双击选词（Semantic）/ 三击选行（Lines）。
+///
+/// alacritty 内置 Semantic 按 word boundary（空格 / 标点）自动扩展到完整词，
+/// Lines 自动扩展到整行。terminal app 通用 UX。
+///
+/// `click_count`:
+/// - 2 = 双击 → SelectionType::Semantic（选词）
+/// - 3+ = 三击及以上 → SelectionType::Lines（选行）
+pub fn start_word_or_line_selection(
+    term: &mut Term<crate::state::TitleListener>,
+    line: Line,
+    col: Column,
+    side: Side,
+    click_count: usize,
+) {
+    let ty = match click_count {
+        2 => SelectionType::Semantic,
+        _ => SelectionType::Lines,
+    };
+    term.selection = Some(Selection::new(ty, Point::new(line, col), side));
+}
+
 /// 拖拽中更新选中末端（mouse_move + dragging 时调用）。
 pub fn update_selection(
     term: &mut Term<crate::state::TitleListener>,

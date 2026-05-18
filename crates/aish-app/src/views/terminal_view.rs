@@ -620,9 +620,22 @@ impl TerminalView {
             rows as usize,
             cols as usize,
         );
+        // M37: terminal app 通用 UX —— 双击选词 / 三击选行
+        // GPUI MouseDownEvent.click_count 自带连击次数（系统层时间窗口判定）
+        let click_count = ev.click_count;
         self.state.update(cx, |state, cx| {
             if let Some(term) = state.host_pty_term.get_mut(&conn) {
-                crate::terminal::selection::start_selection(term, line, col, side);
+                if click_count >= 2 {
+                    crate::terminal::selection::start_word_or_line_selection(
+                        term,
+                        line,
+                        col,
+                        side,
+                        click_count,
+                    );
+                } else {
+                    crate::terminal::selection::start_selection(term, line, col, side);
+                }
             }
             cx.notify();
         });
