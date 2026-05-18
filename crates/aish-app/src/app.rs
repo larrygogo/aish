@@ -497,8 +497,15 @@ impl RootView {
             return;
         }
 
-        // Ctrl+1/2/3 sidebar 切换
-        if !m.control || m.shift || m.alt || m.platform {
+        // 切 sidebar 的主修饰键：macOS = Cmd (platform)，其他 = Ctrl
+        // M37: 让 Mac 用户用 Cmd+1/2/3 切 sidebar（浏览器 Cmd+1/2/3 切 tab 同款
+        // 习惯），其他平台保留 Ctrl+1/2/3
+        let sidebar_mod_ok = if cfg!(target_os = "macos") {
+            m.platform && !m.control && !m.shift && !m.alt
+        } else {
+            m.control && !m.platform && !m.shift && !m.alt
+        };
+        if !sidebar_mod_ok {
             return;
         }
         let target = match key {

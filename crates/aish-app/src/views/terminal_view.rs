@@ -300,18 +300,22 @@ impl TerminalView {
             return;
         }
 
-        // Ctrl+W：关闭当前 tab（Chrome / VSCode 标准）。
+        // 关闭当前 tab：Ctrl+W (Win/Linux) / Cmd+W (macOS) — Chrome/VSCode 标准
         // 远端 shell 也有 Ctrl+W = delete-prev-word，但用户在 GUI 终端里期望
         // Ctrl+W 关 tab 更强（用户能用 prefix-bs 或选词替代远端 ctrl-w）。
-        if ctrl && !shift && !alt && key.eq_ignore_ascii_case("w") {
+        let is_close_tab = (ctrl && !shift && !alt && !cmd_mac && key.eq_ignore_ascii_case("w"))
+            || (cmd_mac && !ctrl && !shift && !alt && key.eq_ignore_ascii_case("w"));
+        if is_close_tab {
             self.close_current_tab(cx);
             return;
         }
 
-        // Ctrl+T：新建 Default tab 并切到 Home sidebar 让用户选 host 连接。
+        // 新建 tab：Ctrl+T (Win/Linux) / Cmd+T (macOS)
         // 与 tab_bar + 按钮路径一致。覆盖远端 shell Ctrl+T = transpose-chars，
         // 与 Ctrl+W 一样优先 GUI 操作。
-        if ctrl && !shift && !alt && key.eq_ignore_ascii_case("t") {
+        let is_new_tab = (ctrl && !shift && !alt && !cmd_mac && key.eq_ignore_ascii_case("t"))
+            || (cmd_mac && !ctrl && !shift && !alt && key.eq_ignore_ascii_case("t"));
+        if is_new_tab {
             self.state.update(cx, |s, cx| {
                 s.append_default_tab();
                 s.sidebar = crate::state::SidebarTab::Home;
