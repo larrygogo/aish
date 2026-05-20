@@ -10,24 +10,188 @@
 
 ## 当前状态
 
-- **活跃分支**：main（2026-05-17 完成 M36 Home Launchpad：Warp 风 active 大卡
-  含 shell 缩略图 + 4 phase 兜底 + saved 卡 vertical 重设计 + 卡片 hover inset
-  glow；之前已完成 M22-M34 + M35 主体 + M35.1 sidebar polish + 后续 motion
-  收尾）
+- **活跃分支**：main（2026-05-20 完成 M38 paseo/WezTerm 借鉴落地：daemon 化
+  brainstorm spec + WezTerm 调研 + ConnectionAlias mnemonic ID +
+  RemoteCapabilities 重构 + aish-ui Charter 执行手册 + IconSize/Opacity
+  token + InlineError primitive + Dark Midnight 实验性 variant + Settings
+  深色变体 Select UI + popover overlay 修复）
 - **motion 系统状态**：✅ **完整收尾**（M30 入场 + M31 press+focus + M32-M34
   hover enter + hover leave fade-out + tab indicator fade-in 全套，6 个
   entity 组件 Button / IconButton / Card / NavItem / TabItem / ListRow +
   Dialog + Toast 全部 motion 覆盖；GPUI .hover() fallback 防 hover stuck）
+- **设计系统状态**：✅ **完整落地**（M38 charter 415 行 16 章把 typography
+  / anatomy / motion / hover 子系统串成顶层执行手册 + 25+ Forbidden 清单；
+  IconSize / Opacity / surface_workspace 三个 token 补全；Dark 主题 2 个
+  variant：默认 indigo / Midnight 深紫蓝）
 - **下一里程碑候选**：M36 用户视觉验收后 polish（如有） / Skeleton 业务接入
-  (UX 风险 defer) / 长期 roadmap 看 [桌面版 Moshi Roadmap](roadmap-moshi-desktop.md)
-- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **274** +
-  aish-app **162** + aish-secrets **8** + 其他 crate，共 **583** tests) 全过
+  (UX 风险 defer) / Light theme 完整调优 / daemon 化 Phase 1+（spec brainstorm
+  状态，需明确 CLI / MCP 真实需求触发） / 长期 roadmap 看
+  [桌面版 Moshi Roadmap](roadmap-moshi-desktop.md)
+- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **297** +
+  aish-app **185** + aish-secrets **8** + aish-types **26** + 其他 crate，
+  共 **615** tests) 全过
 
 ---
 
 ## Milestones（按时间倒序）
 
-### M37 — 跨平台原生体验（2026-05-18）— ✅ 主线完成（30+ commit 持续 polish）
+### M38 — paseo / WezTerm 借鉴落地（2026-05-20）— ✅ 主线完成（16 commit）
+
+- **范围**：本次会话从「看 paseo GitHub 项目能给我们提供哪些思路」起家，
+  一路推到 daemon 化 brainstorm spec + WezTerm 同类项目调研 + paseo UI
+  美学借鉴 + 设计系统补完。16 commit 分两条主线：
+  - **架构线（daemon 化探索）**：spec + 调研笔记 + 两个独立价值 small win
+  - **UI 美学线（paseo borrowing 落地）**：charter + token + primitive +
+    midnight theme + Settings UI 集成 + popover 修复
+- **不在范围**：daemon 化 Phase 1+（spec 推荐结论是「不立刻启动 Phase 1+，
+  等 CLI/MCP 真实需求触发」，本次只做 Phase 0 + 独立价值项）
+- **起源**：用户提「看看 github 上的 paseo 项目，能给我们提供哪些思路」→
+  clone paseo + wezterm 系统读 → 三次发现 aish 现状比预估更完整（Phase 0
+  已基本做完 / Badge 已存在 / EmptyState 已存在），节省了三次返工
+
+**架构线 — daemon 化探索（5 commit）**：
+
+- **5872533 — daemon 化 brainstorm spec**：基于 paseo (getpaseo/paseo) 源码
+  系统分析（30k 行 TS），写 brainstorm spec：
+  - §1.3 痛点真实程度自我反问 — daemon 化的充分理由是「CLI + AI agent 驱动」，
+    不是「GUI 稳定性」
+  - §3 七个 ADR：进程模型 / 通信协议 / 序列化 / alacritty grid 归属 /
+    持久化 / capability 协商 / PTY 隔离
+  - §4 wire protocol 草案
+  - §6 五阶段实施分期（Phase 0 立即推 + 后续按需触发）
+  - §7 10 条 Risk + mitigation / §8 6 个 open questions
+  - status: brainstorm（不挂 INDEX 直到推进）
+- **4fa8003 — Phase 0 ConnectionAlias mnemonic ID**：发现原 Phase 0 四项
+  里三项已被 aish 现有持久化覆盖（dirs::config_dir() + atomic write 比
+  paseo ~/.paseo 更 OS-native）/ capability flag 需要 wire schema 才有意义
+  / ListenTarget 需要 daemon 才有意义 → 只做 mnemonic ID。aish-types 加
+  ConnectionAlias(String) newtype + petname 3.0 (default-features=false
+  只要库 features) + 5 个测试。不绑定 ConnectionId 单独工具型类型，等
+  CLI / ssh_actor 自然需要时再串
+- **e6bd538 — WezTerm 架构调研笔记**：shallow clone wezterm + 系统读
+  mux server / codec / uds 模块，对 spec 七个 ADR 三项修订：
+  - ADR-003（序列化）：JSON+binary → **全二进制 + ident-based enum**
+    （Rust 项目应抄 WezTerm 路径，省 30-50% 带宽 + 解析快 5-10 倍）
+  - ADR-006（capability 协商）：paseo string-array → **全局 CODEC_VERSION
+    + ident append-only**（Rust serde 自然契合）
+  - ADR-002（通信）：Windows 倾向 **tokio named pipe** 而非 uds_windows
+  - 额外抄到：is_user_input() 背压标志 / leb128 u64 serial / socket
+    用 runtime_dir
+- **31ba2c4 + 40c8ffb + af1ef81 — RemoteCapabilities 重构**：把现有
+  HostConfig.os_kind 重构成嵌套 HostCapabilities struct（保留 capability
+  扩展位）+ 16 处构造点 / 字段访问点全部迁移 + 5 个新测试覆盖。docs/
+  capability-schema-rules.md 写下「append-only schema + capability flag」
+  演进规则，加新 capability 字段的 7 项 checklist。**完全跟 daemon 化解
+  耦** — 即使 daemon 不做仍有价值
+
+**UI 美学线 — paseo borrowing 落地（11 commit）**：
+
+- **7535503 — paseo UI 美学借鉴笔记**：对照 paseo design.md 13 章 +
+  theme.ts token 系统，跟 aish-ui 现状（M22-M37 typography / anatomy /
+  motion / hover 子系统）找可借鉴 / 已对齐 / 不该抄三类。**核心发现**：
+  aish 已有完整 typography 9 role / anatomy 6 类 / motion 4 档（比 paseo
+  在动效维度更深），真正缺的是「顶层执行手册 + 几个零散 token」
+- **07866d3 — aish-ui Charter 执行手册（A）**：写 docs/design/aish-ui-charter.md
+  跟现有 principles.md 配套（principles = 为什么 / charter = 怎么做）。
+  415 行 16 章覆盖 Character / Token 系统 / Hierarchy / Buttons / Borders
+  / Pickers / Density / Responsiveness / Copy（中文）/ States / List rows
+  / Status indicators / Forbidden 25+ / Canonical surfaces 索引。合并
+  paseo notes A + D + I + J 四项
+- **1fb5215 — IconSize + Opacity token（B）**：补 paseo notes B 项 —
+  IconSize { xs:12 / sm:14 / md:16 / lg:18 / xl:20 } + Opacity { disabled:0.6
+  / press:0.7 }（仅 state semantic，视觉 overlay opacity 保持 view-level）。
+  BorderWidth 跳过（aish 全部走 GPUI .border_1() 已统一）
+- **f2e7fd3 — surface_workspace 语义 token（E）**：给 terminal / workspace
+  主区背景留独立语义位置，当前等同 background + 守护测试。借鉴 paseo
+  surfaceWorkspace 命名，未来差异化（tmux attach 偏色 / fullscreen tint）
+  无需改 view 代码
+- **12647db — InlineError primitive（F-partial）**：empty_state.rs 早已
+  存在（M28 4-slot anatomy），本次只补 inline error。aish-ui 新增
+  InlineError primitive (Caption 12/400 + destructive color) + host_form
+  字段错误从 ad-hoc 7 行迁到 1 行 `InlineError::new(msg)`，字号 13→12
+  更克制
+- **34a931a — Dark Midnight 实验性 variant（G）**：ThemeKind 加
+  DarkMidnight variant + is_dark() helper。新文件 theme/dark_midnight.rs
+  深紫蓝 surface + 加亮 indigo accent。terminal/colors.rs + elevation_1/2/3
+  改 is_dark() 模式让 dark family 共享 ANSI palette / shadow alpha。
+  destructive / success / warning 跨主题一致（视觉锚点）。aish-app 启动
+  时支持 app_state.toml theme="midnight" 加载
+- **93768f3 — 把现有 callsite 迁移到 IconSize / Opacity token**：用户
+  反馈「我看不到效果」后发现 token 加了但没人用 → 系统扫 callsite，迁移
+  4 处 icon (empty_state / text_input / toast / sidebar_nav) + 3 处
+  opacity (button / icon_button / radio)。radio disabled 0.5 → 0.6 是
+  唯一可见微变（统一所有 disabled 一致）。视觉 overlay opacity 不迁移
+  （charter §13 明确边界）
+- **a8895bb — 深色变体 Select UI**：用户要求「主题切换肯定得放在设置里
+  不是文件里」。SettingsView 加 theme_variant_select: Entity<Select>，
+  在 Dark mode = on 时显示「深色变体」select（默认 / Midnight）。Switch
+  + Select 组合：Switch 控大方向，Select 控 dark 变体，state 跨切换保留
+- **1b3a571 — popover overlay 修复**：用户截图发现 Select dropdown 打开
+  后旁边的 motion_switch 透出来在视觉里 → 诊断两层 root cause：
+  - **backdrop 范围错** — `.absolute().size_full()` 只盖 popover 父容器
+    （Select 自己一行）。改用 anchored Window(0,0) + viewport_size 全屏
+  - **paint 顺序错** — Popover 作为 Select 内嵌 child，后渲染兄弟会画在
+    上面。改用 `deferred().with_priority(1)` 推到最后 paint
+  - dropdown content 加 occlude() 防 mouse 穿透
+  - 影响所有用 Popover 的 primitive（Select / DropdownMenu / ContextMenu）
+    自动受益
+
+**新增文档（8 个）**：
+
+- `docs/superpowers/specs/2026-05-20-aish-daemonize-design.md` — daemon
+  化 brainstorm spec（status: brainstorm）
+- `docs/superpowers/specs/2026-05-20-aish-wezterm-research-notes.md` —
+  WezTerm 调研笔记 + 三个 ADR 修订
+- `docs/superpowers/specs/2026-05-20-aish-paseo-ui-borrowing-notes.md` —
+  paseo UI 美学借鉴笔记 10 个借鉴点 + 落地优先级
+- `docs/superpowers/plans/2026-05-20-aish-remote-capabilities.md` —
+  RemoteCapabilities 重构 plan
+- `docs/capability-schema-rules.md` — capability schema 演进规则
+  （append-only + 7 项 checklist）
+- `docs/design/aish-ui-charter.md` — aish-ui 设计执行手册 415 行 16 章
+
+**新增代码**（aish-ui）：
+- `theme/dark_midnight.rs` — Dark Midnight 实验性主题
+- `components/inline_error.rs` — InlineError primitive
+
+**Token 新增 / 修订**：
+- `ColorTokens.surface_workspace`（语义 token，等同 background 守护测试）
+- `IconSize { xs/sm/md/lg/xl }` + `Opacity { disabled/press }`
+- `ThemeKind::DarkMidnight` + `ThemeKind::is_dark()` helper
+
+**测试基线**：601 → **615 tests**（+14 新测试 / 维持现有）
+- aish-types: 16 → 26 (+10：ConnectionAlias 5 + HostCapabilities 5)
+- aish-ui: 288 → 297 (+9：IconSize/Opacity 2 + InlineError 2 +
+  dark_midnight 4 + surface_workspace 1)
+- aish-app: 184 → 185 (+1)
+
+**Lessons**：
+
+- **三次「aish 现状比预估更完整」**：Phase 0 持久化 / Badge / EmptyState
+  都已存在。教训：spec 阶段要先 grep / read 现状再立 scope，不要凭印象
+  写 scope。每次发现都得修订原计划范围
+- **paseo notes 推荐顺序 ≠ 实施时实际落地**：notes 说做 A→B→D→E→C→F→G，
+  实际 D 合到 A、C 跳过（已有）、F 只做 partial。**实施时随时根据现状
+  调整顺序和范围，notes 是参考不是合同**
+- **GPUI popover overlay 正确姿势**：`deferred()` + `anchored()` +
+  `viewport_size` 三件套缺一不可。`.absolute().size_full()` 看似全屏但
+  实际只覆盖最近 relative 父容器；GPUI paint 顺序按 view tree，需要
+  deferred 才能推到最上层
+- **token 不强制迁移有「死代码」风险**：B commit 加了 token 但 callsite
+  没动，用户验收时「看不到效果」。教训：加 token 时**立即至少迁移一处
+  caller 验证可用**，避免 token 加完成为 orphan 设施。后续 93768f3 系统
+  迁移补救
+- **「视觉 overlay opacity」vs「state opacity」边界**：button disabled
+  0.6 是状态 → 走 token；scrollbar idle/hover 0.5/0.9 是 caller 决定的
+  视觉效果 → view-level 硬编码。charter §13 forbidden 明确这条
+- **WezTerm 比 paseo 是更直接的 Rust 对标**：paseo 是 Node.js / TypeScript，
+  调研价值在「设计语言 + capability flag」；WezTerm 是 Rust 同类终端项目，
+  调研价值在「daemon 架构 + 二进制 codec + UDS 抽象」。两个 repo 各自
+  borrowing 的维度不同
+- **「按顺序推进」用户意图判读**：用户说「按顺序推进」我应该执行整个
+  sequence 不再每步确认，但需要遇到「明显视觉变化的 trade-off」（如 radio
+  disabled 0.5→0.6）时仍主动告知。中间发现已有 primitive（Badge /
+  EmptyState）也是「跳过 + 报告」而非「问要不要跳过」
 
 - **范围**：让 aish 在 macOS / Windows / Linux 各自呈现 OS native 体验，覆盖
   键盘 / 鼠标 / 字体 / 窗口 / UI 5 层。无 spec/plan，按 /loop dynamic mode
@@ -376,6 +540,28 @@
        方块（U+2327 走系统 Segoe UI Symbol 兜底）
     2. terminal 内 `echo "⌧ ⊟ ⎇ ⌘ ◐ ♣"` 全部有 glyph 不 tofu
     3. terminal cell 对齐不破坏（fallback 仅渲染层挂、metric 不变）
+
+### M38 follow-up 待处理（manual GUI 验收 + 后续小项）
+
+- **Manual 视觉验收 pending**（用户跑 GUI）：
+  1. 设置 → 外观 → 深色模式 on → 出现「深色变体」select，选 Midnight
+     整 UI 变深紫蓝 + 加亮 indigo accent，dark default vs midnight 视觉
+     差异明显
+  2. 切到 Light → 深色变体 select 自动隐藏；切回 Dark → select 记得上次
+     选择（state 跨切换保留）
+  3. 任何切换重启 aish 都持久保留（写盘 app_state.toml theme 字段）
+  4. Settings dropdown 弹出时不被旁边的「减少动画」switch 透出来 / 不被
+     覆盖（popover overlay 修复验证）
+  5. host form 输错 host / port → 字段下方红字是 Caption (12px) 不是
+     Body (13px)（InlineError 视觉验证）
+  6. radio disabled state（如有 disabled radio 的 UI）opacity 0.6 跟
+     Button/IconButton disabled 一致（之前 0.5）
+- **可选 follow-up**（独立价值，等触发再做）：
+  - Light theme 完整调优（M35 T17 标记实验性 7 token 未调，midnight 不
+    依赖此项）
+  - daemon 化 Phase 1+（spec brainstorm 状态，等 CLI / MCP 真实需求）
+  - 更多 callsite 迁移到 IconSize token（current 4 处迁移 + 1 处 outlier
+    home.rs 22px hero icon 不迁移）
 
 ### hover leave fade-out (motion 系统补完)（2026-05-15）— ✅ 已完成
 - 范围：M30-M34 motion 系统最后补完 — 5 个 entity 组件（Button /
