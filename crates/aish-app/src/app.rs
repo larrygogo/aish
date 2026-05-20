@@ -77,8 +77,11 @@ pub fn run() {
             // M30：同时回灌 reduced_motion 偏好（None / Some(false) 都视为 false）。
             // 注意：load_app_state 还会在下面被复用读 recent，重复 IO 但极便宜。
             let snapshot = crate::app_state_file::load_app_state();
+            // M38 paseo borrowing G: 实验性 dark 变体 "midnight"。当前
+            // 未在 Settings UI 暴露切换，用户手动改 app_state.toml 启用。
             let mut init_theme = match snapshot.theme.as_deref() {
                 Some("light") => aish_ui::Theme::light(),
+                Some("midnight") => aish_ui::Theme::dark_midnight(),
                 _ => aish_ui::Theme::dark(),
             };
             init_theme.reduced_motion = snapshot.reduced_motion.unwrap_or(false);

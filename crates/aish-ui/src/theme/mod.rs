@@ -2,6 +2,7 @@
 
 mod anatomy;
 mod dark;
+mod dark_midnight;
 mod light;
 mod motion;
 mod tokens;

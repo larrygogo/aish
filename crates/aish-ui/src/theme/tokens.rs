@@ -170,10 +170,23 @@ impl Default for Opacity {
 
 /// 主题种类。运行时切换 dark / light 时，view 可 `theme(cx).kind` 查询当前
 /// 主题决定特定行为（如 settings switch 的 checked 状态）。
+///
+/// **DarkMidnight** 是 M38 paseo borrowing G 引入的实验性 dark 变体，深紫蓝
+/// surface + 加亮 indigo accent。当前未在 Settings UI 暴露切换，用户可手动
+/// 编辑 app_state.toml 设 `theme = "midnight"` 启用。
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ThemeKind {
     Dark,
     Light,
+    DarkMidnight,
+}
+
+impl ThemeKind {
+    /// 当前主题是否属于「dark family」（dark / dark_midnight 等）。
+    /// 用于 caller 决定 dark/light bifurcation 时省略对 midnight 单独处理。
+    pub fn is_dark(self) -> bool {
+        matches!(self, ThemeKind::Dark | ThemeKind::DarkMidnight)
+    }
 }
 
 pub struct Theme {
@@ -215,10 +228,8 @@ impl gpui::Global for Theme {}
 /// .shadow(elevation_2(theme(cx).kind))
 /// ```
 pub fn elevation_1(kind: ThemeKind) -> Vec<BoxShadow> {
-    let alpha = match kind {
-        ThemeKind::Dark => 0.16,
-        ThemeKind::Light => 0.08,
-    };
+    // M38 paseo borrowing G: DarkMidnight 走 dark family alpha
+    let alpha = if kind.is_dark() { 0.16 } else { 0.08 };
     vec![BoxShadow {
         color: hsla(0.0, 0.0, 0.0, alpha),
         offset: point(px(0.0), px(1.0)),
@@ -229,10 +240,7 @@ pub fn elevation_1(kind: ThemeKind) -> Vec<BoxShadow> {
 
 /// elevation-2 — popover / dropdown 用。
 pub fn elevation_2(kind: ThemeKind) -> Vec<BoxShadow> {
-    let alpha = match kind {
-        ThemeKind::Dark => 0.50,
-        ThemeKind::Light => 0.15,
-    };
+    let alpha = if kind.is_dark() { 0.50 } else { 0.15 };
     vec![BoxShadow {
         color: hsla(0.0, 0.0, 0.0, alpha),
         offset: point(px(0.0), px(4.0)),
@@ -243,10 +251,7 @@ pub fn elevation_2(kind: ThemeKind) -> Vec<BoxShadow> {
 
 /// elevation-3 — modal / toast 用，最高层悬浮。
 pub fn elevation_3(kind: ThemeKind) -> Vec<BoxShadow> {
-    let alpha = match kind {
-        ThemeKind::Dark => 0.65,
-        ThemeKind::Light => 0.22,
-    };
+    let alpha = if kind.is_dark() { 0.65 } else { 0.22 };
     vec![BoxShadow {
         color: hsla(0.0, 0.0, 0.0, alpha),
         offset: point(px(0.0), px(8.0)),

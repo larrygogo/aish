@@ -58,23 +58,28 @@ pub const DEFAULT_BACKGROUND_LIGHT: u32 = 0xffffff;
 /// 按 theme kind 取 palette / fg / bg。grid_renderer 在 paint phase 调
 /// `aish_ui::theme(cx).kind` 拿到 kind 后传入。
 pub fn palette_for(kind: aish_ui::ThemeKind) -> [u32; 16] {
-    match kind {
-        aish_ui::ThemeKind::Dark => DEFAULT_PALETTE_DARK,
-        aish_ui::ThemeKind::Light => DEFAULT_PALETTE_LIGHT,
+    // M38 paseo borrowing G: DarkMidnight 走 dark family —— 终端 ANSI 调色板
+    // 跨 dark variant 共用（节省维护 + 视觉锚点跨主题一致）
+    if kind.is_dark() {
+        DEFAULT_PALETTE_DARK
+    } else {
+        DEFAULT_PALETTE_LIGHT
     }
 }
 
 pub fn default_foreground_for(kind: aish_ui::ThemeKind) -> u32 {
-    match kind {
-        aish_ui::ThemeKind::Dark => DEFAULT_FOREGROUND_DARK,
-        aish_ui::ThemeKind::Light => DEFAULT_FOREGROUND_LIGHT,
+    if kind.is_dark() {
+        DEFAULT_FOREGROUND_DARK
+    } else {
+        DEFAULT_FOREGROUND_LIGHT
     }
 }
 
 pub fn default_background_for(kind: aish_ui::ThemeKind) -> u32 {
-    match kind {
-        aish_ui::ThemeKind::Dark => DEFAULT_BACKGROUND_DARK,
-        aish_ui::ThemeKind::Light => DEFAULT_BACKGROUND_LIGHT,
+    if kind.is_dark() {
+        DEFAULT_BACKGROUND_DARK
+    } else {
+        DEFAULT_BACKGROUND_LIGHT
     }
 }
 
@@ -84,11 +89,13 @@ pub fn default_background_for(kind: aish_ui::ThemeKind) -> u32 {
 pub fn selection_bg_for(kind: aish_ui::ThemeKind) -> gpui::Hsla {
     use gpui::hsla;
     // hue 232° = Linear indigo (#5E6AD2)，与 theme primary 同 hue 跨主题统一
-    match kind {
+    // M38 paseo borrowing G: DarkMidnight 走 dark family
+    if kind.is_dark() {
         // dark：lightness 调到 50% 让选区在 #08090A 黑底上明显
-        aish_ui::ThemeKind::Dark => hsla(232.0 / 360.0, 0.57, 0.50, 0.4),
+        hsla(232.0 / 360.0, 0.57, 0.50, 0.4)
+    } else {
         // light：lightness 调到 70% 让选区在 #FAFBFC 白底上柔和
-        aish_ui::ThemeKind::Light => hsla(232.0 / 360.0, 0.57, 0.72, 0.35),
+        hsla(232.0 / 360.0, 0.57, 0.72, 0.35)
     }
 }
 

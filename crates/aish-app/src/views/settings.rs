@@ -172,7 +172,9 @@ impl Render for SettingsView {
         // 让所有 view 重新 render 拿新 theme。Switch 的 checked 状态直接反映
         // global 真值，不再用 self.dark_mode 镜像（之前 镜像 + disabled 是因为
         // Light 未实现的占位）。
-        let dark = matches!(t.kind, ThemeKind::Dark);
+        // M38 paseo borrowing G: midnight 也算 dark family，让 Settings 切换
+        // 在 midnight 状态下仍显示 dark mode = on（用户没显式切 light）
+        let dark = t.kind.is_dark();
         // M30：reduced_motion 偏好直接从 global Theme 读，Switch 反映真值。
         let reduced_motion = t.reduced_motion;
 
@@ -222,6 +224,8 @@ impl Render for SettingsView {
                 let mut new_theme = match kind {
                     ThemeKind::Dark => Theme::dark(),
                     ThemeKind::Light => Theme::light(),
+                    // M38 paseo borrowing G: midnight 是 dark variant
+                    ThemeKind::DarkMidnight => Theme::dark_midnight(),
                 };
                 new_theme.reduced_motion = new_reduced;
                 cx.set_global(new_theme);
