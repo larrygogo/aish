@@ -325,7 +325,9 @@ impl Dialog {
         let title = self.title.clone();
         let body = self.body.take();
         let width = self.width;
-        let radius_lg = t.radius.lg;
+        // M39 Phase 3: dialog 圆角从 t.radius.lg (8) → t.anatomy.dialog.radius (12)
+        // modal 是主角，更软的角强化"浮起"感（Warp 风）
+        let dialog_radius = t.anatomy.dialog.radius;
         let popover_bg = t.colors.popover;
         let border_color = t.colors.border;
         let theme_kind = t.kind;
@@ -367,7 +369,7 @@ impl Dialog {
                 .w(width)
                 .max_h(gpui::px(640.0))
                 .bg(popover_bg)
-                .rounded(radius_lg)
+                .rounded(dialog_radius)
                 .border_1()
                 .border_color(border_color)
                 // M24 elevation-3 — modal 顶层悬浮

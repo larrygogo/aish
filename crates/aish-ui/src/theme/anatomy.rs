@@ -24,6 +24,11 @@ pub struct CardAnatomy {
     pub body_py: Pixels,
     pub footer_px: Pixels,
     pub footer_py: Pixels,
+    /// Card 圆角档位。M39 Phase 3 (ADR-004 C): card 比全局 radius.lg (8)
+    /// 大一档到 10，让容器视觉更柔（Warp 风 + Linear 风都偏 8-10 区间，
+    /// 超 12 易显 marketing）。button 等小元素仍用 radius.md (6) 保留 dev
+    /// tool 精确感。
+    pub radius: Pixels,
 }
 
 impl Default for CardAnatomy {
@@ -36,6 +41,8 @@ impl Default for CardAnatomy {
             body_py: px(12.0),
             footer_px: px(16.0),
             footer_py: px(10.0),
+            // M39 Phase 3: 8 → 10
+            radius: px(10.0),
         }
     }
 }
@@ -48,6 +55,10 @@ pub struct DialogAnatomy {
     pub body_py: Pixels,
     pub footer_px: Pixels,
     pub footer_py: Pixels,
+    /// Dialog 圆角档位。M39 Phase 3 (ADR-004 C): dialog 比 Card 再大一档到
+    /// 12 — modal 是主角，更软的角强化"浮起"感，且跟 dialog 比 card 松
+    /// 一档的 body_py 节奏（16 vs 12）呼应。
+    pub radius: Pixels,
 }
 
 impl Default for DialogAnatomy {
@@ -60,6 +71,8 @@ impl Default for DialogAnatomy {
             body_py: px(16.0),
             footer_px: px(16.0),
             footer_py: px(12.0),
+            // M39 Phase 3: 8 → 12（比 Card 再大一档）
+            radius: px(12.0),
         }
     }
 }
@@ -202,6 +215,8 @@ mod tests {
         assert_eq!(c.body_py, px(12.0));
         assert_eq!(c.footer_px, px(16.0));
         assert_eq!(c.footer_py, px(10.0));
+        // M39 Phase 3: card radius 10
+        assert_eq!(c.radius, px(10.0));
     }
 
     #[test]
@@ -213,6 +228,8 @@ mod tests {
         assert_eq!(d.body_py, px(16.0));
         assert_eq!(d.footer_px, px(16.0));
         assert_eq!(d.footer_py, px(12.0));
+        // M39 Phase 3: dialog radius 12 (比 card 大一档)
+        assert_eq!(d.radius, px(12.0));
     }
 
     #[test]
@@ -221,6 +238,30 @@ mod tests {
         let card = CardAnatomy::default();
         let dialog = DialogAnatomy::default();
         assert!(dialog.body_py > card.body_py);
+    }
+
+    #[test]
+    fn dialog_radius_larger_than_card_radius() {
+        // M39 Phase 3 设计契约：dialog 圆角 > card 圆角，强化 modal 主角感
+        let card = CardAnatomy::default();
+        let dialog = DialogAnatomy::default();
+        assert!(
+            dialog.radius > card.radius,
+            "dialog radius {:?} 应该 > card radius {:?} (modal 主角更软)",
+            dialog.radius,
+            card.radius
+        );
+    }
+
+    #[test]
+    fn anatomy_radius_warp_friendly_range() {
+        // M39 Phase 3 视觉范围契约：card / dialog radius 在 [10, 14] 区间
+        // - 下限 10：保持 Warp 风容器柔感（< 10 太硬）
+        // - 上限 14：避免 marketing site 风（>= 14 易显消费品调性）
+        let card = CardAnatomy::default();
+        let dialog = DialogAnatomy::default();
+        assert!(card.radius >= px(8.0) && card.radius <= px(14.0));
+        assert!(dialog.radius >= px(8.0) && dialog.radius <= px(14.0));
     }
 
     #[test]

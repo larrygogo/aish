@@ -118,7 +118,10 @@ impl RenderOnce for Card {
             .flex()
             .flex_col()
             .bg(t.colors.card)
-            .rounded(t.radius.lg);
+            // M39 Phase 3: card 圆角从 t.radius.lg (8) → t.anatomy.card.radius (10)
+            // 容器视觉更柔（Warp 风），button 等小元素仍用 radius.md (6) 保留
+            // dev tool 精确感
+            .rounded(t.anatomy.card.radius);
 
         match self.variant {
             CardVariant::Default => {}
