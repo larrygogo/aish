@@ -16,9 +16,9 @@
 use std::rc::Rc;
 
 use gpui::{
-    anchored, div, point, prelude::*, px, Anchor, AnchoredPositionMode, AnyElement, App, Bounds,
-    Context, FocusHandle, Focusable, IntoElement, KeyDownEvent, MouseButton, MouseDownEvent,
-    Pixels, Window,
+    anchored, deferred, div, point, prelude::*, px, Anchor, AnchoredPositionMode, AnyElement, App,
+    Bounds, Context, FocusHandle, Focusable, IntoElement, KeyDownEvent, MouseButton,
+    MouseDownEvent, Pixels, Window,
 };
 
 use crate::theme::theme;
@@ -175,47 +175,70 @@ impl Render for Popover {
         let border_color = t.colors.border;
         let popover_bg = t.colors.popover;
         let radius_md = t.radius.md;
+        // M38: backdrop 全屏覆盖 viewport（之前 .absolute().size_full() 只能盖
+        // popover 自身父容器范围 — 若 popover 是 inline child（如 Select 内嵌），
+        // 旁边的兄弟元素会从背景透出来，且 paint 顺序上后渲染的兄弟会盖在
+        // popover 上面。修复：viewport_size 全屏 backdrop + deferred priority
+        // 让整层 paint 在最后（真正的 overlay 顶层）。
+        let viewport = window.viewport_size();
 
-        div()
-            .absolute()
-            .top_0()
-            .left_0()
-            .size_full()
-            .occlude()
-            .track_focus(&self.focus_handle)
-            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
-                this.handle_key(ev, window, cx);
-            }))
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _ev: &MouseDownEvent, window, cx| {
-                    // backdrop click → 关闭
-                    this.close(cx);
-                    this.fire_close(window, cx);
-                }),
-            )
-            .child(
-                anchored()
-                    .position_mode(AnchoredPositionMode::Window)
-                    .position(position)
-                    .anchor(anchor)
-                    .snap_to_window()
-                    .child(
-                        div()
-                            .bg(popover_bg)
-                            .rounded(radius_md)
-                            .border_1()
-                            .border_color(border_color)
-                            // M24 elevation-2 — popover / dropdown 中层浮起
-                            .shadow(crate::theme::elevation_2(t.kind))
-                            .on_mouse_down(MouseButton::Left, |_ev, _w, cx| {
-                                // 阻止冒泡到 backdrop 关闭
-                                cx.stop_propagation();
-                            })
-                            .when_some(content, |d, c| d.child(c)),
-                    ),
-            )
-            .into_any_element()
+        deferred(
+            div()
+                .child(
+                    // backdrop layer — viewport 全屏，遮挡背景 click + 提供
+                    // backdrop click-to-close 表现
+                    anchored()
+                        .position_mode(AnchoredPositionMode::Window)
+                        .position(point(px(0.0), px(0.0)))
+                        .child(
+                            div()
+                                .w(viewport.width)
+                                .h(viewport.height)
+                                .occlude()
+                                .track_focus(&self.focus_handle)
+                                .on_key_down(cx.listener(
+                                    |this, ev: &KeyDownEvent, window, cx| {
+                                        this.handle_key(ev, window, cx);
+                                    },
+                                ))
+                                .on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener(
+                                        |this, _ev: &MouseDownEvent, window, cx| {
+                                            // backdrop click → 关闭
+                                            this.close(cx);
+                                            this.fire_close(window, cx);
+                                        },
+                                    ),
+                                ),
+                        ),
+                )
+                .child(
+                    // dropdown content layer — anchored 到 trigger 旁边
+                    anchored()
+                        .position_mode(AnchoredPositionMode::Window)
+                        .position(position)
+                        .anchor(anchor)
+                        .snap_to_window()
+                        .child(
+                            div()
+                                .bg(popover_bg)
+                                .rounded(radius_md)
+                                .border_1()
+                                .border_color(border_color)
+                                // M24 elevation-2 — popover / dropdown 中层浮起
+                                .shadow(crate::theme::elevation_2(t.kind))
+                                .occlude()
+                                .on_mouse_down(MouseButton::Left, |_ev, _w, cx| {
+                                    // 阻止冒泡到 backdrop 关闭
+                                    cx.stop_propagation();
+                                })
+                                .when_some(content, |d, c| d.child(c)),
+                        ),
+                ),
+        )
+        .with_priority(1)
+        .into_any_element()
     }
 }
 
