@@ -258,7 +258,7 @@ aish 的状态呈现已经成体系（M28 state design），4 类：
 | **Page-level 通知** | `toast_info` / `toast_warning` / `toast_error` | `aish_ui::toast` |
 | **Empty / Error 占位** | `EmptyState::new(id)` / `ErrorState::new(id)` | `components/empty_state.rs` |
 | **Inline loading** | `Skeleton`（list 行）或 `Body + muted_fg + "加载中..."` 文字 | `components/skeleton.rs` |
-| **Inline field error**（计划中） | TBD —— 表单字段下方单行 destructive xs | 暂未抽 primitive |
+| **Inline field error** | `InlineError::new("msg")` —— 字段下方单行 Caption + destructive | `components/inline_error.rs` |
 
 **Disabled state**：所有 disabled 走 **opacity 50%**，绝不改色。
 ```rust

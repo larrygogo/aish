@@ -915,14 +915,7 @@ fn field_row(
                 .child(label),
         )
         .child(input)
-        .when_some(error, |d, msg| {
-            d.child(
-                div()
-                    .typography(aish_ui::TypeRole::Body, t)
-                    .text_color(t.colors.destructive)
-                    .child(msg),
-            )
-        })
+        .when_some(error, |d, msg| d.child(aish_ui::InlineError::new(msg)))
 }
 
 fn keyfile_row(
