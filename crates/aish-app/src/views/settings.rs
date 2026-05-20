@@ -14,7 +14,7 @@
 //! （tab 操作 + 终端粘贴）。
 
 use aish_ui::theme::ThemeKind;
-use aish_ui::{theme, Button, Card, Kbd, Switch, Theme, TypographyExt};
+use aish_ui::{theme, Button, Card, Kbd, Select, Switch, Theme, TypographyExt};
 use gpui::{div, prelude::*, px, AnyElement, Context, Entity, IntoElement, SharedString, Window};
 
 pub struct SettingsView {
@@ -23,6 +23,9 @@ pub struct SettingsView {
     /// M31：About section 两个 secondary button entity（press feedback 80ms）。
     open_config_btn: Entity<Button>,
     open_github_btn: Entity<Button>,
+    /// M38 paseo borrowing G UI: 深色变体选择器（"默认" / "Midnight"）。
+    /// 仅在 dark mode = on 时显示。on_change 直接切 Theme global + 写盘。
+    theme_variant_select: Entity<Select>,
 }
 
 impl SettingsView {
@@ -50,10 +53,43 @@ impl SettingsView {
             });
             b
         });
+
+        // M38 paseo borrowing G UI: 深色变体选择器
+        // initial 状态读 app_state.toml — "midnight" → idx 1，其他 → idx 0
+        let initial_variant_idx =
+            if crate::app_state_file::load_app_state().theme.as_deref() == Some("midnight") {
+                1
+            } else {
+                0
+            };
+        let theme_variant_select = cx.new(|cx| {
+            let mut s = Select::new(vec!["默认", "Midnight"], cx);
+            s.set_selected(initial_variant_idx, cx);
+            s.on_change(|idx, _w, cx| {
+                // idx: 0 = dark default, 1 = midnight
+                // 切深色变体时 dark mode 必然 on（select 只在 dark family 显示）
+                let cur_reduced = aish_ui::theme(cx).reduced_motion;
+                let theme_key = if *idx == 1 { "midnight" } else { "dark" };
+                let mut new_theme = if *idx == 1 {
+                    Theme::dark_midnight()
+                } else {
+                    Theme::dark()
+                };
+                new_theme.reduced_motion = cur_reduced;
+                cx.set_global(new_theme);
+                cx.refresh_windows();
+                let mut snapshot = crate::app_state_file::load_app_state();
+                snapshot.theme = Some(theme_key.to_string());
+                crate::app_state_file::save_app_state(&snapshot);
+            });
+            s
+        });
+
         Self {
             scrollbar: aish_ui::ScrollbarHandle::new(),
             open_config_btn,
             open_github_btn,
+            theme_variant_select,
         }
     }
 }
@@ -192,16 +228,24 @@ impl Render for SettingsView {
         // 让重启保留选择。
         let dark_switch = Switch::new("settings-dark-mode")
             .checked(dark)
-            .on_change(cx.listener(|_this, new_value: &bool, _w, cx| {
+            .on_change(cx.listener(|this, new_value: &bool, _w, cx| {
                 let dark_now = *new_value;
                 // 切主题时**保留** reduced_motion 偏好（dark/light Theme
                 // constructor 初始化为 false，会丢用户选择）
                 let cur_reduced = theme(cx).reduced_motion;
-                let mut new_theme = if dark_now {
-                    Theme::dark()
+                // M38 paseo borrowing G UI: 切到 dark 时根据深色变体 select
+                // 当前值决定走 Theme::dark() 还是 Theme::dark_midnight()
+                let (new_theme, theme_key): (Theme, &str) = if dark_now {
+                    let variant_idx = this.theme_variant_select.read(cx).selected_index();
+                    if variant_idx == 1 {
+                        (Theme::dark_midnight(), "midnight")
+                    } else {
+                        (Theme::dark(), "dark")
+                    }
                 } else {
-                    Theme::light()
+                    (Theme::light(), "light")
                 };
+                let mut new_theme = new_theme;
                 new_theme.reduced_motion = cur_reduced;
                 cx.set_global(new_theme);
                 // refresh_windows 让所有 view 重 render 拿新 theme global。
@@ -209,7 +253,7 @@ impl Render for SettingsView {
                 cx.refresh_windows();
                 // 持久化：load 当前 state、改 theme 字段、save。
                 let mut snapshot = crate::app_state_file::load_app_state();
-                snapshot.theme = Some(if dark_now { "dark" } else { "light" }.to_string());
+                snapshot.theme = Some(theme_key.to_string());
                 crate::app_state_file::save_app_state(&snapshot);
             }))
             .into_any_element();
@@ -236,6 +280,18 @@ impl Render for SettingsView {
             }))
             .into_any_element();
 
+        // M38 paseo borrowing G UI: 深色变体 select 行（仅 dark family 时显示）
+        let variant_select_row = if dark {
+            Some(control_row(
+                "深色变体",
+                Some("默认 indigo / Midnight 深紫蓝 + 加亮 accent"),
+                self.theme_variant_select.clone().into_any_element(),
+                t,
+            ))
+        } else {
+            None
+        };
+
         let appearance_card = Card::new("settings-appearance")
             .outlined()
             .no_padding() // M27: section_header + row helpers 都自带 px_4，opt-out 防双重
@@ -254,6 +310,7 @@ impl Render for SettingsView {
                         dark_switch,
                         t,
                     ))
+                    .when_some(variant_select_row, |body, row| body.child(row))
                     .child(control_row(
                         "减少动画",
                         Some("关闭 dialog 入场 / toast 出现等动画"),
