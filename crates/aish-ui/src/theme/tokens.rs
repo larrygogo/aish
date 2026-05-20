@@ -45,6 +45,11 @@ pub struct ColorTokens {
     // 仅 sidebar 容器使用，main 区仍纯 background。
     // light theme 暂同 background（不引入渐变风险，与 T17 light 实验状态对齐）。
     pub sidebar_bg_top: Hsla,
+    /// terminal / workspace 主区背景语义（M38 paseo borrowing 落地）。
+    /// 当前等同 `background`，留独立语义位置以便未来微调（如 tmux attach
+    /// 时偏色、fullscreen 模式不同 tint 等）—— 无需修改全 view 代码。
+    /// 借鉴 paseo `surfaceWorkspace` 的命名。
+    pub surface_workspace: Hsla,
 }
 
 #[derive(Clone, Copy)]

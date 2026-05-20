@@ -63,6 +63,9 @@ impl Theme {
                 // M35.1 D1: light theme 暂同 background — 不引入渐变风险，
                 // 与 T17 light 实验状态对齐（plan 范围仅 dark theme）。
                 sidebar_bg_top: hex(0xfafbfc),
+                // M38 paseo borrowing E: terminal/workspace 区背景。当前等同
+                // background，留语义位置便于未来差异化。
+                surface_workspace: hex(0xfafbfc),
             },
             radius: Radius::default(),
             spacing: Spacing::default(),

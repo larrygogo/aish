@@ -72,6 +72,9 @@ impl Theme {
                 // M35.1 D1: sidebar 顶色，比 background #08090a 亮 ΔL≈2，
                 // 配合 linear_gradient(180°) 从 top 渐到 background 形成 elevation
                 sidebar_bg_top: hex(0x0a0b0e),
+                // M38 paseo borrowing E: terminal/workspace 区背景。当前等同
+                // background，留语义位置便于未来差异化。
+                surface_workspace: hex(0x08090a),
             },
             radius: Radius::default(),
             spacing: Spacing::default(),
@@ -165,6 +168,15 @@ mod tests {
         let t = Theme::dark();
         // M17：accent_active 比 accent 更深（容器按下"沉下去"，与 M15 系列变亮方向相反）
         assert!(t.colors.accent_active.l < t.colors.accent.l);
+    }
+
+    #[test]
+    fn dark_surface_workspace_equals_background_initially() {
+        // M38 paseo borrowing E: surface_workspace 默认 = background，
+        // 留语义位置便于未来差异化。该断言保护：如果有人主动差异化
+        // workspace 色，必须显式更新 / 移除此测试，强制 design review。
+        let t = Theme::dark();
+        assert_eq!(t.colors.surface_workspace, t.colors.background);
     }
 
     #[test]
