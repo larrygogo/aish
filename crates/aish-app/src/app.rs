@@ -632,11 +632,21 @@ impl Render for RootView {
 
         // 外层：sidebar + 主区横排 + 背景 aurora 光晕层
         // M37: aurora glassmorphism 模拟 — GPUI 无 backdrop-filter blur，
-        // 用 2 层 absolute linear_gradient 叠出"色斑光晕"模拟玻璃质感的
+        // 用多层 absolute linear_gradient 叠出"色斑光晕"模拟玻璃质感的
         // 底层色相分布。后续卡片可以半透明透出这层光晕呈现玻璃感。
-        // M39 Phase 2: aurora 配色从硬编码 indigo+cyan 改为 ColorTokens
-        // aurora_a / aurora_b，让 aurora 跟当前 theme.kind 联动（default
-        // dark 冷双色 / midnight 紫蓝 / warp 紫+粉暖双色 / light 极淡）
+        //
+        // M39 Phase 2: aurora 配色抽 ColorTokens.aurora_a / aurora_b 跟 theme
+        // 联动（default 冷双色 / midnight 紫蓝 / warp 紫+粉 / light 极淡）。
+        //
+        // M39 Phase 4.1 (用户截图反馈): 原 2 layer 对角分布太对称、视觉均匀，
+        // 改 4 layer 不规则布局做 organic 不均匀光斑（模拟 radial gradient，
+        // GPUI 无 radial 只能 linear 多层叠加）：
+        // - Layer 1 (主光斑): top-left 大块 aurora_a
+        // - Layer 2 (副光斑): bottom-right 中块 aurora_b
+        // - Layer 3 (装饰): center-bottom 小块 aurora_a × 0.5 alpha
+        // - Layer 4 (装饰): top-right 小块 aurora_b × 0.5 alpha
+        // 每层不同 size / 不同 angle / 不同位置 = 非对称 organic 感
+        // gradient stop 从 0.0 → 0.55-0.65 让边界更紧 ≈ 模拟圆斑
         let aurora_a = colors.aurora_a;
         let aurora_b = colors.aurora_b;
         let main = div()
@@ -647,34 +657,60 @@ impl Render for RootView {
             // root bg 跟随 theme：dark=#050505 / light=#fafafa（colors.background
             // global，theme 切换时 refresh_windows 让所有 view re-render 拿新值）
             .bg(colors.background)
-            // Aurora layer 1: top-left brand bloom（主 accent 色光晕）
-            // 拉到 1.4x viewport（130% × 110% 偏移 -20%/-10%），让 gradient
-            // 的 transparent stop 移出视野，消除卡片中间的硬边
+            // Layer 1 主光斑: top-left，大块 1.3× × 1.1×，145°
             .child(
                 div()
                     .absolute()
-                    .top(gpui::relative(-0.2))
-                    .left(gpui::relative(-0.2))
-                    .w(gpui::relative(1.4))
-                    .h(gpui::relative(1.2))
+                    .top(gpui::relative(-0.25))
+                    .left(gpui::relative(-0.15))
+                    .w(gpui::relative(1.3))
+                    .h(gpui::relative(1.1))
                     .bg(gpui::linear_gradient(
-                        135.0,
+                        145.0,
                         gpui::linear_color_stop(aurora_a, 0.0),
-                        gpui::linear_color_stop(aurora_a.opacity(0.0), 1.0),
+                        gpui::linear_color_stop(aurora_a.opacity(0.0), 0.55),
                     )),
             )
-            // Aurora layer 2: bottom-right 补色 bloom（让光晕有 hue 层次）
+            // Layer 2 副光斑: bottom-right，中块 0.85× × 0.95×，305°（不规则 angle）
             .child(
                 div()
                     .absolute()
-                    .bottom(gpui::relative(-0.2))
-                    .right(gpui::relative(-0.2))
-                    .w(gpui::relative(1.4))
-                    .h(gpui::relative(1.2))
+                    .bottom(gpui::relative(-0.15))
+                    .right(gpui::relative(-0.25))
+                    .w(gpui::relative(0.85))
+                    .h(gpui::relative(0.95))
                     .bg(gpui::linear_gradient(
-                        315.0,
+                        305.0,
                         gpui::linear_color_stop(aurora_b, 0.0),
-                        gpui::linear_color_stop(aurora_b.opacity(0.0), 1.0),
+                        gpui::linear_color_stop(aurora_b.opacity(0.0), 0.6),
+                    )),
+            )
+            // Layer 3 装饰光斑: center-bottom 偏左，小块 0.5×，200°，aurora_a 半透明
+            .child(
+                div()
+                    .absolute()
+                    .bottom(gpui::relative(-0.05))
+                    .left(gpui::relative(0.35))
+                    .w(gpui::relative(0.5))
+                    .h(gpui::relative(0.5))
+                    .bg(gpui::linear_gradient(
+                        200.0,
+                        gpui::linear_color_stop(aurora_a.opacity(0.5), 0.0),
+                        gpui::linear_color_stop(aurora_a.opacity(0.0), 0.55),
+                    )),
+            )
+            // Layer 4 装饰光斑: top-right 偏内，小块 0.4×，250°，aurora_b 半透明
+            .child(
+                div()
+                    .absolute()
+                    .top(gpui::relative(-0.05))
+                    .right(gpui::relative(0.15))
+                    .w(gpui::relative(0.4))
+                    .h(gpui::relative(0.4))
+                    .bg(gpui::linear_gradient(
+                        250.0,
+                        gpui::linear_color_stop(aurora_b.opacity(0.5), 0.0),
+                        gpui::linear_color_stop(aurora_b.opacity(0.0), 0.55),
                     )),
             )
             .child(self.sidebar_nav.clone())
