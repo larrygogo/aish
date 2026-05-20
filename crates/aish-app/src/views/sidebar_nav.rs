@@ -28,7 +28,7 @@ use std::time::SystemTime;
 use aish_types::{HostId, TabId};
 use aish_ui::{icon, theme, IconName, ListRow, NavItem, TypographyExt};
 use gpui::{
-    div, linear_color_stop, linear_gradient, prelude::*, px, Context, Entity, MouseButton,
+    div, hsla, linear_color_stop, linear_gradient, prelude::*, px, Context, Entity, MouseButton,
     MouseDownEvent, Window,
 };
 
@@ -459,6 +459,19 @@ impl Render for SidebarNavView {
         // sidebar_bg_top → background（OpenSFTP 风 elevation，ΔL≈2）。GPUI 原生
         // 支持 linear_gradient（angle 180° = 朝下，from 在 top，CSS 同等）。
         // 现存 border_r_1 保留（仍作 sidebar/main 物理分隔），与 elevation 互补。
+        //
+        // M39 Phase 4: sidebar 顶加 2px 紫粉 gradient brand bar — aish 不像
+        // 别的终端的视觉签名（Notion / Linear 风格 brand mark）。各 dark
+        // variant 用各自 aurora hue（默认 indigo+cyan / midnight 冷紫 /
+        // warp Warp紫+粉）但 alpha 强化到 1.0，比 aurora 背景显眼。
+        let brand_a = hsla(colors.aurora_a.h, colors.aurora_a.s, colors.aurora_a.l, 1.0);
+        let brand_b = hsla(colors.aurora_b.h, colors.aurora_b.s, colors.aurora_b.l, 1.0);
+        let brand_bar = div().w_full().h(px(2.0)).bg(linear_gradient(
+            90.0, // 水平向右渐变
+            linear_color_stop(brand_a, 0.0),
+            linear_color_stop(brand_b, 1.0),
+        ));
+
         div()
             .w(px(width))
             .h_full()
@@ -471,6 +484,7 @@ impl Render for SidebarNavView {
             ))
             .border_r_1()
             .border_color(colors.border)
+            .child(brand_bar)
             .child(nav_section)
             .children(recent_section)
             .child(div().flex_1())
