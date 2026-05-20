@@ -54,26 +54,24 @@ impl SettingsView {
             b
         });
 
-        // M38 paseo borrowing G UI: 深色变体选择器
-        // initial 状态读 app_state.toml — "midnight" → idx 1，其他 → idx 0
-        let initial_variant_idx =
-            if crate::app_state_file::load_app_state().theme.as_deref() == Some("midnight") {
-                1
-            } else {
-                0
-            };
+        // M38/M39 深色变体选择器
+        // initial 状态读 app_state.toml — 3 选项: 默认 / Midnight / Warp Aurora
+        let initial_variant_idx = match crate::app_state_file::load_app_state().theme.as_deref() {
+            Some("midnight") => 1,
+            Some("warp") => 2,
+            _ => 0,
+        };
         let theme_variant_select = cx.new(|cx| {
-            let mut s = Select::new(vec!["默认", "Midnight"], cx);
+            let mut s = Select::new(vec!["默认", "Midnight", "Warp Aurora"], cx);
             s.set_selected(initial_variant_idx, cx);
             s.on_change(|idx, _w, cx| {
-                // idx: 0 = dark default, 1 = midnight
+                // idx: 0 = dark default, 1 = midnight, 2 = warp
                 // 切深色变体时 dark mode 必然 on（select 只在 dark family 显示）
                 let cur_reduced = aish_ui::theme(cx).reduced_motion;
-                let theme_key = if *idx == 1 { "midnight" } else { "dark" };
-                let mut new_theme = if *idx == 1 {
-                    Theme::dark_midnight()
-                } else {
-                    Theme::dark()
+                let (mut new_theme, theme_key): (Theme, &str) = match *idx {
+                    1 => (Theme::dark_midnight(), "midnight"),
+                    2 => (Theme::dark_warp(), "warp"),
+                    _ => (Theme::dark(), "dark"),
                 };
                 new_theme.reduced_motion = cur_reduced;
                 cx.set_global(new_theme);
@@ -233,14 +231,13 @@ impl Render for SettingsView {
                 // 切主题时**保留** reduced_motion 偏好（dark/light Theme
                 // constructor 初始化为 false，会丢用户选择）
                 let cur_reduced = theme(cx).reduced_motion;
-                // M38 paseo borrowing G UI: 切到 dark 时根据深色变体 select
-                // 当前值决定走 Theme::dark() 还是 Theme::dark_midnight()
+                // M38/M39: 切到 dark 时根据深色变体 select 当前值选 variant
                 let (new_theme, theme_key): (Theme, &str) = if dark_now {
                     let variant_idx = this.theme_variant_select.read(cx).selected_index();
-                    if variant_idx == 1 {
-                        (Theme::dark_midnight(), "midnight")
-                    } else {
-                        (Theme::dark(), "dark")
+                    match variant_idx {
+                        1 => (Theme::dark_midnight(), "midnight"),
+                        2 => (Theme::dark_warp(), "warp"),
+                        _ => (Theme::dark(), "dark"),
                     }
                 } else {
                     (Theme::light(), "light")
@@ -268,8 +265,8 @@ impl Render for SettingsView {
                 let mut new_theme = match kind {
                     ThemeKind::Dark => Theme::dark(),
                     ThemeKind::Light => Theme::light(),
-                    // M38 paseo borrowing G: midnight 是 dark variant
                     ThemeKind::DarkMidnight => Theme::dark_midnight(),
+                    ThemeKind::DarkWarp => Theme::dark_warp(),
                 };
                 new_theme.reduced_motion = new_reduced;
                 cx.set_global(new_theme);

@@ -171,21 +171,25 @@ impl Default for Opacity {
 /// 主题种类。运行时切换 dark / light 时，view 可 `theme(cx).kind` 查询当前
 /// 主题决定特定行为（如 settings switch 的 checked 状态）。
 ///
-/// **DarkMidnight** 是 M38 paseo borrowing G 引入的实验性 dark 变体，深紫蓝
-/// surface + 加亮 indigo accent。当前未在 Settings UI 暴露切换，用户可手动
-/// 编辑 app_state.toml 设 `theme = "midnight"` 启用。
+/// **DarkMidnight**（M38 G）：深紫蓝 surface + 加亮 indigo accent，冷调实验性
+/// 变体。**DarkWarp**（M39 Phase 1）：Warp 风温暖紫 surface + Warp 紫 accent
+/// (#7C5CFC)，暖调实验性变体。两者跟默认 dark 并列，用户在 Settings 切换。
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ThemeKind {
     Dark,
     Light,
     DarkMidnight,
+    DarkWarp,
 }
 
 impl ThemeKind {
-    /// 当前主题是否属于「dark family」（dark / dark_midnight 等）。
-    /// 用于 caller 决定 dark/light bifurcation 时省略对 midnight 单独处理。
+    /// 当前主题是否属于「dark family」（dark / dark_midnight / dark_warp 等）。
+    /// 用于 caller 决定 dark/light bifurcation 时省略对每个 dark variant 单独处理。
     pub fn is_dark(self) -> bool {
-        matches!(self, ThemeKind::Dark | ThemeKind::DarkMidnight)
+        matches!(
+            self,
+            ThemeKind::Dark | ThemeKind::DarkMidnight | ThemeKind::DarkWarp
+        )
     }
 }
 

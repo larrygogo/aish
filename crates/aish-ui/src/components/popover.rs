@@ -196,20 +196,16 @@ impl Render for Popover {
                                 .h(viewport.height)
                                 .occlude()
                                 .track_focus(&self.focus_handle)
-                                .on_key_down(cx.listener(
-                                    |this, ev: &KeyDownEvent, window, cx| {
-                                        this.handle_key(ev, window, cx);
-                                    },
-                                ))
+                                .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
+                                    this.handle_key(ev, window, cx);
+                                }))
                                 .on_mouse_down(
                                     MouseButton::Left,
-                                    cx.listener(
-                                        |this, _ev: &MouseDownEvent, window, cx| {
-                                            // backdrop click → 关闭
-                                            this.close(cx);
-                                            this.fire_close(window, cx);
-                                        },
-                                    ),
+                                    cx.listener(|this, _ev: &MouseDownEvent, window, cx| {
+                                        // backdrop click → 关闭
+                                        this.close(cx);
+                                        this.fire_close(window, cx);
+                                    }),
                                 ),
                         ),
                 )
