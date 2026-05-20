@@ -33,6 +33,7 @@ uuid = { version = "1.10", features = ["v4", "serde"] }
 dirs = "5.0"
 tempfile = "3.10"
 toml = "0.8"
+petname = { version = "3.0", default-features = false, features = ["default-rng", "default-words"] }
 
 # 本地 crate
 aish-types = { path = "crates/aish-types" }

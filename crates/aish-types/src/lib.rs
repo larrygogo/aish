@@ -54,6 +54,38 @@ impl std::fmt::Display for ConnectionId {
     }
 }
 
+/// 人类可读的连接别名（替代 UUID 在日志 / 未来 CLI 输出里的可读性）。
+///
+/// 形如 `quick-fox-3a7c`：两词宠物名 + 4 位 hex 后缀防同名冲突。
+/// 不取代 `ConnectionId`（仍是 UUID 主键），只作展示用。一个 ConnectionId 对应
+/// 一个稳定 ConnectionAlias 由调用方维护；当前未持久化映射，重启后重新生成。
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct ConnectionAlias(String);
+
+impl ConnectionAlias {
+    /// 用 petname 生成新别名。词表加载失败时 fallback 到 "anon-XXXX"。
+    pub fn generate() -> Self {
+        let words = petname::petname(2, "-").unwrap_or_else(|| "anon".to_string());
+        let suffix = format!("{:04x}", Uuid::new_v4().as_u128() & 0xffff);
+        Self(format!("{}-{}", words, suffix))
+    }
+
+    /// 从已知字符串构造（持久化加载 / 测试用）。
+    pub fn new(s: impl Into<String>) -> Self {
+        Self(s.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for ConnectionAlias {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
 /// UI tab 唯一标识（UUID v4）。
 ///
 /// 每个 tab 独立显示一个视图：默认页（host 卡片）或某个 Connection 的终端。
@@ -231,6 +263,50 @@ mod tests {
         // 这是防止 future 开发者把 host_id 当 conn_id 用的最低限度保险。
         let _h: HostId = HostId::new();
         let _c: ConnectionId = ConnectionId::new();
+    }
+
+    #[test]
+    fn connection_alias_generate_nonempty() {
+        let a = ConnectionAlias::generate();
+        assert!(!a.as_str().is_empty());
+    }
+
+    #[test]
+    fn connection_alias_generate_unique() {
+        // 4 位 hex 后缀提供 65536 种区分，两次 generate 撞名概率 1/65536
+        let a = ConnectionAlias::generate();
+        let b = ConnectionAlias::generate();
+        assert_ne!(a, b, "two generated aliases should differ");
+    }
+
+    #[test]
+    fn connection_alias_format_words_and_hex_suffix() {
+        let a = ConnectionAlias::generate();
+        let s = a.as_str();
+        // 2 词 petname + dash + 4 位 hex 后缀 ⇒ 至少 2 个 dash
+        assert!(s.matches('-').count() >= 2, "expected ≥2 dashes in {}", s);
+        let suffix = s.rsplit('-').next().unwrap();
+        assert_eq!(suffix.len(), 4, "suffix len should be 4: {}", s);
+        assert!(
+            suffix.chars().all(|c| c.is_ascii_hexdigit()),
+            "suffix not hex: {}",
+            suffix
+        );
+    }
+
+    #[test]
+    fn connection_alias_new_and_display() {
+        let a = ConnectionAlias::new("test-name-aabb");
+        assert_eq!(a.as_str(), "test-name-aabb");
+        assert_eq!(a.to_string(), "test-name-aabb");
+    }
+
+    #[test]
+    fn connection_alias_serde_roundtrip() {
+        let a = ConnectionAlias::generate();
+        let json = serde_json::to_string(&a).unwrap();
+        let parsed: ConnectionAlias = serde_json::from_str(&json).unwrap();
+        assert_eq!(a, parsed);
     }
 
     #[test]
