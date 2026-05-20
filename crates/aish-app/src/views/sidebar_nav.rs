@@ -216,10 +216,11 @@ impl Render for SidebarNavView {
         // 同色调），inactive 保持 muted。
         let muted_icon = theme(cx).colors.muted_foreground;
         let primary_icon = theme(cx).colors.primary;
-        // shadcn 参考 size-4 = 16px
+        // M38 paseo borrowing: 用 theme.icon_size.md (16) 替代 hardcode
+        let icon_sz = theme(cx).icon_size.md;
         let make_icon = move |name: IconName, active: bool| {
             let color = if active { primary_icon } else { muted_icon };
-            icon(name).size(px(16.0)).text_color(color)
+            icon(name).size(icon_sz).text_color(color)
         };
 
         // ── Phase B：read theme borrow，block scope → build inner body AnyElement ──

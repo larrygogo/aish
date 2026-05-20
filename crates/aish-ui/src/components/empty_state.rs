@@ -87,7 +87,7 @@ impl RenderOnce for StatusView {
                 .flex()
                 .items_center()
                 .justify_center()
-                .child(icon(icon_name).size(px(18.0)).text_color(icon_color)),
+                .child(icon(icon_name).size(t.icon_size.lg).text_color(icon_color)),
         );
 
         // title — Title3 (14/600/fg)

@@ -2093,7 +2093,11 @@ impl Render for TextInput {
                         .cursor_pointer()
                         .text_color(muted)
                         .hover(move |s| s.bg(hover_bg).text_color(fg))
-                        .child(crate::icons::icon(eye_icon).size(px(14.0)).text_color(muted))
+                        .child(
+                            crate::icons::icon(eye_icon)
+                                .size(t.icon_size.sm)
+                                .text_color(muted),
+                        )
                         .on_mouse_down(
                             MouseButton::Left,
                             cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {

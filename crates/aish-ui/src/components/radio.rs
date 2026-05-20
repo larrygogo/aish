@@ -110,7 +110,9 @@ impl RenderOnce for Radio {
             .child(self.label.clone());
 
         if disabled {
-            row = row.opacity(0.5);
+            // M38 paseo borrowing: 从 0.5 → opacity.disabled (0.6)，统一所有
+            // disabled 元素一致。视觉微变更亮 0.1，跟 Button / IconButton 一致。
+            row = row.opacity(t.opacity.disabled);
         } else {
             // hover：border 切 accent（柔和提示可点）
             let hover_border = t.colors.accent;

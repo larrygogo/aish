@@ -307,7 +307,7 @@ impl Render for IconButton {
                 .on_mouse_down(MouseButton::Left, on_press_listener)
                 .on_hover(on_hover_listener);
         } else {
-            el = el.cursor_not_allowed().opacity(0.6);
+            el = el.cursor_not_allowed().opacity(t.opacity.disabled);
         }
 
         if !need_anim {

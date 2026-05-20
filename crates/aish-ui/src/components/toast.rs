@@ -201,11 +201,11 @@ fn render_toast(toast: Toast, close_btn: Entity<IconButton>, cx: &mut App) -> gp
         .child(
             div()
                 .flex_shrink_0()
-                .w(px(18.0))
-                .h(px(18.0))
+                .w(t.icon_size.lg)
+                .h(t.icon_size.lg)
                 .child(
                     icon(toast.kind.icon_name())
-                        .size(px(18.0))
+                        .size(t.icon_size.lg)
                         .text_color(border_color),
                 ),
         )

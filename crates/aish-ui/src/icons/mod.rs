@@ -208,7 +208,10 @@ impl AssetSource for AishUiAssets {
     }
 }
 
-/// 默认 16×16 尺寸；调用方可链 `.size(...)` 调整。
+/// 默认 16×16 尺寸（等同 `theme.icon_size.md`）。调用方可链
+/// `.size(t.icon_size.X)` 调整 — 5 档可选：xs(12) / sm(14) / md(16) / lg(18)
+/// / xl(20)。本函数因为是 helper 没 `cx` 访问，hardcode 16 跟 `IconSize::md`
+/// 同步维护，未来调整 token 时这里要一起改。
 ///
 /// flex_shrink_0 防御：GPUI svg 在 flex 容器内默认 shrink=1，当父容器空间不够
 /// 时会被压到 width=0（即便 .size() 已固定），触发 'can't render at a zero
