@@ -50,6 +50,16 @@ pub struct ColorTokens {
     /// 时偏色、fullscreen 模式不同 tint 等）—— 无需修改全 view 代码。
     /// 借鉴 paseo `surfaceWorkspace` 的命名。
     pub surface_workspace: Hsla,
+    /// Aurora 背景 layer 1 主色（M37 引入背景光晕，M39 Phase 2 抽 token）。
+    /// 含 alpha — app.rs render 时直接用 `linear_color_stop(aurora_a, 0.0)
+    /// → linear_color_stop(aurora_a.opacity(0.0), 1.0)` 做色彩弥散。
+    /// 各 dark variant 用不同配色（默认: indigo / midnight: 加亮 indigo /
+    /// warp: Warp 紫高饱和）。
+    pub aurora_a: Hsla,
+    /// Aurora 背景 layer 2 补色（同 aurora_a，但 hue 偏一档形成双色光晕）。
+    /// 默认: cyan / midnight: 冷紫 / warp: Warp 粉。alpha 一般比 aurora_a
+    /// 低一档（layer 2 是 layer 1 的辅助）。
+    pub aurora_b: Hsla,
 }
 
 #[derive(Clone, Copy)]

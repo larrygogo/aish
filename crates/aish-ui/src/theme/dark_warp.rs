@@ -68,6 +68,12 @@ impl Theme {
                 sidebar_bg_top: hex(0x120e1f),
                 // surface_workspace 与 background 同
                 surface_workspace: hex(0x0e0a18),
+                // M39 Phase 2: Warp aurora — 紫+粉双色高饱和暖调（ADR-002 C）。
+                // Warp 紫 #7C5CFC (hue 252°) + Warp 粉 #FF7B9F (hue 343°)，
+                // 双色暖 brand 形成 Warp 风视觉签名。alpha 比默认 dark 高一档
+                // （0.25 vs 0.18）让暖调更显眼但仍可读
+                aurora_a: hex(0x7c5cfc).opacity(0.25),
+                aurora_b: hex(0xff7b9f).opacity(0.20),
             },
             radius: Radius::default(),
             spacing: Spacing::default(),
@@ -156,5 +162,32 @@ mod tests {
         // accent_active 比 accent 更深（M17 容器按下"沉下去"语义）
         let t = Theme::dark_warp();
         assert!(t.colors.accent_active.l < t.colors.accent.l);
+    }
+
+    #[test]
+    fn warp_aurora_is_purple_pink_warm_double() {
+        // M39 Phase 2: Warp aurora 是紫+粉暖双色（ADR-002 C）
+        let t = Theme::dark_warp();
+        // aurora_a 应该匹配 primary hue (Warp 紫 ~252°)
+        assert!(
+            (t.colors.aurora_a.h - t.colors.primary.h).abs() < 0.05,
+            "warp aurora_a hue {} 应该跟 primary {} 接近",
+            t.colors.aurora_a.h,
+            t.colors.primary.h
+        );
+        // aurora_b 应该在粉红范围 (hue ~340-350°，即 0.93-0.97)
+        assert!(
+            t.colors.aurora_b.h > 0.92 && t.colors.aurora_b.h < 0.98,
+            "warp aurora_b hue {} 应该在 pink 范围 0.92-0.98",
+            t.colors.aurora_b.h
+        );
+        // aurora alpha 比默认 dark 高一档（暖调更显眼）
+        let dark = Theme::dark();
+        assert!(
+            t.colors.aurora_a.a > dark.colors.aurora_a.a,
+            "warp aurora_a alpha {} 应该 > 默认 dark {}（暖调高饱和）",
+            t.colors.aurora_a.a,
+            dark.colors.aurora_a.a
+        );
     }
 }

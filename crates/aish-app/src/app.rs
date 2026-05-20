@@ -634,9 +634,11 @@ impl Render for RootView {
         // M37: aurora glassmorphism 模拟 — GPUI 无 backdrop-filter blur，
         // 用 2 层 absolute linear_gradient 叠出"色斑光晕"模拟玻璃质感的
         // 底层色相分布。后续卡片可以半透明透出这层光晕呈现玻璃感。
-        let primary = colors.primary; // indigo #5e6ad2
-                                      // opacity 调高到 0.18 / 0.14 让 aurora 在透明 view 下明显可见
-        let cyan_glow: gpui::Hsla = gpui::hsla(190.0 / 360.0, 0.6, 0.45, 0.14);
+        // M39 Phase 2: aurora 配色从硬编码 indigo+cyan 改为 ColorTokens
+        // aurora_a / aurora_b，让 aurora 跟当前 theme.kind 联动（default
+        // dark 冷双色 / midnight 紫蓝 / warp 紫+粉暖双色 / light 极淡）
+        let aurora_a = colors.aurora_a;
+        let aurora_b = colors.aurora_b;
         let main = div()
             .relative()
             .flex()
@@ -645,7 +647,7 @@ impl Render for RootView {
             // root bg 跟随 theme：dark=#050505 / light=#fafafa（colors.background
             // global，theme 切换时 refresh_windows 让所有 view re-render 拿新值）
             .bg(colors.background)
-            // Aurora layer 1: top-left indigo bloom（main brand 色光晕）
+            // Aurora layer 1: top-left brand bloom（主 accent 色光晕）
             // 拉到 1.4x viewport（130% × 110% 偏移 -20%/-10%），让 gradient
             // 的 transparent stop 移出视野，消除卡片中间的硬边
             .child(
@@ -657,11 +659,11 @@ impl Render for RootView {
                     .h(gpui::relative(1.2))
                     .bg(gpui::linear_gradient(
                         135.0,
-                        gpui::linear_color_stop(primary.opacity(0.18), 0.0),
-                        gpui::linear_color_stop(primary.opacity(0.0), 1.0),
+                        gpui::linear_color_stop(aurora_a, 0.0),
+                        gpui::linear_color_stop(aurora_a.opacity(0.0), 1.0),
                     )),
             )
-            // Aurora layer 2: bottom-right cyan bloom（冷色补色让光晕有层次）
+            // Aurora layer 2: bottom-right 补色 bloom（让光晕有 hue 层次）
             .child(
                 div()
                     .absolute()
@@ -671,8 +673,8 @@ impl Render for RootView {
                     .h(gpui::relative(1.2))
                     .bg(gpui::linear_gradient(
                         315.0,
-                        gpui::linear_color_stop(cyan_glow, 0.0),
-                        gpui::linear_color_stop(cyan_glow.opacity(0.0), 1.0),
+                        gpui::linear_color_stop(aurora_b, 0.0),
+                        gpui::linear_color_stop(aurora_b.opacity(0.0), 1.0),
                     )),
             )
             .child(self.sidebar_nav.clone())

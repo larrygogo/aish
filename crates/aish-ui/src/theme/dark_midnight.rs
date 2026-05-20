@@ -14,6 +14,8 @@
 //! 启用方式（暂无 Settings UI 切换）：手动编辑
 //! `{config_dir}/aish/app_state.toml`，设 `theme = "midnight"`。
 
+use gpui::hsla;
+
 use super::tokens::{hex, ColorTokens, FontSize, Radius, Spacing, Theme, ThemeKind};
 
 impl Theme {
@@ -64,6 +66,10 @@ impl Theme {
                 sidebar_bg_top: hex(0x0f111d),
                 // surface_workspace 与 background 同
                 surface_workspace: hex(0x0c0d18),
+                // M39 Phase 2: midnight aurora — 加亮 indigo + 更深紫 layer 2
+                // alpha 比默认 dark 略高（深紫底比中性黑底需要更显眼的 aurora）
+                aurora_a: hex(0x6b7ae0).opacity(0.20),
+                aurora_b: hsla(220.0 / 360.0, 0.5, 0.45, 0.15),
             },
             radius: Radius::default(),
             spacing: Spacing::default(),
