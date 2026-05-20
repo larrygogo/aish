@@ -131,7 +131,7 @@ pub enum SaveError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aish_types::{HostId, SshAuth};
+    use aish_types::{HostCapabilities, HostId, SshAuth};
     use std::path::PathBuf;
     use tempfile::tempdir;
     use uuid::Uuid;
@@ -148,7 +148,7 @@ mod tests {
                 passphrase: String::new(),
             },
             env_profile: None,
-            os_kind: None,
+            capabilities: HostCapabilities::default(),
         }
     }
 
@@ -244,7 +244,7 @@ mod tests {
                 password: password.into(),
             },
             env_profile: None,
-            os_kind: None,
+            capabilities: HostCapabilities::default(),
         }
     }
 

@@ -970,7 +970,11 @@ impl Render for HomeView {
                     // 1. os_kind + SVG → 品牌色背景 + SVG icon
                     // 2. os_kind + 仅 Letter → 单字母 + 品牌色
                     // 3. fallback → label 首字母 + palette 色
-                    let os_avatar = h.os_kind.as_deref().and_then(crate::avatar::os_avatar_for);
+                    let os_avatar = h
+                        .capabilities
+                        .os_kind
+                        .as_deref()
+                        .and_then(crate::avatar::os_avatar_for);
                     let avatar: gpui::AnyElement = match os_avatar {
                         Some(crate::avatar::OsAvatar::Svg { icon, bg }) => div()
                             .w(px(40.0))

@@ -9,7 +9,9 @@
 use std::collections::HashMap;
 use std::time::SystemTime;
 
-use aish_types::{ConnectionId, HostConfig, HostId, RemoteSession, SessionId, TabId};
+use aish_types::{
+    ConnectionId, HostCapabilities, HostConfig, HostId, RemoteSession, SessionId, TabId,
+};
 use alacritty_terminal::event::{Event as TermEvent, EventListener};
 use alacritty_terminal::term::test::TermSize;
 use alacritty_terminal::term::Config as TermConfig;
@@ -393,7 +395,7 @@ impl HostFormDraft {
             user: self.user.trim().into(),
             auth,
             env_profile: None,
-            os_kind: None,
+            capabilities: HostCapabilities::default(),
         })
     }
 }
@@ -944,7 +946,7 @@ mod tests {
                 passphrase: String::new(),
             },
             env_profile: None,
-            os_kind: None,
+            capabilities: HostCapabilities::default(),
         }
     }
 
@@ -1473,7 +1475,7 @@ mod tests {
                 password: "this-should-be-ignored".into(),
             },
             env_profile: None,
-            os_kind: None,
+            capabilities: HostCapabilities::default(),
         };
         let draft = HostFormDraft::from_config(&host);
         assert_eq!(draft.auth_kind, AuthKind::Password);

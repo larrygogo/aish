@@ -239,7 +239,7 @@ impl Handler for NoopHandler {
 mod tests {
     use std::path::PathBuf;
 
-    use aish_types::HostId;
+    use aish_types::{HostCapabilities, HostId};
 
     use super::*;
 
@@ -252,7 +252,7 @@ mod tests {
             user: "test".into(),
             auth,
             env_profile: None,
-            os_kind: None,
+            capabilities: HostCapabilities::default(),
         }
     }
 

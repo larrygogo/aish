@@ -1366,7 +1366,7 @@ mod tests {
                 passphrase: String::new(),
             },
             env_profile: None,
-            os_kind: None,
+            capabilities: aish_types::HostCapabilities::default(),
         };
         let id = cfg.id;
         (AppState::with_hosts(vec![cfg]), id)

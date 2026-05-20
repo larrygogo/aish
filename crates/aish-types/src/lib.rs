@@ -208,6 +208,23 @@ pub enum SshAuth {
     Agent,
 }
 
+/// 远端 host-level 探测能力的集合。**只放跨连接稳定的属性**（比如发行版、
+/// CPU 架构、默认 shell），不放每次连接可能变的运行时状态（tmux mouse /
+/// session 列表等 — 那些归 session-level state，由 actor + state.rs 管）。
+///
+/// Schema 演进规则：append-only — 只增字段、不删字段、不改语义。所有字段
+/// 用 `Option` + `#[serde(default)]`，保证旧 hosts.json 加载不报错。详见
+/// [docs/capability-schema-rules.md](../../../docs/capability-schema-rules.md)。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HostCapabilities {
+    /// 远程系统 /etc/os-release 的 ID 字段（如 "ubuntu" / "debian" / "centos" /
+    /// "alpine" / "arch" / "fedora"...）。首次连上后由 ssh_actor 探测填入；
+    /// 用于 Host 卡片显示发行版 logo。
+    /// `None` = 还未探测过或探测失败 — 下次连接会重试。
+    #[serde(default)]
+    pub os_kind: Option<String>,
+}
+
 /// 主机配置，序列化到 `~/.aish/hosts.json`。**不含任何凭证**。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostConfig {
@@ -218,11 +235,10 @@ pub struct HostConfig {
     pub user: String,
     pub auth: SshAuth,
     pub env_profile: Option<ProfileId>,
-    /// 远程系统 /etc/os-release 的 ID 字段（如 "ubuntu" / "debian" / "centos" /
-    /// "alpine" / "arch" / "fedora"...）。首次连上后由 ssh_actor 探测填入；
-    /// 用于 Host 卡片显示发行版 logo。`None` = 还未探测过或探测失败。
+    /// 探测到的远端 host-level 属性。aish 启动时默认空，连接后由 ssh_actor
+    /// 探测填充并持久化。
     #[serde(default)]
-    pub os_kind: Option<String>,
+    pub capabilities: HostCapabilities,
 }
 
 #[cfg(test)]
@@ -348,11 +364,97 @@ mod tests {
                 passphrase: String::new(),
             },
             env_profile: Some(ProfileId::new("default")),
-            os_kind: None,
+            capabilities: HostCapabilities::default(),
         };
         let json = serde_json::to_string(&cfg).unwrap();
         let parsed: HostConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(cfg, parsed);
+    }
+
+    #[test]
+    fn host_capabilities_default_empty() {
+        let caps = HostCapabilities::default();
+        assert_eq!(caps.os_kind, None);
+    }
+
+    #[test]
+    fn host_capabilities_roundtrip() {
+        let caps = HostCapabilities {
+            os_kind: Some("ubuntu".to_string()),
+        };
+        let json = serde_json::to_string(&caps).unwrap();
+        let parsed: HostCapabilities = serde_json::from_str(&json).unwrap();
+        assert_eq!(caps, parsed);
+    }
+
+    #[test]
+    fn host_config_with_capabilities_roundtrip() {
+        let cfg = HostConfig {
+            id: HostId::new(),
+            label: "vps".into(),
+            host: "1.2.3.4".into(),
+            port: 22,
+            user: "root".into(),
+            auth: SshAuth::Agent,
+            env_profile: None,
+            capabilities: HostCapabilities {
+                os_kind: Some("debian".to_string()),
+            },
+        };
+        let json = serde_json::to_string(&cfg).unwrap();
+        assert!(
+            json.contains("\"capabilities\""),
+            "capabilities key should appear in serialized JSON: {}",
+            json
+        );
+        assert!(
+            json.contains("\"os_kind\":\"debian\""),
+            "os_kind should serialize inside capabilities: {}",
+            json
+        );
+        let parsed: HostConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(cfg, parsed);
+        assert_eq!(parsed.capabilities.os_kind.as_deref(), Some("debian"));
+    }
+
+    #[test]
+    fn host_config_old_format_ignores_top_level_os_kind() {
+        // 旧 hosts.json 顶层放 os_kind 字段。serde 默认忽略 unknown fields，
+        // 加载后 capabilities 为空（用户首次连接会重新探测填回）。
+        let old_json = r#"{
+            "id": "00000000-0000-0000-0000-000000000001",
+            "label": "legacy",
+            "host": "1.1.1.1",
+            "port": 22,
+            "user": "root",
+            "auth": { "kind": "agent" },
+            "env_profile": null,
+            "os_kind": "ubuntu"
+        }"#;
+        let parsed: HostConfig =
+            serde_json::from_str(old_json).expect("legacy hosts.json must still parse");
+        assert_eq!(parsed.label, "legacy");
+        assert_eq!(
+            parsed.capabilities,
+            HostCapabilities::default(),
+            "old top-level os_kind should be silently ignored — value lost, will re-detect"
+        );
+    }
+
+    #[test]
+    fn host_config_missing_capabilities_field_defaults_empty() {
+        // 兼容场景：HostConfig JSON 不带 capabilities 字段（升级路径）
+        let json = r#"{
+            "id": "00000000-0000-0000-0000-000000000002",
+            "label": "fresh",
+            "host": "2.2.2.2",
+            "port": 22,
+            "user": "u",
+            "auth": { "kind": "agent" },
+            "env_profile": null
+        }"#;
+        let parsed: HostConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.capabilities, HostCapabilities::default());
     }
 
     #[test]

@@ -181,8 +181,8 @@ pub fn run() {
                             if let Some(host) =
                                 state.hosts.iter_mut().find(|h| h.id == host_id)
                             {
-                                if host.os_kind != os_kind {
-                                    host.os_kind = os_kind;
+                                if host.capabilities.os_kind != os_kind {
+                                    host.capabilities.os_kind = os_kind;
                                     changed = true;
                                 }
                             }

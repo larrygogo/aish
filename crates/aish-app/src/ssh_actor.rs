@@ -837,7 +837,7 @@ mod tests {
     #[tokio::test]
     async fn password_empty_no_keyring_entry_emits_auth_error() {
         // password 为空 + keyring 无该 host 条目 → 期望立即 emit AuthFailed Error
-        use aish_types::{ConnectionId, HostConfig, SshAuth};
+        use aish_types::{ConnectionId, HostCapabilities, HostConfig, SshAuth};
 
         let cfg = HostConfig {
             id: aish_types::HostId::new(),
@@ -849,7 +849,7 @@ mod tests {
                 password: String::new(),
             },
             env_profile: None,
-            os_kind: None,
+            capabilities: HostCapabilities::default(),
         };
         let conn = ConnectionId::new();
 
