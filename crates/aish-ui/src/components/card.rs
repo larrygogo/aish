@@ -592,30 +592,43 @@ impl Render for CardEntity {
             Animation::new(fast_duration).with_easing(move |d| easing(d)),
             move |el, delta| {
                 let mut el = el;
-                if hover_entering {
-                    el = el.bg(hover_bg_at(
-                        crate::components::ButtonVariant::Primary,
-                        idle_bg,
-                        hover_bg,
-                        delta,
-                    ));
-                    // M36 T7: hover_glow 模式下 border 在 Entering 期间立即设
-                    // hover_border（不 lerp，120ms 内 instant 切，视觉够干净）
+                if hover_entering || hover_leaving {
                     if let Some(b) = hover_border {
-                        el = el.border_color(b);
-                    }
-                } else if hover_leaving {
-                    // M34 v2: 反向 lerp hover → idle
-                    el = el.bg(hover_bg_at(
-                        crate::components::ButtonVariant::Primary,
-                        hover_bg,
-                        idle_bg,
-                        delta,
-                    ));
-                    // M36 T7: Leaving 期间 border 仍保留 hover color，动画结束
-                    // 后 hover_state → Idle，下次 render border 自动复位 transparent
-                    if let Some(b) = hover_border {
-                        el = el.border_color(b);
+                        // hover_glow 模式（M37 follow-up 修闪）：bg 瞬切到终态
+                        // + border alpha-only fade。之前 bg 走
+                        // lerp_hsla(idle, primary.opacity(0.05)) 在 idle
+                        // (s=0, a=0.75/1.0) → hover (s≈0.5, a=0.05) 之间
+                        // 全通道 lerp，中间帧 hue/saturation/alpha 同时插值
+                        // 产生异色 + 半透明的过渡帧（如 glass 模式 h: 0→0.66
+                        // 的中点 0.33 是绿色），用户感知为"hover 进出闪一下"。
+                        // primary tint 5% 视觉极弱，bg 瞬切几乎不可见；hover
+                        // 的视觉反馈主要由 border glow 承担，让它单独 alpha
+                        // fade 即可。
+                        let bg_target = if hover_entering { hover_bg } else { idle_bg };
+                        el = el.bg(bg_target);
+                        let alpha = if hover_entering {
+                            b.a * delta
+                        } else {
+                            b.a * (1.0 - delta)
+                        };
+                        let mut bc = b;
+                        bc.a = alpha;
+                        el = el.border_color(bc);
+                    } else {
+                        // 非 hover_glow 模式：secondary_hover 灰阶 lerp 保留。
+                        // idle 和 hover 都是低饱和度灰（s≈0），lerp 中间值
+                        // 无色相跳变，路径安全。
+                        let (from, to) = if hover_entering {
+                            (idle_bg, hover_bg)
+                        } else {
+                            (hover_bg, idle_bg)
+                        };
+                        el = el.bg(hover_bg_at(
+                            crate::components::ButtonVariant::Primary,
+                            from,
+                            to,
+                            delta,
+                        ));
                     }
                 }
                 if pressing {
