@@ -93,7 +93,11 @@ GPUI crash / 用户 cmd+Q ⇒ **所有连接断开、所有 scrollback 丢失**�
 - **Zed Server** —— Zed 的 collab server 是 Rust 服务进程的工程范本（不过用途
   完全不同，仅参考结构）
 - **WezTerm** —— 也是 daemon + GUI 分离（`wezterm-mux-server`），同为 Rust 终端
-  项目，是更直接的对标。值得花一天通读其架构
+  项目，是更直接的对标。**调研已完成**，详见
+  [wezterm-research-notes](./2026-05-20-aish-wezterm-research-notes.md)。
+  关键修订：ADR-003 序列化方案应该改为「全二进制 + ident-based enum」（抄 WezTerm
+  的 `pdu!` 宏），ADR-006 capability 协商应该改用「全局 CODEC_VERSION + ident
+  append-only」而非 paseo 的 string-array 风格
 - **mosh** / **eternal-terminal** —— 远端 session 持久化的另一种思路（serverside
   状态），跟 aish daemon 化方向相反但有借鉴价值
 
