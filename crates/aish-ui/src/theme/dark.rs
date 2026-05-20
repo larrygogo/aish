@@ -76,6 +76,8 @@ impl Theme {
             radius: Radius::default(),
             spacing: Spacing::default(),
             font_size: FontSize::default(),
+            icon_size: super::tokens::IconSize::default(),
+            opacity: super::tokens::Opacity::default(),
             typography: super::typography::Typography::default(),
             anatomy: super::anatomy::Anatomy::default(),
             motion: super::motion::Motion::default(),

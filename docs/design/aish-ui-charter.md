@@ -345,6 +345,13 @@ aish 已有 `Badge` (`components/badge.rs`)，5 个 variant：
 - ❌ **Card 内 row 之间加 margin** —— 用 `Separator`
 - ❌ **section 自己写 `.mb_8()`** —— 让父布局走 `anatomy.page.section_gap`
 
+### Icon / Opacity
+
+- ❌ **icon 大小硬编码 `px(14.0)` / `px(16.0)`** —— 用 `theme.icon_size.{xs/sm/md/lg/xl}`（12/14/16/18/20）
+- ❌ **disabled 用 `opacity(0.5)` 硬编码** —— 用 `theme.opacity.disabled`
+- ❌ **press 反馈用 `opacity(0.8)` 硬编码** —— 用 `theme.opacity.press`
+- ⚠️ **视觉 overlay opacity（0.05 / 0.25 / 0.4 等）保持 view-level 硬编码** —— 这是 caller 决定的视觉效果，不归 token
+
 ### Animation / Motion
 
 - ❌ **直接调 `.with_animation(...)`** —— 用 `animate_or_skip(theme, ...)` 包装，否则 reduced_motion 失效

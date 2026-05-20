@@ -110,6 +110,59 @@ impl Default for FontSize {
     }
 }
 
+/// Icon 尺寸 token，5 档覆盖 aish-ui 实际用例（14 / 16 / 18 是当前最常见值）。
+/// 新代码请用 `theme.icon_size.X` 而非 `px(N)` 硬编码，方便未来批量调整密度。
+///
+/// 选档建议：
+/// - `xs` 12px：紧贴文字的 inline icon（kbd 旁的快捷键 hint）
+/// - `sm` 14px：dropdown menu item leading / textinput 末尾 icon
+/// - `md` 16px：默认 icon（IconButton 默认 / Card avatar inline）
+/// - `lg` 18px：toast / EmptyState 主图标
+/// - `xl` 20px：Tab bar / Dialog header
+#[derive(Clone, Copy)]
+pub struct IconSize {
+    pub xs: Pixels,
+    pub sm: Pixels,
+    pub md: Pixels,
+    pub lg: Pixels,
+    pub xl: Pixels,
+}
+
+impl Default for IconSize {
+    fn default() -> Self {
+        Self {
+            xs: px(12.0),
+            sm: px(14.0),
+            md: px(16.0),
+            lg: px(18.0),
+            xl: px(20.0),
+        }
+    }
+}
+
+/// Opacity token — **仅放 state semantic opacity**（disabled / press）。
+/// 视觉效果用的 opacity（glow 0.05 / hover overlay 0.25 / glass 0.4）是
+/// caller-specific，不归 token —— 那是 view-level 决策不是设计 token。
+///
+/// principles.md #3 + charter §10：disabled 状态绝不改色，统一走 opacity。
+#[derive(Clone, Copy)]
+pub struct Opacity {
+    /// disabled 元素的 opacity（M11 起 0.6 — Button cursor_not_allowed 状态）
+    pub disabled: f32,
+    /// 按下反馈 opacity（M15 Button press 0.7）— 物理触觉，即使 reduced_motion
+    /// 也保留
+    pub press: f32,
+}
+
+impl Default for Opacity {
+    fn default() -> Self {
+        Self {
+            disabled: 0.6,
+            press: 0.7,
+        }
+    }
+}
+
 /// 主题种类。运行时切换 dark / light 时，view 可 `theme(cx).kind` 查询当前
 /// 主题决定特定行为（如 settings switch 的 checked 状态）。
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -126,6 +179,12 @@ pub struct Theme {
     /// 旧 5 档 size token（xs/sm/base/lg/xl）—— M26 起新增代码用
     /// `typography` 字段，font_size 保留 fallback 渐进迁移。
     pub font_size: FontSize,
+    /// Icon 尺寸 5 档（M38 paseo borrowing 落地）。新 icon 请用
+    /// `theme.icon_size.X`，旧 `px(N)` 硬编码逐步迁移。
+    pub icon_size: IconSize,
+    /// State opacity 2 档（disabled / press）。disabled 元素绝不改色，
+    /// 统一走 opacity；press 反馈即使 reduced_motion 也保留。
+    pub opacity: Opacity,
     /// M26 新增：9 个语义 type role（size × weight × color_role 三维）。
     /// caller 通过 `.typography(TypeRole::Title3, t)` 一行 apply。
     pub typography: super::typography::Typography,
@@ -235,5 +294,32 @@ mod tests {
         assert!(f.sm < f.base);
         assert!(f.base < f.lg);
         assert!(f.lg < f.xl);
+    }
+
+    #[test]
+    fn icon_size_defaults_ordered_and_match_doc_values() {
+        let i = IconSize::default();
+        assert!(i.xs < i.sm);
+        assert!(i.sm < i.md);
+        assert!(i.md < i.lg);
+        assert!(i.lg < i.xl);
+        // 与 doc comment 描述的具体值对齐（12/14/16/18/20）
+        assert_eq!(i.xs, px(12.0));
+        assert_eq!(i.sm, px(14.0));
+        assert_eq!(i.md, px(16.0));
+        assert_eq!(i.lg, px(18.0));
+        assert_eq!(i.xl, px(20.0));
+    }
+
+    #[test]
+    fn opacity_defaults_in_sensible_range() {
+        let o = Opacity::default();
+        // disabled 应该 dim 但仍可读，介于 0.4-0.7
+        assert!(o.disabled > 0.4 && o.disabled < 0.7);
+        // press 应该比 disabled 更轻（press 是瞬时反馈，不该太显眼）
+        assert!(o.press > o.disabled);
+        // 都不能 = 0 (透明无意义) 或 1 (没反馈)
+        assert!(o.disabled > 0.0 && o.disabled < 1.0);
+        assert!(o.press > 0.0 && o.press < 1.0);
     }
 }
