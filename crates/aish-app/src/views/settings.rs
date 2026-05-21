@@ -167,6 +167,8 @@ fn section_label_external(title: &'static str, t: &Theme) -> AnyElement {
 }
 
 /// 两列行：左 200px 固定，右自然宽。用于 shortcut / info pair。
+/// M39: about 简化版后只在 legacy 路径用, 保留 helper allow dead_code。
+#[allow(dead_code)]
 fn two_column_row(left: &str, right: &str, t: &Theme) -> AnyElement {
     // M26 T5: 左 Label (13/500/fg) + secondary_fg override 弱化（让 right
     // 是主信息）；右 Body (13/400/fg)。语义：left 是字段名，right 是值。
@@ -280,7 +282,6 @@ impl Render for SettingsView {
         let version = env!("CARGO_PKG_VERSION");
         // build.rs 注入；git 不可用时 fallback "unknown"。
         let git_hash = env!("AISH_GIT_HASH");
-        let build_date = env!("AISH_BUILD_DATE");
         let version_str = if git_hash == "unknown" {
             format!("aish v{}", version)
         } else {
@@ -394,56 +395,44 @@ impl Render for SettingsView {
                 body
             });
 
-        // ───── About（版本信息 + 实际可点交互按钮）─────
-        // 按钮走 outline variant，与卡片视觉一致；handler 内调 cx.open_url /
-        // cx.reveal_path 触发 OS 默认浏览器 / 文件管理器，跨平台一致。
-        let actions_row = div()
-            .pt_2()
-            .flex()
-            .flex_row()
-            .gap_2()
-            .child(self.open_config_btn.clone())
-            .child(self.open_github_btn.clone());
-
-        // M35 T15: About 顶部加 logo + 标题 hero — 让\"关于 aish\"有产品感
-        // 而非纯属性表。logo 48px PNG 通过 AppAssets path 加载，与 titlebar
-        // 同一图（保留蓝/黑双色 brand）。
-        let about_hero = div()
-            .px_4()
-            .py(px(12.0))
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap(px(12.0))
-            .child(gpui::img("aish-icon.png").w(px(48.0)).h(px(48.0)))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.0))
-                    .child(div().typography(aish_ui::TypeRole::Title2, t).child("aish"))
-                    .child(
-                        div()
-                            .typography(aish_ui::TypeRole::Caption, t)
-                            .child("有审美的 SSH 客户端"),
-                    ),
-            )
-            .into_any_element();
-
+        // ───── About 简化版（用户反馈「关于我们的页面做的简洁一些」）─────
+        // 删 logo hero / 删 actions_row (两按钮单独行) / 删构建日期 / 删
+        // 代码仓库 / 删许可证 row, 仅保留:
+        // - 「版本」row + 右侧 version 值
+        // - 「配置目录」row + 右侧 「打开」button
+        // - 「GitHub」row + 右侧 「查看」button
+        // 跟 paseo about 截图同结构 (Version + Release channel + App updates
+        // 三 row 平铺无 hero)。
         let about_label = section_label_external("关于", t);
         let about_card = Card::new("settings-about")
             .outlined()
-            .no_padding() // row helpers 自带 px_4 padding
+            .no_padding()
             .body(
                 div()
                     .flex()
                     .flex_col()
-                    .child(about_hero)
-                    .child(two_column_row("版本", &version_str, t))
-                    .child(two_column_row("构建日期", build_date, t))
-                    .child(two_column_row("代码仓库", "github.com/larrygogo/aish", t))
-                    .child(two_column_row("许可证", "MIT", t))
-                    .child(actions_row),
+                    .child(control_row(
+                        "版本",
+                        None,
+                        div()
+                            .typography(aish_ui::TypeRole::Body, t)
+                            .text_color(colors.muted_foreground)
+                            .child(version_str.clone())
+                            .into_any_element(),
+                        t,
+                    ))
+                    .child(control_row(
+                        "配置目录",
+                        Some("hosts.json / app_state.toml 所在位置"),
+                        self.open_config_btn.clone().into_any_element(),
+                        t,
+                    ))
+                    .child(control_row(
+                        "GitHub",
+                        Some("查看源码 / 提 issue / star"),
+                        self.open_github_btn.clone().into_any_element(),
+                        t,
+                    )),
             );
 
         // ───── 整页布局 ─────
