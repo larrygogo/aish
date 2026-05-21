@@ -313,8 +313,8 @@ impl Render for SettingsView {
         // 跟用户参考截图同结构：每项左侧主题名 + 右侧 [bg, fg, red, green, blue]
         // 色块 + 选中 ✓。点击切主题（cx.set_global + 写盘）。
         let current_kind = t.kind;
-        let theme_dark_label = section_label_external("DARK", t);
-        let theme_light_label = section_label_external("LIGHT", t);
+        let theme_dark_label = section_label_external("暗色系", t);
+        let theme_light_label = section_label_external("亮色系", t);
         let theme_dark_card = Card::new("settings-theme-dark")
             .outlined()
             .no_padding()
