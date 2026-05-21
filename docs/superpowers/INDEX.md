@@ -29,10 +29,13 @@
   「自定义」按钮真捕获 keystroke + 持久化到 app_state.toml + 「重置」回
   默认；handle_global_key + terminal_view 走 matches() 严格 modifier 匹配
   + current_for() override 优先；保存后立即生效不需重启
-- **下一里程碑候选**：Light theme 完整调优 / 跟随系统主题 OS prefers-color-
-  scheme 监听集成（settings 已 placeholder）/ daemon 化 Phase 1+（spec
-  brainstorm 状态，需明确 CLI / MCP 真实需求触发） / 长期 roadmap 看
-  [桌面版 Moshi Roadmap](roadmap-moshi-desktop.md)
+- **跟随系统主题**：✅ **真实集成**（M41）— Settings 选「跟随系统」按
+  GPUI WindowAppearance 实时同步；OS 主题切换 (macOS Dark Mode / Win 系统
+  设置) → issh 自动跟随 light/dark；用户切到其他模式后 observer 停止
+  follow。仅 light/dark 参与跟随，Midnight/Warp Aurora 是显式 dark variant
+- **下一里程碑候选**：Light theme 完整调优（view 层多处仅 dark 优化）/
+  daemon 化 Phase 1+（spec brainstorm 状态，需明确 CLI / MCP 真实需求触发）
+  / 长期 roadmap 看 [桌面版 Moshi Roadmap](roadmap-moshi-desktop.md)
 - **质量门禁基线**：fmt + clippy 0 warning + test (issh-app **194** +
   issh-ui **306** + issh-secrets **8** + issh-types **26** + 其他 crate，
   共 **633** tests) 全过
@@ -40,6 +43,33 @@
 ---
 
 ## Milestones（按时间倒序）
+
+### M41 — 跟随系统主题 OS prefers-color-scheme 集成（2026-05-21）— ✅ 完成（1 commit）
+
+- **范围**：M39 留下的 Settings 「跟随系统」placeholder（fallback dark）
+  升级为真 OS appearance 跟随。GPUI 内置 `WindowAppearance` enum +
+  `observe_window_appearance` callback，无需额外平台 crate。
+- **触发**：M40 项目重命名 + 自定义快捷键完成后用户继续推进 INDEX 候选项。
+
+**实现（`9581fdb`）**：
+- `app.rs::theme_for_appearance(WindowAppearance, reduced_motion) -> Theme`
+  helper：Light / VibrantLight → light()；Dark / VibrantDark → dark()
+- `open_window` callback 内：
+  - 启动时 theme=="system" 立即按 `window.appearance()` 校准（init_theme
+    是 fallback dark，window 未创建无 appearance）
+  - `window.observe_window_appearance` 监听 OS 主题变化，每次回调读
+    `snapshot.theme`，仍为 "system" 才同步切换 — 切到其他模式后停止 follow
+- `settings.rs theme_select.on_change`：idx 2 改用 `w.appearance()` 即时
+  决定 light/dark，无需重启
+- 持久化 `theme="system"` 不变，重启后保留跟随语义
+
+**仅 light/dark 参与跟随**：Midnight / Warp Aurora 是显式 dark variant，
+用户切到这两个后 OS 主题切到 light 也不会变（保留用户偏好）。
+
+**质量门禁**：fmt + clippy 0 warning + test 633 passed（无单测 — GPUI
+WindowAppearance 集成需真窗口环境，本身难单测）。
+
+---
 
 ### M40 — 项目重命名 aish → issh + logo 重设计 + 自定义快捷键 Phase A+B（2026-05-21）— ✅ 主线完成（4 commit）
 
