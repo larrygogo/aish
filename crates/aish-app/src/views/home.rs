@@ -920,26 +920,29 @@ impl Render for HomeView {
                                 .child(preview_layer),
                         )
                         .child(
-                            // 顶层：bottom gradient scrim + overlay 文字
-                            // M36.1 follow-up: cells 成背景板后 scrim 改更
-                            // 柔 — 只到 60% card_bg 不完全遮 cells，让 cells
-                            // 在 scrim 区也微可见保持"背景板"语义
+                            // 顶层：top gradient scrim + overlay 文字
+                            // M36.1 follow-up: cells 成背景板后 scrim 改更柔 —
+                            // 只到 60% card_bg 不完全遮 cells，让 cells 在
+                            // scrim 区也微可见保持"背景板"语义
+                            // M39: 用户反馈「这两个放到卡片的上面吧」— overlay
+                            // 从 bottom_0/justify_end/pb_3 + gradient 透→实
+                            // 改 top_0/justify_start/pt_3 + gradient 实→透
                             div()
                                 .absolute()
-                                .bottom_0()
+                                .top_0()
                                 .left_0()
                                 .right_0()
                                 .h(px(70.0))
                                 .bg(linear_gradient(
                                     180.0,
-                                    linear_color_stop(card_bg.opacity(0.0), 0.0),
-                                    linear_color_stop(card_bg.opacity(0.6), 1.0),
+                                    linear_color_stop(card_bg.opacity(0.6), 0.0),
+                                    linear_color_stop(card_bg.opacity(0.0), 1.0),
                                 ))
                                 .flex()
                                 .flex_col()
-                                .justify_end()
+                                .justify_start()
                                 .px_3()
-                                .pb_3()
+                                .pt_3()
                                 .gap_1()
                                 .child(header_row)
                                 .child(meta_row),
@@ -1125,9 +1128,16 @@ impl Render for HomeView {
                 .collect();
 
             // M35 T4: HOSTS 改名「保存的主机 (N)」+ 升 Title3 视觉权重，与
-            // 「继续工作」section label 等级一致。右上角 「⌘K 搜索」hint
-            // 作为未来 T8 CommandPalette 的 visual anchor（不挂事件）。
+            // 「继续工作」section label 等级一致。右上角搜索 hint 作为未来 T8
+            // CommandPalette 的 visual anchor（不挂事件）。
+            // M39: 用户反馈「这个提示要按系统来提示」— mac ⌘K / 其他 Ctrl+P
+            // (跟 settings.rs M37 模式一致)
             let hosts_count = app.hosts.len();
+            let search_hint = if cfg!(target_os = "macos") {
+                "⌘K 搜索"
+            } else {
+                "Ctrl+P 搜索"
+            };
             let hosts_section_label = div()
                 .pb_2()
                 .flex()
@@ -1142,7 +1152,7 @@ impl Render for HomeView {
                 .child(
                     div()
                         .typography(aish_ui::TypeRole::Caption, theme)
-                        .child("⌘K 搜索"),
+                        .child(search_hint),
                 );
 
             // M35 T4: 两 section 间分隔条 — 仅当两 section 都将显示时画。
