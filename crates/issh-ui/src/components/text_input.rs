@@ -6,13 +6,15 @@
 
 use std::ops::Range;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use arboard::Clipboard;
 use gpui::{
-    canvas, div, prelude::*, px, App, Bounds, Context, DispatchPhase, FocusHandle, Focusable,
-    InputHandler, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels,
-    ScrollDelta, ScrollWheelEvent, SharedString, UTF16Selection, Window,
+    canvas, div, prelude::*, px, App, Bounds, Context, DispatchPhase, FocusHandle, Focusable, Font,
+    InputHandler, KeyDownEvent, LineLayout, MouseButton, MouseDownEvent, MouseMoveEvent,
+    MouseUpEvent, Pixels, ScrollDelta, ScrollWheelEvent, SharedString, TextRun, UTF16Selection,
+    Window,
 };
 
 use crate::theme::theme;
@@ -127,6 +129,17 @@ pub struct TextInput {
     /// 关键：wheel 路径**不**调 reset_blink → dirty 保持 false → 不会下一帧把
     /// scroll 拉回 cursor 位置（textarea 标准：wheel 滚走 cursor 也保持滚位）。
     cursor_dirty_for_scroll: bool,
+
+    /// M42 multiline hit-test 修复：上一帧 render 算出来的真实 visual lines
+    /// （用 GPUI text_system layout_line + compute_wrap_boundaries）。
+    /// mouse_down 路径用 cached 数据做精确 hit test，不再依赖 approx_char_width
+    /// 估算 wrap 位置。单行模式 / 首帧未渲染时为空，cursor_from_click_2d 内
+    /// 回退到旧 bounds_map 路径。
+    cached_visual_lines: Vec<VisualLine>,
+
+    /// M42：per visual-line 真实 LineLayout（实际是 logical line layout，wrap
+    /// 段共享同一 layout）。cached_visual_lines[i].logical_layout_idx 索引此 Vec。
+    cached_line_layouts: Vec<Arc<LineLayout>>,
 }
 
 impl TextInput {
@@ -163,6 +176,8 @@ impl TextInput {
             cursor_dirty_for_scroll: true,
             on_paste_image: None,
             on_paste_files: None,
+            cached_visual_lines: Vec::new(),
+            cached_line_layouts: Vec::new(),
         };
         this.start_blink_timer(cx);
         this
@@ -646,16 +661,32 @@ impl TextInput {
             .unwrap_or(self.text.len())
     }
 
-    /// M19 T5: 多行版 cursor_from_click。click 是 viewport Point<Pixels>。
-    /// 1. 用 bounds_map 找 click.y 落在哪个 row（同 y 共享）
-    /// 2. 从该 row 内 entries 按 x 找 byte（复用 byte_offset_at_x），fallback
-    ///    用 vl.byte_end（cursor 落 row 末符合多行体感）
+    /// M19 T5 / M42 重做: 多行版 cursor_from_click。click 是 viewport
+    /// Point<Pixels>。
     ///
-    /// mask 处理：仍走 displayed→source 转换（继承单行 mask 逻辑）。
+    /// M42：优先用 cached_visual_lines + cached_line_layouts (GPUI 真实
+    /// layout 算出的 wrap 位置 + per-glyph 精确 x) 做 hit test，回退到旧
+    /// bounds_map 路径（首帧 / 单行 / mask 多行场景）。
+    ///
+    /// 流程：
+    /// 1. click.y 找 row（仍走 bounds_map y 命中，跟实际 paint y 对齐）
+    /// 2. 拿到对应的 vl + logical line LineLayout
+    /// 3. 转 row-relative click.x → logical-line-x: 加 layout.x_for_index(byte_start)
+    /// 4. layout.closest_index_for_x 拿 logical line 内 byte → 加 logical_byte_start
     pub(crate) fn cursor_from_click_2d(&self, click: gpui::Point<Pixels>) -> usize {
         if self.bounds_map.is_empty() {
             return 0;
         }
+        // 优先 cached 路径（GPUI 真实 layout 精度）。首帧未渲染 / mask 模式
+        // 走 fallback。
+        if !self.cached_visual_lines.is_empty()
+            && !self.cached_line_layouts.is_empty()
+            && self.mask_char.is_none()
+        {
+            return self.cursor_from_click_2d_via_layout(click);
+        }
+
+        // ── Legacy fallback：用 bounds_map + byte_offset_at_x ─────────────
         let vls = self.current_visual_lines();
         if vls.is_empty() {
             return 0;
@@ -713,6 +744,81 @@ impl TextInput {
                 .map(|(b, _)| b)
                 .unwrap_or(self.text.len())
         }
+    }
+
+    /// M42: 基于 cached_visual_lines + cached_line_layouts 的精确 hit test。
+    /// 不依赖 bounds_map 的 byte→x 估算，直接用 GPUI LineLayout 真实 glyph
+    /// position 算 byte。row 行匹配仍用 bounds_map y（跟实际 paint 对齐）。
+    fn cursor_from_click_2d_via_layout(&self, click: gpui::Point<Pixels>) -> usize {
+        let vls = &self.cached_visual_lines;
+        let layouts = &self.cached_line_layouts;
+        if vls.is_empty() {
+            return 0;
+        }
+
+        // Step 1: click.y → vl_idx (用 bounds_map y 命中精度最高)
+        let click_y = click.y;
+        let mut matched_byte: Option<usize> = None;
+        for (b, bnds) in &self.bounds_map {
+            if click_y >= bnds.origin.y && click_y < bnds.origin.y + bnds.size.height {
+                matched_byte = Some(*b);
+                break;
+            }
+        }
+        let vl_idx = if let Some(b) = matched_byte {
+            byte_to_visual_pos(b, vls).0
+        } else {
+            let first_y = self
+                .bounds_map
+                .first()
+                .map(|(_, b)| b.origin.y)
+                .unwrap_or(px(0.0));
+            if click_y < first_y {
+                0
+            } else {
+                vls.len().saturating_sub(1)
+            }
+        };
+        let vl = match vls.get(vl_idx) {
+            Some(v) => v,
+            None => return self.text.len(),
+        };
+
+        // Step 2: 拿对应 logical line 的 layout
+        let layout = match layouts.get(vl.logical_line) {
+            Some(l) => l,
+            None => return vl.byte_end,
+        };
+
+        // Step 3: 算 logical_line_byte_start（同 logical_line 的第一个 vl 的 byte_start）
+        let logical_byte_start = vls
+            .iter()
+            .find(|v| v.logical_line == vl.logical_line)
+            .map(|v| v.byte_start)
+            .unwrap_or(vl.byte_start);
+
+        // Step 4: row paint 左边缘 x（row 第一个 byte 的 bounds.origin.x）
+        let row_left_x = self
+            .bounds_map
+            .iter()
+            .find(|(b, _)| *b == vl.byte_start)
+            .map(|(_, bnds)| bnds.origin.x)
+            .unwrap_or(px(0.0));
+
+        // Step 5: vl 在 logical line 内的 x 起点（wrap 后第 N 段起点）
+        let local_byte_start = vl.byte_start - logical_byte_start;
+        let wrap_x = layout.x_for_index(local_byte_start);
+
+        // Step 6: click row-relative x → logical-line absolute x → byte
+        let relative_x = click.x - row_left_x;
+        let logical_x = wrap_x + relative_x;
+        let local_byte = layout.closest_index_for_x(logical_x);
+
+        // 拼回全文 byte，clamp 到 vl 范围内（closest_index_for_x 可能给出
+        // 超过 vl.byte_end 的 byte 当 click 在行末右侧，需 clamp 防 cursor
+        // 跨越到下一行）
+        let final_byte = logical_byte_start + local_byte;
+        final_byte.clamp(vl.byte_start, vl.byte_end)
     }
 
     /// 把原文 byte offset (self.cursor) 转成显示文本 byte offset，用于 mask 时切片。
@@ -1394,9 +1500,10 @@ pub(crate) fn byte_offset_at_x(
 // - byte_to_visual_pos: cursor byte → (vl_idx, col_in_visual)
 // - visual_pos_to_byte: (vl_idx, col) → byte（含 mouse click 路径用）
 //
-// char 宽估算（D-4）：ASCII / Latin extended / Cyrillic / Greek ≈ 0.6 *
-// font_size；CJK / emoji / 其他 ≈ 1.2 * font_size。monospace 字体下偏差
-// < 1 char，可接受。完全准确需 GPUI text_system shape，render-time 太贵。
+// char 宽估算（D-4，旧路径）：ASCII / Latin extended / Cyrillic / Greek ≈
+// 0.6 * font_size；CJK / emoji / 其他 ≈ 1.2 * font_size。monospace 字体下
+// 偏差 < 1 char。M42 起 multiline render 改用 GPUI text_system 真实 layout
+// （compute_visual_lines_with_layout），本估算函数仍保留供 fallback / 单测。
 
 /// 多行视觉行（wrap 后单元）。一个 logical line（按 \n 切）可包含 ≥ 1 个
 /// visual line（按 container_width wrap 后）。T3 起 render multiline 路径用。
@@ -1508,6 +1615,138 @@ pub(crate) fn compute_visual_lines(
     // 防御：bytes 用上以消 unused warning + 后续若需 fast path 用
     let _ = bytes;
     result
+}
+
+/// M42 multiline hit-test 修复：用 GPUI text_system 真实 layout 替换
+/// approx_char_width 估算，算出精确的 VisualLines + per-logical-line LineLayouts。
+///
+/// 返回 (visual_lines, line_layouts)：
+/// - visual_lines: 跟 compute_visual_lines 同 struct，wrap 位置真实精确
+/// - line_layouts: 每个 logical line 一个 LineLayout（wrap 段共享），index =
+///   visual_lines[i].logical_line。hit test 时用 layout.closest_index_for_x
+///   做精确 byte 定位
+///
+/// 性能：每帧 split('\n') 后每段调 text_system.layout_line —— GPUI 内置
+/// line_layout_cache 同 text+font+size 命中缓存，单帧多次调成本接近 O(1)。
+pub(crate) fn compute_visual_lines_with_layout(
+    text: &str,
+    container_w: Pixels,
+    text_system: &Arc<gpui::WindowTextSystem>,
+    font: &Font,
+    font_size: Pixels,
+    color: gpui::Hsla,
+) -> (Vec<VisualLine>, Vec<Arc<LineLayout>>) {
+    let mut visual_lines = Vec::new();
+    let mut layouts: Vec<Arc<LineLayout>> = Vec::new();
+
+    let mut logical_idx = 0usize;
+    // split 用 split_terminator 保留 trailing 空行
+    let mut byte_cursor = 0usize;
+    let mut logical_iter = text.split('\n').peekable();
+
+    while let Some(logical) = logical_iter.next() {
+        let logical_byte_start = byte_cursor;
+        let layout = if logical.is_empty() {
+            // 空 logical line：跳 layout（避免 0-len shape 出错），用空 layout
+            text_system.layout_line(
+                "",
+                font_size,
+                &[TextRun {
+                    len: 0,
+                    font: font.clone(),
+                    color,
+                    background_color: None,
+                    underline: None,
+                    strikethrough: None,
+                }],
+                None,
+            )
+        } else {
+            text_system.layout_line(
+                logical,
+                font_size,
+                &[TextRun {
+                    len: logical.len(),
+                    font: font.clone(),
+                    color,
+                    background_color: None,
+                    underline: None,
+                    strikethrough: None,
+                }],
+                None,
+            )
+        };
+
+        // 算 wrap boundaries (None max_lines = 不限制)
+        let wrap_boundaries: Vec<usize> = if logical.is_empty() {
+            Vec::new()
+        } else {
+            // compute_wrap_boundaries 是 LineLayout 私有 method，对外通过
+            // WrappedLineLayout::compute_wrap_boundaries 暴露。但我们不需要
+            // 完整 wrapped layout — 改走 manual scan glyph.position.x
+            let mut boundaries = Vec::new();
+            let mut last_wrap_byte = 0usize;
+            let mut last_break_candidate: Option<usize> = None;
+            for run in &layout.runs {
+                for glyph in &run.glyphs {
+                    let glyph_byte = glyph.index;
+                    // 上一次 wrap 后从该 byte 起的 x = position.x - last_wrap_x_offset
+                    // 由于 GPUI position.x 是从 logical line 起点累加，wrap 时
+                    // 我们要确定的是「glyph 是否超出 container_w 从 last_wrap_byte
+                    // 之后的距离」。
+                    let last_wrap_x = if last_wrap_byte == 0 {
+                        px(0.0)
+                    } else {
+                        layout.x_for_index(last_wrap_byte)
+                    };
+                    let glyph_rel_x = glyph.position.x - last_wrap_x;
+                    if glyph_rel_x > container_w && last_wrap_byte < glyph_byte {
+                        // 优先回退到 last_break_candidate（空格 / 标点后）
+                        let wrap_at = last_break_candidate
+                            .filter(|b| *b > last_wrap_byte && *b <= glyph_byte)
+                            .unwrap_or(glyph_byte);
+                        boundaries.push(wrap_at);
+                        last_wrap_byte = wrap_at;
+                        last_break_candidate = None;
+                    }
+                    // 该 glyph 后是否可断字（按字符判断）
+                    if let Some(ch) = logical[glyph_byte..].chars().next() {
+                        if is_break_after(ch) {
+                            last_break_candidate = Some(glyph_byte + ch.len_utf8());
+                        }
+                    }
+                }
+            }
+            boundaries
+        };
+
+        // 把 wrap boundaries 转成 VisualLines
+        let mut start = 0usize;
+        for &wrap_byte in &wrap_boundaries {
+            visual_lines.push(VisualLine {
+                logical_line: logical_idx,
+                byte_start: logical_byte_start + start,
+                byte_end: logical_byte_start + wrap_byte,
+            });
+            start = wrap_byte;
+        }
+        // 该 logical line 的最后一个 visual line（含 wrap 后剩余 + 整行无 wrap 时的全部）
+        visual_lines.push(VisualLine {
+            logical_line: logical_idx,
+            byte_start: logical_byte_start + start,
+            byte_end: logical_byte_start + logical.len(),
+        });
+
+        layouts.push(layout);
+        byte_cursor += logical.len();
+        if logical_iter.peek().is_some() {
+            // 不是最后一段 → 跳过 \n 一字节
+            byte_cursor += 1;
+        }
+        logical_idx += 1;
+    }
+
+    (visual_lines, layouts)
 }
 
 /// byte offset → (vl_idx, col)。col 单位是 **byte 差**（vl.byte_start 起算），
@@ -1776,7 +2015,22 @@ impl Render for TextInput {
                 .viewport_bounds
                 .map(|b| b.size.width)
                 .unwrap_or(px(400.0));
-            let visual_lines = compute_visual_lines(&displayed_text, container_w, font_size_sm);
+            // M42: 用 GPUI text_system 真实 layout 算 visual_lines，替换原
+            // approx_char_width 估算。每帧 layout — GPUI 内置 line_layout_cache
+            // 命中缓存，性能廉价。
+            let style = window.text_style();
+            let real_font = style.font();
+            let (visual_lines, line_layouts) = compute_visual_lines_with_layout(
+                &displayed_text,
+                container_w,
+                window.text_system(),
+                &real_font,
+                font_size_sm,
+                foreground,
+            );
+            // 缓存到 self，供 mouse_down 的 cursor_from_click_2d 精确 hit test 用
+            self.cached_visual_lines = visual_lines.clone();
+            self.cached_line_layouts = line_layouts;
             let displayed_cursor_byte = displayed_cursor;
             let weak_glyph = weak_view.clone();
             let sel_for_glyph = displayed_selection.clone();
