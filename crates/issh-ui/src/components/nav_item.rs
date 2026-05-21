@@ -212,13 +212,16 @@ impl Render for NavItem {
         let idle_bg = gpui::transparent_black();
         let hover_bg = t.colors.secondary_hover;
         let press_bg_color = t.colors.secondary_active;
-        // M35.1 D5 (shadcn / Linear / Cursor 风)：active 视觉用 inset glow —
-        // primary 10% 半透明 bg + primary 25% inset border，比纯 secondary_hover
-        // fill 高 3 级 (fill 是低端做法)。inactive 同等 border_1 + transparent
-        // 防 layout shift（active border 出现时 inner 区域不挤压）。
+        // M43：active 视觉改用 secondary_active 灰阶 bg + border 灰阶。
+        // 之前用 primary 鲜艳 tint（10% bg + 25% border）在 10 主题包后跟整体
+        // 灰阶 UI 形成强烈对比看着突兀（所有主题 accent 饱和度都高），改成
+        // 灰阶低饱和 active 让 selected 状态融入 UI 调性，主题 brand 色仅
+        // primary 按钮 / cursor / ring 等显眼元素保留鲜艳。
+        // active 与普通 hover 区别由「字体加粗 (BodyStrong 见下)」+ 比 hover
+        // 更深一档 secondary_active 灰阶承担。
         let has_label = self.label.is_some();
-        let selected_bg = t.colors.primary.opacity(0.10);
-        let selected_border = t.colors.primary.opacity(0.25);
+        let selected_bg = t.colors.secondary_active;
+        let selected_border = t.colors.border;
         let idle_border = gpui::transparent_black();
         let medium = t.motion.medium;
         let easing = t.motion.easing_standard.clone();
