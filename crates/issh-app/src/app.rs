@@ -120,6 +120,18 @@ pub fn run() {
             cx.set_global(issh_ui::ToastHandle(toast_manager.clone()));
 
             crate::terminal::font::register_bundled_font(cx);
+            // M43：终端字体 / 字号 config 从 snapshot 回灌到 global。Settings
+            // 改时 set_global + refresh_windows 实时切换；grid_renderer 每帧读。
+            let term_cfg = crate::terminal::font::TerminalFontConfig {
+                family: snapshot
+                    .terminal_font_family
+                    .clone()
+                    .unwrap_or_else(|| crate::terminal::font::FONT_NAME.to_string()),
+                size: snapshot
+                    .terminal_font_size
+                    .unwrap_or(crate::terminal::font::FONT_SIZE),
+            };
+            cx.set_global(term_cfg);
             // M28 T7: load 失败时记 error，Home 渲染 ErrorState + 重试入口
             // 替代之前 silent fail（用户感知不到）。
             let (hosts, hosts_load_error) = match crate::persistence::load_hosts() {

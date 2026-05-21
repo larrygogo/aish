@@ -14,7 +14,7 @@
 //! （tab 操作 + 终端粘贴）。
 
 use gpui::{div, prelude::*, px, AnyElement, Context, Entity, IntoElement, SharedString, Window};
-use issh_ui::{theme, Button, Card, Kbd, Theme, TypographyExt};
+use issh_ui::{theme, Button, Card, Kbd, Select, Theme, TypographyExt};
 
 pub struct SettingsView {
     /// M39: state Entity for reading settings_section + observe 变化 → 重 render。
@@ -24,6 +24,10 @@ pub struct SettingsView {
     /// M31：About section 两个 secondary button entity（press feedback 80ms）。
     open_config_btn: Entity<Button>,
     open_github_btn: Entity<Button>,
+    /// M43：终端字体 + 字号 select entities（dropdown 列出 AVAILABLE_FONTS /
+    /// AVAILABLE_SIZES，on_change 写 TerminalFontConfig global + 写盘）。
+    font_family_select: Entity<Select>,
+    font_size_select: Entity<Select>,
 }
 
 impl SettingsView {
@@ -54,11 +58,64 @@ impl SettingsView {
             b
         });
 
+        // M43：终端字体 select
+        let term_cfg = crate::terminal::font::current(cx);
+        let font_family_select = cx.new(|cx| {
+            let mut s = Select::new(crate::terminal::font::AVAILABLE_FONTS.to_vec(), cx);
+            let cur_idx = crate::terminal::font::AVAILABLE_FONTS
+                .iter()
+                .position(|f| *f == term_cfg.family)
+                .unwrap_or(0);
+            s.set_selected(cur_idx, cx);
+            s.on_change(|idx, _w, cx| {
+                let family = crate::terminal::font::AVAILABLE_FONTS[*idx].to_string();
+                let mut cfg = crate::terminal::font::current(cx);
+                cfg.family = family.clone();
+                cx.set_global(cfg);
+                cx.refresh_windows();
+                let mut snapshot = crate::app_state_file::load_app_state();
+                snapshot.terminal_font_family = Some(family);
+                crate::app_state_file::save_app_state(&snapshot);
+            });
+            s
+        });
+        // M43：终端字号 select（字号转 "12 pt" 字符串显示）
+        let font_size_select = cx.new(|cx| {
+            let labels: Vec<String> = crate::terminal::font::AVAILABLE_SIZES
+                .iter()
+                .map(|sz| format!("{} pt", *sz as u32))
+                .collect();
+            let label_refs: Vec<&str> = labels.iter().map(|s| s.as_str()).collect();
+            let mut s = Select::new(label_refs, cx);
+            let cur_idx = crate::terminal::font::AVAILABLE_SIZES
+                .iter()
+                .position(|sz| (*sz - term_cfg.size).abs() < 0.01)
+                .unwrap_or(4); // fallback to 14pt index
+            s.set_selected(cur_idx, cx);
+            // labels Vec 需要 move 进 closure 保活（GPUI Select 内部存的是
+            // 切片对应索引，labels 字符串生命周期需要保证）
+            let labels_owned = labels;
+            s.on_change(move |idx, _w, cx| {
+                let _ = &labels_owned; // 持有 ownership 保活
+                let size = crate::terminal::font::AVAILABLE_SIZES[*idx];
+                let mut cfg = crate::terminal::font::current(cx);
+                cfg.size = size;
+                cx.set_global(cfg);
+                cx.refresh_windows();
+                let mut snapshot = crate::app_state_file::load_app_state();
+                snapshot.terminal_font_size = Some(size);
+                crate::app_state_file::save_app_state(&snapshot);
+            });
+            s
+        });
+
         Self {
             state,
             scrollbar: issh_ui::ScrollbarHandle::new(),
             open_config_btn,
             open_github_btn,
+            font_family_select,
+            font_size_select,
         }
     }
 }
@@ -336,6 +393,26 @@ impl Render for SettingsView {
                 body
             });
 
+        // ───── 终端字体 / 字号（M43）─────
+        let terminal_label = section_label_external("终端", t);
+        let terminal_card = Card::new("settings-terminal").outlined().no_padding().body(
+            div()
+                .flex()
+                .flex_col()
+                .child(control_row(
+                    "字体",
+                    Some("终端内显示用的字体"),
+                    self.font_family_select.clone().into_any_element(),
+                    t,
+                ))
+                .child(control_row(
+                    "字号",
+                    Some("终端文字大小"),
+                    self.font_size_select.clone().into_any_element(),
+                    t,
+                )),
+        );
+
         // ───── Keyboard Shortcuts ─────
         // M35 T15 / Phase A keybinding 自定义：按 ACTIONS 列表 +
         // shortcut_row 读 state.keybindings override，展示 default_for 兜底。
@@ -444,6 +521,13 @@ impl Render for SettingsView {
                                                     .flex_col()
                                                     .child(theme_light_label)
                                                     .child(theme_light_card),
+                                            )
+                                            .child(
+                                                div()
+                                                    .flex()
+                                                    .flex_col()
+                                                    .child(terminal_label)
+                                                    .child(terminal_card),
                                             ),
                                     )
                                 },

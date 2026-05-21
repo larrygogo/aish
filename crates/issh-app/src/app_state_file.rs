@@ -33,6 +33,12 @@ pub struct AppStateFile {
     /// Phase A 仅 UI / 持久化 / 显示，实际触发仍 hardcoded（等 Phase B 路由生效）。
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub keybindings: HashMap<String, String>,
+    /// 终端字体（M43）。None 时 fallback bundled JetBrainsMono Nerd Font。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal_font_family: Option<String>,
+    /// 终端字号 pt (M43)。None 时 fallback 14.0。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal_font_size: Option<f32>,
 }
 
 pub fn app_state_path() -> Option<PathBuf> {

@@ -87,8 +87,9 @@ struct LineBatch {
 ///
 /// M35.2 T4: 挂跨平台 symbol fallback chain，让终端内罕见 Unicode（CJK 罕用字 /
 /// Miscellaneous Technical / 数学符号）走系统 symbol 字体兜底，不再 tofu。
-fn terminal_gpui_font() -> Font {
-    let mut f = font(terminal_font::FONT_NAME);
+/// M43: family 来自 TerminalFontConfig global（用户在 Settings 切换）。
+fn terminal_gpui_font(family: &str) -> Font {
+    let mut f = font(family);
     f.fallbacks = Some(issh_ui::font::fallbacks());
     f
 }
@@ -99,8 +100,9 @@ fn terminal_gpui_font() -> Font {
 ///   Pass 1 — 画背景色矩形（非默认背景）
 ///   Pass 2 — 逐行 shape + paint 文字
 pub fn paint_grid(snapshot: &GridSnapshot, layout: &GridLayout, window: &mut Window, cx: &mut App) {
-    let gpui_font = terminal_gpui_font();
-    let font_size = gpui::px(terminal_font::FONT_SIZE);
+    let term_cfg = terminal_font::current(cx);
+    let gpui_font = terminal_gpui_font(&term_cfg.family);
+    let font_size = gpui::px(term_cfg.size);
     let line_height = layout.cell_height;
     let cell_width = layout.cell_width;
     // 当前 theme kind —— 决定 ANSI palette / fg / bg fallback。每帧从 global
