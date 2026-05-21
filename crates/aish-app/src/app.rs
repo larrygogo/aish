@@ -632,22 +632,19 @@ impl Render for RootView {
 
         // 外层：sidebar + 主区横排 + 背景 aurora 光晕层
         // M37: aurora glassmorphism 模拟 — GPUI 无 backdrop-filter blur，
-        // 用多层 absolute 叠出"色斑光晕"模拟玻璃质感的底层色相分布。
+        // 用 2 层 absolute linear_gradient 叠出"色斑光晕"模拟玻璃质感的
+        // 底层色相分布。后续卡片可以半透明透出这层光晕呈现玻璃感。
         //
         // M39 Phase 2: aurora 配色抽 ColorTokens.aurora_a / aurora_b 跟 theme
         // 联动（default 冷双色 / midnight 紫蓝 / warp 紫+粉 / light 极淡）。
         //
-        // M39 Phase 4.3 (Gemini 风中心 halo + 不规则形状):
-        // GPUI linear_gradient 限 2-stop，做不出「透明→亮→透明」的中心 halo；
-        // 改用 5 层嵌套椭圆 (rounded_full 把 rectangle 变椭圆) + size 递减
-        // + alpha 递增 + 位置略偏 = 同心 isobands 视觉合成 halo (人眼平滑
-        // step 边界)，位置偏移产生 organic 不规则形状非规则圆。
+        // M39 Phase 4.4 (回到 M37 原版 2 layer 对角结构 + alpha 降低):
+        // 5 层嵌套椭圆 halo 视觉太"圆"显丑，回到 M37 原版「2 layer top-left
+        // + bottom-right 对角分布」简单结构，但用 .opacity(0.5) 把 token alpha
+        // 缩半 — 比 M37 原版 0.18/0.14 alpha 还浅一档（Warp Aurora 现在变
+        // 0.125/0.10），让 aurora 更克制不抢戏。
         let aurora_a = colors.aurora_a;
         let aurora_b = colors.aurora_b;
-        // 从 token alpha 派生 5 层 alpha 阶梯。aurora_a.a 当前 warp=0.25 /
-        // default=0.18 / midnight=0.20 / light=0.06，作为「中心最强 alpha」基准
-        // 5 层从 base 0.04 → core 1.0 × base 阶梯递增
-        let base = aurora_a.a;
         let main = div()
             .relative()
             .flex()
@@ -656,84 +653,34 @@ impl Render for RootView {
             // root bg 跟随 theme：dark=#050505 / light=#fafafa（colors.background
             // global，theme 切换时 refresh_windows 让所有 view re-render 拿新值）
             .bg(colors.background)
-            // Layer 1 base 大椭圆: 略偏左上，最淡
+            // Aurora layer 1: top-left brand bloom（主 accent 色光晕）
+            // 拉到 1.4x viewport（130% × 110% 偏移 -20%/-10%），让 gradient
+            // 的 transparent stop 移出视野，消除卡片中间的硬边
             .child(
                 div()
                     .absolute()
-                    .top(gpui::relative(0.10))
-                    .left(gpui::relative(0.05))
-                    .w(gpui::relative(0.90))
-                    .h(gpui::relative(0.80))
-                    .rounded_full()
-                    .bg(gpui::hsla(
-                        aurora_a.h,
-                        aurora_a.s,
-                        aurora_a.l,
-                        base * 0.16,
+                    .top(gpui::relative(-0.2))
+                    .left(gpui::relative(-0.2))
+                    .w(gpui::relative(1.4))
+                    .h(gpui::relative(1.2))
+                    .bg(gpui::linear_gradient(
+                        135.0,
+                        gpui::linear_color_stop(aurora_a.opacity(0.5), 0.0),
+                        gpui::linear_color_stop(aurora_a.opacity(0.0), 1.0),
                     )),
             )
-            // Layer 2 中外椭圆: aurora_a 紫
+            // Aurora layer 2: bottom-right 补色 bloom（让光晕有 hue 层次）
             .child(
                 div()
                     .absolute()
-                    .top(gpui::relative(0.18))
-                    .left(gpui::relative(0.12))
-                    .w(gpui::relative(0.76))
-                    .h(gpui::relative(0.64))
-                    .rounded_full()
-                    .bg(gpui::hsla(
-                        aurora_a.h,
-                        aurora_a.s,
-                        aurora_a.l,
-                        base * 0.32,
-                    )),
-            )
-            // Layer 3 中椭圆: 切到 aurora_b 粉（双色叠加形成 organic）
-            .child(
-                div()
-                    .absolute()
-                    .top(gpui::relative(0.25))
-                    .left(gpui::relative(0.22))
-                    .w(gpui::relative(0.56))
-                    .h(gpui::relative(0.50))
-                    .rounded_full()
-                    .bg(gpui::hsla(
-                        aurora_b.h,
-                        aurora_b.s,
-                        aurora_b.l,
-                        base * 0.40,
-                    )),
-            )
-            // Layer 4 中内椭圆: aurora_b 加深
-            .child(
-                div()
-                    .absolute()
-                    .top(gpui::relative(0.32))
-                    .left(gpui::relative(0.32))
-                    .w(gpui::relative(0.36))
-                    .h(gpui::relative(0.36))
-                    .rounded_full()
-                    .bg(gpui::hsla(
-                        aurora_b.h,
-                        aurora_b.s,
-                        aurora_b.l,
-                        base * 0.52,
-                    )),
-            )
-            // Layer 5 核心高光: 小椭圆，aurora_a，alpha 最强
-            .child(
-                div()
-                    .absolute()
-                    .top(gpui::relative(0.40))
-                    .left(gpui::relative(0.42))
-                    .w(gpui::relative(0.16))
-                    .h(gpui::relative(0.20))
-                    .rounded_full()
-                    .bg(gpui::hsla(
-                        aurora_a.h,
-                        aurora_a.s,
-                        aurora_a.l,
-                        base * 0.72,
+                    .bottom(gpui::relative(-0.2))
+                    .right(gpui::relative(-0.2))
+                    .w(gpui::relative(1.4))
+                    .h(gpui::relative(1.2))
+                    .bg(gpui::linear_gradient(
+                        315.0,
+                        gpui::linear_color_stop(aurora_b.opacity(0.5), 0.0),
+                        gpui::linear_color_stop(aurora_b.opacity(0.0), 1.0),
                     )),
             )
             .child(self.sidebar_nav.clone())
