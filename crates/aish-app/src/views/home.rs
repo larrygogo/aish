@@ -1054,14 +1054,16 @@ impl Render for HomeView {
 
                     // ───── 卡片主体 vertical col ─────
                     // avatar 顶部独占 row → 3 行 text stack → actions absolute 右下
+                    // M39: padding 12→16 (用户反馈"卡片内边距太小"), 与
+                    // anatomy.card.body_px (16) 对齐
                     let body_col = div()
                         .relative()
                         .group(group_name.clone())
                         .flex()
                         .flex_col()
                         .gap_2()
-                        .px_3()
-                        .py_3()
+                        .px_4()
+                        .py_4()
                         .child(avatar)
                         .child(
                             div()
