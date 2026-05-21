@@ -237,7 +237,7 @@ impl Render for SessionPickerView {
                             d.child(
                                 div()
                                     .typography(aish_ui::TypeRole::Caption, t)
-                                    .child(format!("{} win", s.windows)),
+                                    .child(format!("{} 窗口", s.windows)),
                             )
                         })
                         .when(s.activity > 0, |d| {

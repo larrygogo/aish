@@ -520,15 +520,15 @@ impl Connection {
     pub fn humanize_opened_at(&self) -> String {
         let secs = self.opened_at.elapsed().unwrap_or_default().as_secs();
         if secs < 60 {
-            "just now".into()
+            "刚刚".into()
         } else if secs < 3600 {
-            format!("{}m ago", secs / 60)
+            format!("{} 分钟前", secs / 60)
         } else if secs < 86400 {
-            format!("{}h ago", secs / 3600)
+            format!("{} 小时前", secs / 3600)
         } else if secs < 172800 {
-            "yesterday".into()
+            "昨天".into()
         } else {
-            format!("{}d ago", secs / 86400)
+            format!("{} 天前", secs / 86400)
         }
     }
 }
@@ -540,15 +540,15 @@ pub fn humanize_last_connected(last: SystemTime) -> String {
         .unwrap_or_default()
         .as_secs();
     if secs < 60 {
-        "just now".into()
+        "刚刚".into()
     } else if secs < 3600 {
-        format!("{}m ago", secs / 60)
+        format!("{} 分钟前", secs / 60)
     } else if secs < 86400 {
-        format!("{}h ago", secs / 3600)
+        format!("{} 小时前", secs / 3600)
     } else if secs < 172800 {
-        "yesterday".into()
+        "昨天".into()
     } else {
-        format!("{}d ago", secs / 86400)
+        format!("{} 天前", secs / 86400)
     }
 }
 
@@ -1631,7 +1631,7 @@ mod tests {
             label: "test".into(),
             opened_at: SystemTime::now(),
         };
-        assert_eq!(conn.humanize_opened_at(), "just now");
+        assert_eq!(conn.humanize_opened_at(), "刚刚");
     }
 
     #[test]
@@ -1643,19 +1643,19 @@ mod tests {
             label: "test".into(),
             opened_at: SystemTime::now() - Duration::from_secs(125),
         };
-        assert_eq!(conn.humanize_opened_at(), "2m ago");
+        assert_eq!(conn.humanize_opened_at(), "2 分钟前");
     }
 
     #[test]
     fn humanize_last_connected_just_now() {
         let t = SystemTime::now();
-        assert_eq!(humanize_last_connected(t), "just now");
+        assert_eq!(humanize_last_connected(t), "刚刚");
     }
 
     #[test]
     fn humanize_last_connected_hours() {
         let t = SystemTime::now() - std::time::Duration::from_secs(7200);
-        assert_eq!(humanize_last_connected(t), "2h ago");
+        assert_eq!(humanize_last_connected(t), "2 小时前");
     }
 
     #[test]
