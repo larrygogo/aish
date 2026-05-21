@@ -65,26 +65,21 @@ impl SettingsView {
         // 选 mode 切大方向 (light / dark / system), 选 variant 切具体 dark
         // theme。「跟随系统」当前 fallback 到 default dark, 等 OS prefers-
         // color-scheme 集成实现真跟随。
+        // 删「默认」option (跟「暗色」语义重复 — 暗色 = 默认 dark theme,
+        // 不需要再列 default variant), dark variants 段只列非默认的 Midnight
+        // / Warp Aurora。共 5 项: 亮色 / 暗色 / 跟随系统 / [sep] / Midnight
+        // / Warp Aurora。
         let initial_theme_idx = match crate::app_state_file::load_app_state().theme.as_deref() {
             Some("light") => 0,
             Some("system") => 2,
-            Some("midnight") => 4,
-            Some("warp") => 5,
-            // "dark" 或未设 → 暗色 (idx 1) 作为默认显示, dark variant 默认走
-            // idx 3 (默认) 在 dropdown 不显示 active checkmark 但 "暗色" mode
-            // 仍 active checkmark
+            Some("midnight") => 3,
+            Some("warp") => 4,
+            // "dark" 或未设 → 暗色 (idx 1)
             _ => 1,
         };
         let theme_select = cx.new(|cx| {
             let mut s = Select::new(
-                vec![
-                    "亮色",
-                    "暗色",
-                    "跟随系统",
-                    "默认",
-                    "Midnight",
-                    "Warp Aurora",
-                ],
+                vec!["亮色", "暗色", "跟随系统", "Midnight", "Warp Aurora"],
                 cx,
             );
             s.set_selected(initial_theme_idx, cx);
@@ -95,9 +90,8 @@ impl SettingsView {
                 Some(aish_ui::IconName::Monitor),
                 None,
                 None,
-                None,
             ]);
-            // variant 段 leading dot: 默认 indigo / Midnight 亮 indigo / Warp 紫
+            // variant 段 leading dot: Midnight 亮 indigo / Warp 紫
             use gpui::{Hsla, Rgba};
             fn hex_hsla(rgb: u32) -> Hsla {
                 let r = ((rgb >> 16) & 0xFF) as f32 / 255.0;
@@ -109,24 +103,19 @@ impl SettingsView {
                 None,
                 None,
                 None,
-                Some(hex_hsla(0x5e6ad2)),
                 Some(hex_hsla(0x6b7ae0)),
                 Some(hex_hsla(0x7c5cfc)),
             ]);
             // mode 段 (idx 2) 后画分隔线
-            s.separators(vec![false, false, true, false, false, false]);
+            s.separators(vec![false, false, true, false, false]);
             s.on_change(|idx, _w, cx| {
                 let cur_reduced = aish_ui::theme(cx).reduced_motion;
                 let (mut new_theme, theme_key): (Theme, &str) = match *idx {
                     0 => (Theme::light(), "light"),
                     1 => (Theme::dark(), "dark"),
-                    // 跟随系统: 暂未实现 OS prefers-color-scheme 监听, fallback
-                    // 到 dark + 持久化 "system" key (将来集成后 startup 时读
-                    // OS 主题决定 light/dark)
                     2 => (Theme::dark(), "system"),
-                    3 => (Theme::dark(), "dark"),
-                    4 => (Theme::dark_midnight(), "midnight"),
-                    5 => (Theme::dark_warp(), "warp"),
+                    3 => (Theme::dark_midnight(), "midnight"),
+                    4 => (Theme::dark_warp(), "warp"),
                     _ => (Theme::dark(), "dark"),
                 };
                 new_theme.reduced_motion = cur_reduced;
@@ -204,30 +193,54 @@ fn two_column_row(left: &str, right: &str, t: &Theme) -> AnyElement {
         .into_any_element()
 }
 
-/// M35 T15: shortcut 专用行 — 左侧 Kbd chip 视觉化按键，右侧描述。
-/// 与 two_column_row 同样的左 200px 固定 + 右自然宽节奏，但左列用 Kbd
-/// chip 替代纯文本。左列设 flex container 让 chip 取自然宽度（不被
-/// 200px 列宽拉伸），整列固定让多行 chip 左对齐齐整。
+/// M35 T15 / M39: shortcut 专用行。
+///
+/// M39: 顺序倒过来 (paseo 风) — **左侧描述 + 右侧 Kbd chip + 「自定义」
+/// ghost button**, 跟 paseo 截图一致。「自定义」当前 toast 提示开发中,
+/// 后续实现真正 keybinding 捕获 + 持久化。
 fn shortcut_row(id: &'static str, keys: &str, desc: &str, t: &Theme) -> AnyElement {
     div()
         .flex()
         .flex_row()
         .items_center()
+        .justify_between()
         .px_4()
         .py(px(10.0))
+        .gap(t.spacing.px_3)
         .child(
+            // 描述左侧 flex_1 占余宽
             div()
-                .w(px(200.0))
+                .flex_1()
+                .typography(aish_ui::TypeRole::Body, t)
+                .child(SharedString::from(desc.to_string())),
+        )
+        .child(
+            // Kbd chip
+            div()
                 .flex()
                 .flex_row()
                 .items_center()
                 .child(Kbd::new(id, SharedString::from(keys.to_string()))),
         )
         .child(
+            // 「自定义」ghost button — 当前 placeholder, click toast 提示
+            // 开发中。未来实现 keybinding 捕获 dialog 替换。
             div()
-                .flex_1()
-                .typography(aish_ui::TypeRole::Body, t)
-                .child(SharedString::from(desc.to_string())),
+                .id(SharedString::from(format!("shortcut-rebind-{}", id)))
+                .px(t.spacing.px_2)
+                .py_0p5()
+                .rounded(t.radius.md)
+                .typography(aish_ui::TypeRole::Caption, t)
+                .text_color(t.colors.muted_foreground)
+                .cursor_pointer()
+                .hover(|s| s.bg(t.colors.secondary_hover))
+                .on_mouse_down(
+                    gpui::MouseButton::Left,
+                    |_ev: &gpui::MouseDownEvent, _w, cx| {
+                        aish_ui::toast_info(cx, "自定义快捷键功能开发中");
+                    },
+                )
+                .child("自定义"),
         )
         .into_any_element()
 }
