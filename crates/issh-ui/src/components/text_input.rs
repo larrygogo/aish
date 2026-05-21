@@ -1789,12 +1789,21 @@ impl Render for TextInput {
                     // 此 visual line 的 text 段（vl.byte_start..vl.byte_end）。
                     let line_text = displayed_text[vl.byte_start..vl.byte_end].to_string();
 
+                    // 显式行高 = line_h，让空行 row（仅含 cursor）跟非空行
+                    // 视觉行高一致，避免「光标换行后 row 仅 14px 高显得没动」
+                    // 的视觉错觉。line_h = px(20.0) 跟 outer_h 计算同 token。
                     let mut row = div()
                         .flex()
                         .flex_row()
                         .items_center()
+                        .h(px(20.0))
                         .text_size(font_size_sm)
                         .text_color(foreground);
+
+                    // cursor 宽度 2px（原 1px 在 HighDPI 上 0.5 物理像素抗锯齿
+                    // 后几乎不可见），视觉上「光标在哪一行」更明显。
+                    let cursor_w = px(2.0);
+                    let cursor_h = px(14.0);
 
                     // 逐 char 画 glyph_div；cursor 落 byte == 当前 char byte 时
                     // 在 char **之前**插入 cursor_div。行末 cursor 由 for 后处理。
@@ -1802,10 +1811,10 @@ impl Render for TextInput {
                     for ch in line_text.chars() {
                         if b == displayed_cursor_byte && show_cursor_local {
                             row = row
-                                .child(div().w(px(1.0)).h(px(14.0)).bg(ring_local).self_center());
+                                .child(div().w(cursor_w).h(cursor_h).bg(ring_local).self_center());
                         } else if b == displayed_cursor_byte {
                             // cursor blink 不可见时仍占位防止文字跳动
-                            row = row.child(div().w(px(1.0)).h(px(14.0)).self_center());
+                            row = row.child(div().w(cursor_w).h(cursor_h).self_center());
                         }
                         row = row.child(Self::glyph_div(
                             b,
@@ -1819,9 +1828,9 @@ impl Render for TextInput {
                     // 行末 cursor（cursor 在 byte_end 位置 + cursor 在该行而非下一行 wrap）
                     if b == displayed_cursor_byte {
                         let cd = if show_cursor_local {
-                            div().w(px(1.0)).h(px(14.0)).bg(ring_local).self_center()
+                            div().w(cursor_w).h(cursor_h).bg(ring_local).self_center()
                         } else {
-                            div().w(px(1.0)).h(px(14.0)).self_center()
+                            div().w(cursor_w).h(cursor_h).self_center()
                         };
                         row = row.child(cd);
                     }
