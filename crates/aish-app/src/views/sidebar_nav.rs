@@ -34,7 +34,9 @@ use gpui::{
 
 use crate::app::retain_alive_entities;
 use crate::bridge::Bridge;
-use crate::state::{humanize_last_connected, AppState, SidebarTab, SshEvent, Tab, TabContent};
+use crate::state::{
+    humanize_last_connected, AppState, SettingsSection, SidebarTab, SshEvent, Tab, TabContent,
+};
 
 // shadcn 数值参考：折叠 48 (3rem) / 展开 240 (15rem, 略短于 shadcn 16rem 给
 // aish 主区留更多空间)
@@ -51,6 +53,14 @@ pub struct SidebarNavView {
     settings_item: Entity<NavItem>,
     /// 「最近连接」list 行 entity（仅展开模式渲染，按 HostId 索引 + retain）。
     recent_rows: HashMap<HostId, Entity<ListRow>>,
+    /// M39: settings sub-nav 3 个 NavItem entity (仅 sidebar == Settings 时渲染)。
+    /// 用户反馈「设置点进去之后整个 sidebar 换成设置页面」+「通用 / 快捷键 /
+    /// 关于拆成不同菜单」。
+    settings_general_item: Entity<NavItem>,
+    settings_shortcuts_item: Entity<NavItem>,
+    settings_about_item: Entity<NavItem>,
+    /// settings sub-nav 顶部「← 返回」入口, click → sidebar = Home。
+    settings_back_item: Entity<NavItem>,
 }
 
 impl SidebarNavView {
@@ -93,6 +103,55 @@ impl SidebarNavView {
             n
         });
 
+        // M39 settings sub-nav 3 个 NavItem entity
+        let weak_general = cx.weak_entity();
+        let settings_general_item = cx.new(|cx| {
+            let mut n = NavItem::new("sidebar-settings-general", cx);
+            n.on_click(move |_ev, _w, cx| {
+                if let Some(this) = weak_general.upgrade() {
+                    this.update(cx, |this, cx| {
+                        this.handle_settings_section_click(SettingsSection::General, cx)
+                    });
+                }
+            });
+            n
+        });
+        let weak_shortcuts = cx.weak_entity();
+        let settings_shortcuts_item = cx.new(|cx| {
+            let mut n = NavItem::new("sidebar-settings-shortcuts", cx);
+            n.on_click(move |_ev, _w, cx| {
+                if let Some(this) = weak_shortcuts.upgrade() {
+                    this.update(cx, |this, cx| {
+                        this.handle_settings_section_click(SettingsSection::Shortcuts, cx)
+                    });
+                }
+            });
+            n
+        });
+        let weak_about = cx.weak_entity();
+        let settings_about_item = cx.new(|cx| {
+            let mut n = NavItem::new("sidebar-settings-about", cx);
+            n.on_click(move |_ev, _w, cx| {
+                if let Some(this) = weak_about.upgrade() {
+                    this.update(cx, |this, cx| {
+                        this.handle_settings_section_click(SettingsSection::About, cx)
+                    });
+                }
+            });
+            n
+        });
+        // M39: settings sub-nav 「← 返回」入口, click → sidebar = Home
+        let weak_back = cx.weak_entity();
+        let settings_back_item = cx.new(|cx| {
+            let mut n = NavItem::new("sidebar-settings-back", cx);
+            n.on_click(move |_ev, _w, cx| {
+                if let Some(this) = weak_back.upgrade() {
+                    this.update(cx, |this, cx| this.handle_click(SidebarTab::Home, cx));
+                }
+            });
+            n
+        });
+
         Self {
             state,
             bridge,
@@ -101,7 +160,19 @@ impl SidebarNavView {
             terminal_item,
             settings_item,
             recent_rows: HashMap::new(),
+            settings_general_item,
+            settings_shortcuts_item,
+            settings_about_item,
+            settings_back_item,
         }
+    }
+
+    /// M39: settings sub-nav click → 写 state.settings_section + notify。
+    fn handle_settings_section_click(&mut self, section: SettingsSection, cx: &mut Context<Self>) {
+        self.state.update(cx, |s, cx| {
+            s.settings_section = section;
+            cx.notify();
+        });
     }
 
     fn handle_click(&mut self, tab: SidebarTab, cx: &mut Context<Self>) {
@@ -169,10 +240,11 @@ impl Render for SidebarNavView {
         // M35.1 D4: active_hosts = 当前所有活跃 ConnectionId 对应的 host_id 集合
         // （多个 connection 可能指向同一 host，set 去重）。Phase B 用此 set 决定
         // 每个最近 host 行的 status dot 色（success / muted 50%）。
-        let (current, expanded, recent_snapshot, active_hosts) = {
+        let (current, expanded, settings_section, recent_snapshot, active_hosts) = {
             let app = self.state.read(cx);
             let current = app.sidebar;
             let expanded = app.sidebar_expanded;
+            let settings_section = app.settings_section;
             let mut pairs: Vec<(HostId, SystemTime, String)> = app
                 .last_connected
                 .iter()
@@ -187,7 +259,7 @@ impl Render for SidebarNavView {
             pairs.truncate(RECENT_LIST_MAX);
             let active_hosts: std::collections::HashSet<HostId> =
                 app.connections.values().map(|c| c.host_id).collect();
-            (current, expanded, pairs, active_hosts)
+            (current, expanded, settings_section, pairs, active_hosts)
         };
         // app borrow dropped ✓
 
@@ -313,6 +385,16 @@ impl Render for SidebarNavView {
         let home_icon = make_icon(IconName::Home, home_active);
         let term_icon = make_icon(IconName::Terminal, term_active);
         let settings_icon = make_icon(IconName::Settings, settings_active);
+        // M39: Settings tab 时 sidebar 换 sub-nav, 提前算好 sub-nav 3 个
+        // active 状态 + icon (settings_section 决定哪个 active) + 返回 icon
+        let general_active = settings_section == SettingsSection::General;
+        let shortcuts_active = settings_section == SettingsSection::Shortcuts;
+        let about_active = settings_section == SettingsSection::About;
+        let general_icon = make_icon(IconName::Settings, general_active);
+        let shortcuts_icon = make_icon(IconName::Keyboard, shortcuts_active);
+        let about_icon = make_icon(IconName::Info, about_active);
+        let back_icon = make_icon(IconName::ChevronLeft, false);
+
         if expanded {
             self.home_item.update(cx, |n, _| {
                 n.icon(home_icon)
@@ -331,6 +413,28 @@ impl Render for SidebarNavView {
                     .label("设置")
                     .horizontal()
                     .active(current == SidebarTab::Settings);
+            });
+            // M39: settings sub-nav (仅 Settings tab 渲染, 但 ensure 状态)
+            self.settings_back_item.update(cx, |n, _| {
+                n.icon(back_icon).label("返回").horizontal().active(false);
+            });
+            self.settings_general_item.update(cx, |n, _| {
+                n.icon(general_icon)
+                    .label("通用")
+                    .horizontal()
+                    .active(general_active);
+            });
+            self.settings_shortcuts_item.update(cx, |n, _| {
+                n.icon(shortcuts_icon)
+                    .label("快捷键")
+                    .horizontal()
+                    .active(shortcuts_active);
+            });
+            self.settings_about_item.update(cx, |n, _| {
+                n.icon(about_icon)
+                    .label("关于")
+                    .horizontal()
+                    .active(about_active);
             });
         } else {
             // 折叠模式：no_label() icon-only + horizontal rounded card 视觉
@@ -351,6 +455,28 @@ impl Render for SidebarNavView {
                     .no_label()
                     .horizontal()
                     .active(current == SidebarTab::Settings);
+            });
+            // M39: settings sub-nav 折叠模式 icon-only
+            self.settings_back_item.update(cx, |n, _| {
+                n.icon(back_icon).no_label().horizontal().active(false);
+            });
+            self.settings_general_item.update(cx, |n, _| {
+                n.icon(general_icon)
+                    .no_label()
+                    .horizontal()
+                    .active(general_active);
+            });
+            self.settings_shortcuts_item.update(cx, |n, _| {
+                n.icon(shortcuts_icon)
+                    .no_label()
+                    .horizontal()
+                    .active(shortcuts_active);
+            });
+            self.settings_about_item.update(cx, |n, _| {
+                n.icon(about_icon)
+                    .no_label()
+                    .horizontal()
+                    .active(about_active);
             });
         }
 
@@ -400,17 +526,25 @@ impl Render for SidebarNavView {
             .child(self.settings_item.clone())
             .child(toggle_btn);
 
-        // nav section — 两种模式都用 horizontal NavItem（rounded card 视觉），
-        // 折叠模式 NavItem.no_label() icon-only + justify_center
-        // M35.1 D2: item 间距 gap_1(4) → gap_2(8)
+        // M39: nav section — Settings tab 时换 sub-nav (通用 / 快捷键 / 关于),
+        // 其他 tab 显示主 nav (主页 + 终端)。两种模式都用 horizontal NavItem
+        // (rounded card 视觉), 折叠模式 NavItem.no_label() icon-only。
         let nav_section = div()
             .px(spacing.px_2)
             .pt(spacing.px_2)
             .flex()
             .flex_col()
             .gap(spacing.px_2)
-            .child(self.home_item.clone())
-            .child(self.terminal_item.clone());
+            .when(current == SidebarTab::Settings, |d| {
+                d.child(self.settings_back_item.clone())
+                    .child(self.settings_general_item.clone())
+                    .child(self.settings_shortcuts_item.clone())
+                    .child(self.settings_about_item.clone())
+            })
+            .when(current != SidebarTab::Settings, |d| {
+                d.child(self.home_item.clone())
+                    .child(self.terminal_item.clone())
+            });
 
         let width = if expanded {
             SIDEBAR_EXPANDED_WIDTH

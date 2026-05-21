@@ -53,6 +53,8 @@ pub enum IconName {
     WifiOff,
     FileQuestion,
     Loader,
+    // M39 settings sub-nav: 快捷键 icon
+    Keyboard,
 }
 
 impl IconName {
@@ -93,6 +95,7 @@ impl IconName {
         IconName::WifiOff,
         IconName::FileQuestion,
         IconName::Loader,
+        IconName::Keyboard,
     ];
 
     /// AssetSource 加载用的 path（对应 assets/icons/ 内文件名）。
@@ -132,6 +135,7 @@ impl IconName {
             IconName::WifiOff => "icons/wifi-off.svg",
             IconName::FileQuestion => "icons/file-question.svg",
             IconName::Loader => "icons/loader.svg",
+            IconName::Keyboard => "icons/keyboard.svg",
         }
     }
 
@@ -186,6 +190,7 @@ impl IconName {
             IconName::WifiOff => include_bytes!("../../assets/icons/wifi-off.svg"),
             IconName::FileQuestion => include_bytes!("../../assets/icons/file-question.svg"),
             IconName::Loader => include_bytes!("../../assets/icons/loader.svg"),
+            IconName::Keyboard => include_bytes!("../../assets/icons/keyboard.svg"),
         }
     }
 }

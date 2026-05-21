@@ -18,6 +18,8 @@ use aish_ui::{theme, Button, Card, Kbd, Select, Switch, Theme, TypographyExt};
 use gpui::{div, prelude::*, px, AnyElement, Context, Entity, IntoElement, SharedString, Window};
 
 pub struct SettingsView {
+    /// M39: state Entity for reading settings_section + observe 变化 → 重 render。
+    state: Entity<crate::state::AppState>,
     /// scrollbar 状态 — ScrollPage 接管 wheel / scrollbar / 拖拽。
     scrollbar: aish_ui::ScrollbarHandle,
     /// M31：About section 两个 secondary button entity（press feedback 80ms）。
@@ -29,7 +31,9 @@ pub struct SettingsView {
 }
 
 impl SettingsView {
-    pub fn new(cx: &mut Context<Self>) -> Self {
+    pub fn new(state: Entity<crate::state::AppState>, cx: &mut Context<Self>) -> Self {
+        // M39: observe state 变化 (settings_section 切换时 trigger 重 render)
+        cx.observe(&state, |_, _, cx| cx.notify()).detach();
         let open_config_btn = cx.new(|cx| {
             let mut b = Button::new("settings-open-config-dir", cx);
             b.label("打开配置目录").secondary().on_click(|_ev, _w, cx| {
@@ -86,6 +90,7 @@ impl SettingsView {
         });
 
         Self {
+            state,
             scrollbar: aish_ui::ScrollbarHandle::new(),
             open_config_btn,
             open_github_btn,
@@ -399,28 +404,53 @@ impl Render for SettingsView {
                     .py(t.anatomy.page.outer_py_top)
                     .child(page_title)
                     .child(
-                        // M39 paseo 风: 每 section = [label] + [card], section
-                        // 间 gap_section_gap (24). label 自己已含 pb_2 (8) 跟
-                        // card 间内紧凑。
+                        // M39 sidebar sub-nav 拆分: 按 settings_section 仅渲染
+                        // 对应 section card (General → appearance, Shortcuts
+                        // → shortcuts, About → about)。section label 跟 card
+                        // 组对显示。
                         div()
                             .flex()
                             .flex_col()
                             .gap(t.anatomy.page.section_gap)
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .child(appearance_label)
-                                    .child(appearance_card),
+                            .when(
+                                self.state.read(cx).settings_section
+                                    == crate::state::SettingsSection::General,
+                                |d| {
+                                    d.child(
+                                        div()
+                                            .flex()
+                                            .flex_col()
+                                            .child(appearance_label)
+                                            .child(appearance_card),
+                                    )
+                                },
                             )
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .child(shortcuts_label)
-                                    .child(shortcuts_card),
+                            .when(
+                                self.state.read(cx).settings_section
+                                    == crate::state::SettingsSection::Shortcuts,
+                                |d| {
+                                    d.child(
+                                        div()
+                                            .flex()
+                                            .flex_col()
+                                            .child(shortcuts_label)
+                                            .child(shortcuts_card),
+                                    )
+                                },
                             )
-                            .child(div().flex().flex_col().child(about_label).child(about_card)),
+                            .when(
+                                self.state.read(cx).settings_section
+                                    == crate::state::SettingsSection::About,
+                                |d| {
+                                    d.child(
+                                        div()
+                                            .flex()
+                                            .flex_col()
+                                            .child(about_label)
+                                            .child(about_card),
+                                    )
+                                },
+                            ),
                     ),
             )
     }

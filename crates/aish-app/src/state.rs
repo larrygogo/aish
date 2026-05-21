@@ -426,10 +426,6 @@ pub enum SidebarTab {
 /// M39: Settings 内部子页（用户反馈「拆成不同的菜单」）。
 /// 进入 Settings tab 后 sidebar 换成 SettingsSection sub-nav, settings 内容
 /// 区按当前选中 section 渲染对应 card.
-///
-/// TODO: 当前 enum 已定义但尚未连接到 SidebarNav / SettingsView, 用户中断
-/// 切到 card 风格改造任务, sub-nav 拆分待后续完成。allow dead_code 保留。
-#[allow(dead_code)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum SettingsSection {
     /// 外观 + 偏好（主题 select + 减少动画 switch）
@@ -486,6 +482,10 @@ pub struct AppState {
     pub modal: Option<HostFormState>,
     pub last_connected: HashMap<HostId, SystemTime>,
     pub sidebar: SidebarTab,
+    /// M39: 进入 Settings tab 时 sidebar 渲染的 sub-section nav 选中项。
+    /// 默认 General (外观 + 偏好)。SidebarNav 当 sidebar == Settings 时换成
+    /// 显示 SettingsSection sub-nav (通用 / 快捷键 / 关于)。
+    pub settings_section: SettingsSection,
     /// M35 T9: sidebar 是否展开（220px 含「最近连接」list）。
     /// false = 64px icon-only 折叠模式（v0.next 默认 / muscle memory），
     /// true = 220px 含完整 nav + 最近连接 list。
@@ -578,6 +578,7 @@ impl AppState {
             tabs: vec![],
             selected_tab: None,
             sidebar: SidebarTab::Home,
+            settings_section: SettingsSection::General,
             sidebar_expanded: false, // M35 T9: 默认折叠，保留 muscle memory
             pending_session_picker: None,
             pending_palette: false,
