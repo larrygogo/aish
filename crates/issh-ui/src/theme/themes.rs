@@ -37,6 +37,15 @@ fn shift_l(c: Hsla, delta: f32) -> Hsla {
     }
 }
 
+/// HSL saturation scale — 按钮 primary 派生时降饱和，让 brand 鲜艳色融入
+/// 整体灰阶 UI（用户反馈鲜艳按钮跟 UI 不协调）。
+fn desaturate(c: Hsla, factor: f32) -> Hsla {
+    Hsla {
+        s: (c.s * factor).clamp(0.0, 1.0),
+        ..c
+    }
+}
+
 fn build_tokens(s: Spec) -> ColorTokens {
     let bg = hex(s.bg);
     let fg = hex(s.fg);
@@ -48,6 +57,10 @@ fn build_tokens(s: Spec) -> ColorTokens {
     let h2 = h * 2.0;
     let h3 = h * 3.5;
 
+    // primary 按钮主色：accent 降 25% 饱和度，让 brand 色融入 UI 整体调性
+    // （用户反馈鲜艳按钮跟整体灰阶不协调）。保留 accent 同 hue 维持主题
+    // 识别度。ring / accent token 仍用满饱和 accent 让 cursor / focus 强可见。
+    let primary_color = desaturate(accent, 0.75);
     ColorTokens {
         background: bg,
         foreground: fg,
@@ -55,12 +68,10 @@ fn build_tokens(s: Spec) -> ColorTokens {
         card_foreground: fg,
         popover: surface,
         popover_foreground: fg,
-        primary: accent,
-        // primary 文字白底：accent 通常是品牌色，白字对比够（极少数浅 accent
-        // 例外，但 10 主题中没有这种情况）
+        primary: primary_color,
         primary_foreground: hex(0xffffff),
-        primary_hover: shift_l(accent, h),
-        primary_active: shift_l(accent, h2),
+        primary_hover: shift_l(primary_color, h),
+        primary_active: shift_l(primary_color, h2),
         secondary: shift_l(bg, h),
         secondary_foreground: hex(s.muted_fg),
         secondary_hover: shift_l(bg, h2),
