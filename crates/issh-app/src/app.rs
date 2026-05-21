@@ -96,10 +96,20 @@ pub fn run() {
             // M41 "system": 启动时 window 还没创建无 appearance，先 fallback
             // dark；open_window callback 内会立刻按 window.appearance() 校准
             // 一次 + 注册 observe_window_appearance 后续 OS 主题切换自动跟随。
-            // M43 注：废弃的 "midnight" / "warp" 主题 key 也走 fallback 到默认
-            // dark（清理后仅保留 light / dark / 10 个流行主题 key）。
+            // M43：10 流行主题 key 全覆盖。废弃的 "midnight"/"warp" / 未知
+            // key fallback 到默认 dark。
             let mut init_theme = match snapshot.theme.as_deref() {
                 Some("light") => issh_ui::Theme::light(),
+                Some("moshi") => issh_ui::Theme::moshi(),
+                Some("dracula") => issh_ui::Theme::dracula(),
+                Some("nord") => issh_ui::Theme::nord(),
+                Some("solarized_dark") => issh_ui::Theme::solarized_dark(),
+                Some("gruvbox") => issh_ui::Theme::gruvbox(),
+                Some("catppuccin_mocha") => issh_ui::Theme::catppuccin_mocha(),
+                Some("solarized_light") => issh_ui::Theme::solarized_light(),
+                Some("catppuccin_latte") => issh_ui::Theme::catppuccin_latte(),
+                Some("github_light") => issh_ui::Theme::github_light(),
+                Some("rose_pine_dawn") => issh_ui::Theme::rose_pine_dawn(),
                 _ => issh_ui::Theme::dark(),
             };
             init_theme.reduced_motion = snapshot.reduced_motion.unwrap_or(false);
