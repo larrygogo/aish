@@ -696,11 +696,14 @@ impl Render for HomeView {
 
                     // M36.1 T2: header overlay 文字（host_label + tmux chip）—
                     // foreground 高对比 + Title3，作为 poster 顶部信息。
+                    // M39: header_row 父容器 overflow_hidden 防长 host_label 撑爆 card
+                    // 宽度；host_label child min_w(0) + ellipsis 三件套截断长名字
                     let mut header_row = div()
                         .flex()
                         .flex_row()
                         .items_center()
                         .gap_2()
+                        .overflow_hidden()
                         .child(
                             div()
                                 .w(px(6.0))
@@ -711,6 +714,11 @@ impl Render for HomeView {
                         )
                         .child(
                             div()
+                                .min_w(px(0.0))
+                                .flex_1()
+                                .overflow_hidden()
+                                .whitespace_nowrap()
+                                .text_ellipsis()
                                 .typography(aish_ui::TypeRole::Title3, theme)
                                 .text_color(colors.foreground)
                                 .child(host_label.clone()),
@@ -740,20 +748,33 @@ impl Render for HomeView {
                     }
 
                     let duration_str = format_active_duration(snap.opened_at, SystemTime::now());
+                    // M39: meta_row 父容器 overflow_hidden 防长 user@host:port 撑爆
+                    // user_at_host child min_w(0) + ellipsis 截断长地址
                     let meta_row = div()
                         .flex()
                         .flex_row()
                         .items_center()
                         .gap_2()
+                        .overflow_hidden()
                         .child(
                             div()
+                                .min_w(px(0.0))
+                                .overflow_hidden()
+                                .whitespace_nowrap()
+                                .text_ellipsis()
                                 .typography(aish_ui::TypeRole::Code, theme)
                                 .text_color(colors.secondary_foreground)
                                 .child(user_at_host),
                         )
-                        .child(div().text_color(colors.muted_foreground).child("·"))
                         .child(
                             div()
+                                .flex_shrink_0()
+                                .text_color(colors.muted_foreground)
+                                .child("·"),
+                        )
+                        .child(
+                            div()
+                                .flex_shrink_0()
                                 .typography(aish_ui::TypeRole::Caption, theme)
                                 .text_color(colors.muted_foreground)
                                 .child(duration_str),
