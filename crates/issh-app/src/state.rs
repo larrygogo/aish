@@ -160,7 +160,10 @@ pub enum SessionCommand {
         rows: u16,
     },
     Disconnect,
-    /// 触发 ssh_actor 跑 tmux list-sessions（独立 channel exec）
+    /// 触发 ssh_actor 跑 tmux list-sessions（独立 channel exec）。
+    /// M3c 起 tmux_sidebar 被 SessionPickerView 弹窗替代后无 caller，但
+    /// ssh_actor handler + 事件链保留供未来 host-level query 复用。
+    #[allow(dead_code)]
     QueryTmuxSessions,
     /// user 点了某个 session，actor 关 raw shell -> 开新 channel attach
     AttachTmux {
@@ -280,8 +283,12 @@ pub enum TmuxState {
         sessions: Vec<RemoteSession>,
         attached: Option<SessionId>,
     },
-    /// list-sessions 失败但远端有 tmux
-    QueryFailed { msg: String },
+    /// list-sessions 失败但远端有 tmux。msg 当前无 read（tmux_sidebar 删除
+    /// 后无消费者），保留供未来 query feature 渲染错误详情。
+    QueryFailed {
+        #[allow(dead_code)]
+        msg: String,
+    },
 }
 
 /// modal 状态：当前是否在添加 / 编辑 / 删除确认 host。

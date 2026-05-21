@@ -141,21 +141,6 @@ impl SettingsView {
     }
 }
 
-/// section card 的 header：Title3 (14/SEMIBOLD/fg) + px/py + 底部 border。
-/// M39 前用法：作为 Card.header() 内嵌渲染。M39 改 paseo 风后保留但仅 legacy
-/// 用途（外置 section_label_external 替代）。
-#[allow(dead_code)]
-fn section_header(title: &'static str, t: &Theme) -> AnyElement {
-    div()
-        .px_4()
-        .py_3()
-        .typography(issh_ui::TypeRole::Title3, t)
-        .border_b_1()
-        .border_color(t.colors.border)
-        .child(title)
-        .into_any_element()
-}
-
 /// M39 paseo 风：section label 渲染在 card **外**上方，灰色 Caption，与
 /// card 间留 8px gap。card 自身不再带 header，整张 card 就是 rows list。
 /// 参考 paseo 截图风格 (Navigation / Tabs & Panes / Projects)。
@@ -166,35 +151,6 @@ fn section_label_external(title: &'static str, t: &Theme) -> AnyElement {
         .typography(issh_ui::TypeRole::Caption, t)
         .text_color(t.colors.muted_foreground)
         .child(title)
-        .into_any_element()
-}
-
-/// 两列行：左 200px 固定，右自然宽。用于 shortcut / info pair。
-/// M39: about 简化版后只在 legacy 路径用, 保留 helper allow dead_code。
-#[allow(dead_code)]
-fn two_column_row(left: &str, right: &str, t: &Theme) -> AnyElement {
-    // M26 T5: 左 Label (13/500/fg) + secondary_fg override 弱化（让 right
-    // 是主信息）；右 Body (13/400/fg)。语义：left 是字段名，right 是值。
-    // M27 anatomy：py(10) 与 control_row 统一行高（settings card 内 row 节奏一致）。
-    div()
-        .flex()
-        .flex_row()
-        .items_center()
-        .px_4()
-        .py(px(10.0))
-        .child(
-            div()
-                .w(px(200.0))
-                .typography(issh_ui::TypeRole::Label, t)
-                .text_color(t.colors.secondary_foreground)
-                .child(SharedString::from(left.to_string())),
-        )
-        .child(
-            div()
-                .flex_1()
-                .typography(issh_ui::TypeRole::Body, t)
-                .child(SharedString::from(right.to_string())),
-        )
         .into_any_element()
 }
 

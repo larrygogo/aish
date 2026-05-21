@@ -12,9 +12,6 @@ mod settings;
 mod sidebar_nav;
 mod tab_bar;
 mod terminal_view;
-// tmux_sidebar：M3c 起废弃（功能被 SessionPickerView 弹窗取代）。
-#[allow(dead_code)]
-mod tmux_sidebar;
 
 pub use command_palette::CommandPaletteView;
 pub use empty_terminal::EmptyTerminalGuideView;
