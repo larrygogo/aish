@@ -12,7 +12,7 @@
 //! - bg/card/popover: #050505/#0D0D0D/#161616 → #08090A/#101113/#191B1F
 //!   （加 hue 偏冷，与 indigo accent 协调）
 
-use gpui::hsla;
+// hsla import 删除（aurora 字段 M43 移除后不再需要）
 
 use super::tokens::{hex, ColorTokens, FontSize, Radius, Spacing, Theme, ThemeKind};
 
@@ -77,11 +77,6 @@ impl Theme {
                 // M38 paseo borrowing E: terminal/workspace 区背景。当前等同
                 // background，留语义位置便于未来差异化。
                 surface_workspace: hex(0x08090a),
-                // M39 Phase 2: aurora 配色抽 token（默认 dark 走 indigo + cyan
-                // 冷双色 — M37 现状沿用）。aurora_a = primary indigo (hue 234°)
-                // 0.18 alpha，aurora_b = cyan glow (hue 190°) 0.14 alpha
-                aurora_a: hex(0x5e6ad2).opacity(0.18),
-                aurora_b: hsla(190.0 / 360.0, 0.6, 0.45, 0.14),
             },
             radius: Radius::default(),
             spacing: Spacing::default(),

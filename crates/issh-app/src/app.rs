@@ -93,16 +93,13 @@ pub fn run() {
             // M30：同时回灌 reduced_motion 偏好（None / Some(false) 都视为 false）。
             // 注意：load_app_state 还会在下面被复用读 recent，重复 IO 但极便宜。
             let snapshot = crate::app_state_file::load_app_state();
-            // M38/M39: 实验性 dark 变体 — midnight (深紫蓝冷调) / warp
-            // (Warp 风温暖紫)。在 Settings → 外观 → 主题 select 切换。
             // M41 "system": 启动时 window 还没创建无 appearance，先 fallback
             // dark；open_window callback 内会立刻按 window.appearance() 校准
             // 一次 + 注册 observe_window_appearance 后续 OS 主题切换自动跟随。
+            // M43 注：废弃的 "midnight" / "warp" 主题 key 也走 fallback 到默认
+            // dark（清理后仅保留 light / dark / 10 个流行主题 key）。
             let mut init_theme = match snapshot.theme.as_deref() {
                 Some("light") => issh_ui::Theme::light(),
-                Some("midnight") => issh_ui::Theme::dark_midnight(),
-                Some("warp") => issh_ui::Theme::dark_warp(),
-                Some("system") => issh_ui::Theme::dark(),
                 _ => issh_ui::Theme::dark(),
             };
             init_theme.reduced_motion = snapshot.reduced_motion.unwrap_or(false);
@@ -692,58 +689,14 @@ impl Render for RootView {
         };
 
         // 外层：sidebar + 主区横排 + 背景 aurora 光晕层
-        // M37: aurora glassmorphism 模拟 — GPUI 无 backdrop-filter blur，
-        // 用 2 层 absolute linear_gradient 叠出"色斑光晕"模拟玻璃质感的
-        // 底层色相分布。后续卡片可以半透明透出这层光晕呈现玻璃感。
-        //
-        // M39 Phase 2: aurora 配色抽 ColorTokens.aurora_a / aurora_b 跟 theme
-        // 联动（default 冷双色 / midnight 紫蓝 / warp 紫+粉 / light 极淡）。
-        //
-        // M39 Phase 4.4 (回到 M37 原版 2 layer 对角结构 + alpha 极淡):
-        // 5 层嵌套椭圆 halo 视觉太"圆"显丑，回到 M37 原版「2 layer top-left
-        // + bottom-right 对角分布」简单结构，但用 .opacity(0.1) 把 token alpha
-        // 降到 1/10 — Warp Aurora 现在变 0.025/0.020 极淡 brand tint，
-        // aurora 仅作底层色相暗示，不抢主信息。
-        let aurora_a = colors.aurora_a;
-        let aurora_b = colors.aurora_b;
+        // M43：aurora layer 删除（曾随 dark variant token 联动，M43 主题包
+        // 不沿用 aurora 概念，主题切换直接走 colors.background）
         let main = div()
             .relative()
             .flex()
             .flex_row()
             .size_full()
-            // root bg 跟随 theme：dark=#050505 / light=#fafafa（colors.background
-            // global，theme 切换时 refresh_windows 让所有 view re-render 拿新值）
             .bg(colors.background)
-            // Aurora layer 1: top-left brand bloom（主 accent 色光晕）
-            // 拉到 1.4x viewport（130% × 110% 偏移 -20%/-10%），让 gradient
-            // 的 transparent stop 移出视野，消除卡片中间的硬边
-            .child(
-                div()
-                    .absolute()
-                    .top(gpui::relative(-0.2))
-                    .left(gpui::relative(-0.2))
-                    .w(gpui::relative(1.4))
-                    .h(gpui::relative(1.2))
-                    .bg(gpui::linear_gradient(
-                        135.0,
-                        gpui::linear_color_stop(aurora_a.opacity(0.1), 0.0),
-                        gpui::linear_color_stop(aurora_a.opacity(0.0), 1.0),
-                    )),
-            )
-            // Aurora layer 2: bottom-right 补色 bloom（让光晕有 hue 层次）
-            .child(
-                div()
-                    .absolute()
-                    .bottom(gpui::relative(-0.2))
-                    .right(gpui::relative(-0.2))
-                    .w(gpui::relative(1.4))
-                    .h(gpui::relative(1.2))
-                    .bg(gpui::linear_gradient(
-                        315.0,
-                        gpui::linear_color_stop(aurora_b.opacity(0.1), 0.0),
-                        gpui::linear_color_stop(aurora_b.opacity(0.0), 1.0),
-                    )),
-            )
             .child(self.sidebar_nav.clone())
             // 主区 flex_1 必须 min_w(0) + min_h(0)，否则 main_body 内任何
             // 超长子（如 tab_bar 内的 tab items 总宽 > viewport - sidebar，

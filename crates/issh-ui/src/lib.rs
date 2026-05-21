@@ -17,7 +17,8 @@ pub use components::*;
 pub use font::{code_font, sans_font};
 pub use icons::{icon, IconName, IsshUiAssets};
 pub use theme::{
-    animate_or_skip, elevation_1, elevation_2, elevation_3, theme, Anatomy, CardAnatomy, ColorRole,
-    DialogAnatomy, EasingFn, FormAnatomy, ListRowAnatomy, Motion, OverlayAnatomy, PageAnatomy,
-    Theme, ThemeKind, TypeRole, TypeStyle, Typography, TypographyExt,
+    animate_or_skip, ansi_palette_for, elevation_1, elevation_2, elevation_3, preview_swatches,
+    terminal_bg_for, terminal_fg_for, theme, Anatomy, CardAnatomy, ColorRole, DialogAnatomy,
+    EasingFn, FormAnatomy, ListRowAnatomy, Motion, OverlayAnatomy, PageAnatomy, Theme, ThemeKind,
+    TypeRole, TypeStyle, Typography, TypographyExt, ALL_THEMES,
 };

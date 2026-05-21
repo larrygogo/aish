@@ -8,7 +8,7 @@
 //! 对比加强。M17 accent_active "沉下去"语义跨主题一致：dark/light 都是
 //! lightness 进一步降低（dark accent 低，light accent 高，active 都更低）。
 
-use gpui::hsla;
+// hsla import 删除（aurora 字段 M43 移除后不再需要）
 
 use super::tokens::{hex, ColorTokens, FontSize, Radius, Spacing, Theme, ThemeKind};
 
@@ -68,10 +68,6 @@ impl Theme {
                 // M38 paseo borrowing E: terminal/workspace 区背景。当前等同
                 // background，留语义位置便于未来差异化。
                 surface_workspace: hex(0xfafbfc),
-                // M39 Phase 2: aurora 配色抽 token（light 走更淡的 indigo +
-                // cyan — alpha 比 dark 减半防 light bg 上花俏）
-                aurora_a: hex(0x5e6ad2).opacity(0.06),
-                aurora_b: hsla(190.0 / 360.0, 0.5, 0.55, 0.04),
             },
             radius: Radius::default(),
             spacing: Spacing::default(),

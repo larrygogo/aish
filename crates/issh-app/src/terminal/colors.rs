@@ -57,29 +57,30 @@ pub const DEFAULT_BACKGROUND_LIGHT: u32 = 0xffffff;
 
 /// 按 theme kind 取 palette / fg / bg。grid_renderer 在 paint phase 调
 /// `issh_ui::theme(cx).kind` 拿到 kind 后传入。
+///
+/// M43：10 流行主题各自独立 ANSI palette + fg/bg，走 themes::ansi_palette_for
+/// 等 helper。默认 Dark / Light fallback 到 VS Code 风 default palette。
 pub fn palette_for(kind: issh_ui::ThemeKind) -> [u32; 16] {
-    // M38 paseo borrowing G: DarkMidnight 走 dark family —— 终端 ANSI 调色板
-    // 跨 dark variant 共用（节省维护 + 视觉锚点跨主题一致）
-    if kind.is_dark() {
-        DEFAULT_PALETTE_DARK
-    } else {
-        DEFAULT_PALETTE_LIGHT
+    match kind {
+        issh_ui::ThemeKind::Dark => DEFAULT_PALETTE_DARK,
+        issh_ui::ThemeKind::Light => DEFAULT_PALETTE_LIGHT,
+        other => issh_ui::ansi_palette_for(other),
     }
 }
 
 pub fn default_foreground_for(kind: issh_ui::ThemeKind) -> u32 {
-    if kind.is_dark() {
-        DEFAULT_FOREGROUND_DARK
-    } else {
-        DEFAULT_FOREGROUND_LIGHT
+    match kind {
+        issh_ui::ThemeKind::Dark => DEFAULT_FOREGROUND_DARK,
+        issh_ui::ThemeKind::Light => DEFAULT_FOREGROUND_LIGHT,
+        other => issh_ui::terminal_fg_for(other),
     }
 }
 
 pub fn default_background_for(kind: issh_ui::ThemeKind) -> u32 {
-    if kind.is_dark() {
-        DEFAULT_BACKGROUND_DARK
-    } else {
-        DEFAULT_BACKGROUND_LIGHT
+    match kind {
+        issh_ui::ThemeKind::Dark => DEFAULT_BACKGROUND_DARK,
+        issh_ui::ThemeKind::Light => DEFAULT_BACKGROUND_LIGHT,
+        other => issh_ui::terminal_bg_for(other),
     }
 }
 

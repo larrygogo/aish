@@ -2,10 +2,9 @@
 
 mod anatomy;
 mod dark;
-mod dark_midnight;
-mod dark_warp;
 mod light;
 mod motion;
+mod themes;
 mod tokens;
 pub mod typography;
 
@@ -13,8 +12,10 @@ pub use anatomy::{
     Anatomy, CardAnatomy, DialogAnatomy, FormAnatomy, ListRowAnatomy, OverlayAnatomy, PageAnatomy,
 };
 pub use motion::{animate_or_skip, EasingFn, Motion};
+pub use themes::{ansi_palette_for, preview_swatches, terminal_bg_for, terminal_fg_for};
 pub use tokens::{
-    elevation_1, elevation_2, elevation_3, ColorTokens, FontSize, Radius, Spacing, Theme, ThemeKind,
+    elevation_1, elevation_2, elevation_3, ColorTokens, FontSize, Radius, Spacing, Theme,
+    ThemeKind, ALL_THEMES,
 };
 pub use typography::{ColorRole, TypeRole, TypeStyle, Typography, TypographyExt};
 

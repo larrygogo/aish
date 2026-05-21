@@ -50,16 +50,6 @@ pub struct ColorTokens {
     /// 时偏色、fullscreen 模式不同 tint 等）—— 无需修改全 view 代码。
     /// 借鉴 paseo `surfaceWorkspace` 的命名。
     pub surface_workspace: Hsla,
-    /// Aurora 背景 layer 1 主色（M37 引入背景光晕，M39 Phase 2 抽 token）。
-    /// 含 alpha — app.rs render 时直接用 `linear_color_stop(aurora_a, 0.0)
-    /// → linear_color_stop(aurora_a.opacity(0.0), 1.0)` 做色彩弥散。
-    /// 各 dark variant 用不同配色（默认: indigo / midnight: 加亮 indigo /
-    /// warp: Warp 紫高饱和）。
-    pub aurora_a: Hsla,
-    /// Aurora 背景 layer 2 补色（同 aurora_a，但 hue 偏一档形成双色光晕）。
-    /// 默认: cyan / midnight: 冷紫 / warp: Warp 粉。alpha 一般比 aurora_a
-    /// 低一档（layer 2 是 layer 1 的辅助）。
-    pub aurora_b: Hsla,
 }
 
 #[derive(Clone, Copy)]
@@ -186,22 +176,91 @@ impl Default for Opacity {
 /// (#7C5CFC)，暖调实验性变体。两者跟默认 dark 并列，用户在 Settings 切换。
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ThemeKind {
+    // 默认
     Dark,
     Light,
-    DarkMidnight,
-    DarkWarp,
+    // M43 流行 dark 主题
+    Moshi,
+    Dracula,
+    Nord,
+    SolarizedDark,
+    Gruvbox,
+    CatppuccinMocha,
+    // M43 流行 light 主题
+    SolarizedLight,
+    CatppuccinLatte,
+    GithubLight,
+    RosePineDawn,
 }
 
 impl ThemeKind {
-    /// 当前主题是否属于「dark family」（dark / dark_midnight / dark_warp 等）。
-    /// 用于 caller 决定 dark/light bifurcation 时省略对每个 dark variant 单独处理。
+    /// 当前主题是否属于「dark family」。
     pub fn is_dark(self) -> bool {
         matches!(
             self,
-            ThemeKind::Dark | ThemeKind::DarkMidnight | ThemeKind::DarkWarp
+            ThemeKind::Dark
+                | ThemeKind::Moshi
+                | ThemeKind::Dracula
+                | ThemeKind::Nord
+                | ThemeKind::SolarizedDark
+                | ThemeKind::Gruvbox
+                | ThemeKind::CatppuccinMocha
         )
     }
+
+    /// 持久化 key（写 app_state.toml.theme）。
+    pub fn as_key(self) -> &'static str {
+        match self {
+            ThemeKind::Dark => "dark",
+            ThemeKind::Light => "light",
+            ThemeKind::Moshi => "moshi",
+            ThemeKind::Dracula => "dracula",
+            ThemeKind::Nord => "nord",
+            ThemeKind::SolarizedDark => "solarized_dark",
+            ThemeKind::Gruvbox => "gruvbox",
+            ThemeKind::CatppuccinMocha => "catppuccin_mocha",
+            ThemeKind::SolarizedLight => "solarized_light",
+            ThemeKind::CatppuccinLatte => "catppuccin_latte",
+            ThemeKind::GithubLight => "github_light",
+            ThemeKind::RosePineDawn => "rose_pine_dawn",
+        }
+    }
+
+    /// 用户可见的展示名（Settings 列表）。
+    pub fn display_name(self) -> &'static str {
+        match self {
+            ThemeKind::Dark => "默认暗色",
+            ThemeKind::Light => "默认亮色",
+            ThemeKind::Moshi => "Moshi",
+            ThemeKind::Dracula => "Dracula",
+            ThemeKind::Nord => "Nord",
+            ThemeKind::SolarizedDark => "Solarized Dark",
+            ThemeKind::Gruvbox => "Gruvbox",
+            ThemeKind::CatppuccinMocha => "Catppuccin Mocha",
+            ThemeKind::SolarizedLight => "Solarized Light",
+            ThemeKind::CatppuccinLatte => "Catppuccin Latte",
+            ThemeKind::GithubLight => "GitHub Light",
+            ThemeKind::RosePineDawn => "Rosé Pine Dawn",
+        }
+    }
 }
+
+/// 所有主题列表，Settings UI 按本顺序渲染（dark group 在前，light group 在后）。
+#[allow(dead_code)] // Step 5 Settings UI 改造时启用
+pub const ALL_THEMES: &[ThemeKind] = &[
+    ThemeKind::Dark,
+    ThemeKind::Moshi,
+    ThemeKind::Dracula,
+    ThemeKind::Nord,
+    ThemeKind::SolarizedDark,
+    ThemeKind::Gruvbox,
+    ThemeKind::CatppuccinMocha,
+    ThemeKind::Light,
+    ThemeKind::SolarizedLight,
+    ThemeKind::CatppuccinLatte,
+    ThemeKind::GithubLight,
+    ThemeKind::RosePineDawn,
+];
 
 pub struct Theme {
     pub kind: ThemeKind,

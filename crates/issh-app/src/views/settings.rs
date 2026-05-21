@@ -15,7 +15,7 @@
 
 use gpui::{div, prelude::*, px, AnyElement, Context, Entity, IntoElement, SharedString, Window};
 use issh_ui::theme::ThemeKind;
-use issh_ui::{theme, Button, Card, Kbd, Select, Switch, Theme, TypographyExt};
+use issh_ui::{theme, Button, Card, Kbd, Switch, Theme, TypographyExt};
 
 pub struct SettingsView {
     /// M39: state Entity for reading settings_section + observe 变化 → 重 render。
@@ -25,9 +25,6 @@ pub struct SettingsView {
     /// M31：About section 两个 secondary button entity（press feedback 80ms）。
     open_config_btn: Entity<Button>,
     open_github_btn: Entity<Button>,
-    /// M39: 统一主题 select — 单 4 选项替代 M38 的 dark switch + variant
-    /// select 二段式 UX。选项: 默认 / Midnight / Warp Aurora / 浅色。
-    theme_select: Entity<Select>,
 }
 
 impl SettingsView {
@@ -58,85 +55,11 @@ impl SettingsView {
             b
         });
 
-        // M39 paseo 风 theme select — 5 option 分段:
-        //  [亮色 (Sun)] [暗色 (Moon)] [跟随系统 (Monitor)]  ← mode 3 项
-        //  --- 分割线 ---
-        //  [Midnight (dot blue)] [Warp Aurora (dot 紫)]  ← dark variants
-        // 选 mode 切大方向 (light / dark / system), 选 variant 切具体 dark
-        // theme。
-        // M41:「跟随系统」已集成 GPUI WindowAppearance — 选中时按 OS 当前
-        // light/dark 应用对应 theme，OS 主题切换由 app.rs 注册的
-        // observe_window_appearance 实时同步。
-        let initial_theme_idx = match crate::app_state_file::load_app_state().theme.as_deref() {
-            Some("light") => 0,
-            Some("system") => 2,
-            Some("midnight") => 3,
-            Some("warp") => 4,
-            // "dark" 或未设 → 暗色 (idx 1)
-            _ => 1,
-        };
-        let theme_select = cx.new(|cx| {
-            let mut s = Select::new(
-                vec!["亮色", "暗色", "跟随系统", "Midnight", "Warp Aurora"],
-                cx,
-            );
-            s.set_selected(initial_theme_idx, cx);
-            // mode 段 leading icon: Sun / Moon / Monitor
-            s.leading_icons(vec![
-                Some(issh_ui::IconName::Sun),
-                Some(issh_ui::IconName::Moon),
-                Some(issh_ui::IconName::Monitor),
-                None,
-                None,
-            ]);
-            // variant 段 leading dot: Midnight 亮 indigo / Warp 紫
-            use gpui::{Hsla, Rgba};
-            fn hex_hsla(rgb: u32) -> Hsla {
-                let r = ((rgb >> 16) & 0xFF) as f32 / 255.0;
-                let g = ((rgb >> 8) & 0xFF) as f32 / 255.0;
-                let b = (rgb & 0xFF) as f32 / 255.0;
-                Rgba { r, g, b, a: 1.0 }.into()
-            }
-            s.leading_dots(vec![
-                None,
-                None,
-                None,
-                Some(hex_hsla(0x6b7ae0)),
-                Some(hex_hsla(0x7c5cfc)),
-            ]);
-            // mode 段 (idx 2) 后画分隔线
-            s.separators(vec![false, false, true, false, false]);
-            s.on_change(|idx, w, cx| {
-                let cur_reduced = issh_ui::theme(cx).reduced_motion;
-                // idx 2 「跟随系统」：用 window.appearance() 决定 light/dark；
-                // 系统主题后续变化由 app.rs::observe_window_appearance 同步。
-                let (mut new_theme, theme_key): (Theme, &str) = match *idx {
-                    0 => (Theme::light(), "light"),
-                    1 => (Theme::dark(), "dark"),
-                    2 => (
-                        crate::app::theme_for_appearance(w.appearance(), cur_reduced),
-                        "system",
-                    ),
-                    3 => (Theme::dark_midnight(), "midnight"),
-                    4 => (Theme::dark_warp(), "warp"),
-                    _ => (Theme::dark(), "dark"),
-                };
-                new_theme.reduced_motion = cur_reduced;
-                cx.set_global(new_theme);
-                cx.refresh_windows();
-                let mut snapshot = crate::app_state_file::load_app_state();
-                snapshot.theme = Some(theme_key.to_string());
-                crate::app_state_file::save_app_state(&snapshot);
-            });
-            s
-        });
-
         Self {
             state,
             scrollbar: issh_ui::ScrollbarHandle::new(),
             open_config_btn,
             open_github_btn,
-            theme_select,
         }
     }
 }
@@ -253,6 +176,81 @@ fn shortcut_row(
         .into_any_element()
 }
 
+/// M43 主题选择 row：左侧主题名 + 中间 5 色块预览 + 右侧选中 ✓。
+/// 点击切到该主题：构造 Theme → set_global → refresh_windows → 写盘
+/// app_state.theme。颜色实时跨整个 app + terminal 联动。
+fn theme_row(kind: issh_ui::ThemeKind, current: issh_ui::ThemeKind, t: &Theme) -> AnyElement {
+    let is_selected = kind == current;
+    let swatches = issh_ui::preview_swatches(kind);
+    let display_name = kind.display_name();
+    let theme_key = kind.as_key();
+
+    div()
+        .id(SharedString::from(format!("theme-row-{}", theme_key)))
+        .flex()
+        .flex_row()
+        .items_center()
+        .justify_between()
+        .px_4()
+        .py(px(10.0))
+        .gap(t.spacing.px_3)
+        .cursor_pointer()
+        .hover(|s| s.bg(t.colors.secondary_hover))
+        .on_mouse_down(gpui::MouseButton::Left, move |_ev, _w, cx| {
+            let cur_reduced = issh_ui::theme(cx).reduced_motion;
+            let mut new_theme = match kind {
+                issh_ui::ThemeKind::Dark => Theme::dark(),
+                issh_ui::ThemeKind::Light => Theme::light(),
+                issh_ui::ThemeKind::Moshi => Theme::moshi(),
+                issh_ui::ThemeKind::Dracula => Theme::dracula(),
+                issh_ui::ThemeKind::Nord => Theme::nord(),
+                issh_ui::ThemeKind::SolarizedDark => Theme::solarized_dark(),
+                issh_ui::ThemeKind::Gruvbox => Theme::gruvbox(),
+                issh_ui::ThemeKind::CatppuccinMocha => Theme::catppuccin_mocha(),
+                issh_ui::ThemeKind::SolarizedLight => Theme::solarized_light(),
+                issh_ui::ThemeKind::CatppuccinLatte => Theme::catppuccin_latte(),
+                issh_ui::ThemeKind::GithubLight => Theme::github_light(),
+                issh_ui::ThemeKind::RosePineDawn => Theme::rose_pine_dawn(),
+            };
+            new_theme.reduced_motion = cur_reduced;
+            cx.set_global(new_theme);
+            cx.refresh_windows();
+            let mut snapshot = crate::app_state_file::load_app_state();
+            snapshot.theme = Some(theme_key.to_string());
+            crate::app_state_file::save_app_state(&snapshot);
+        })
+        .child(
+            div()
+                .flex_1()
+                .typography(issh_ui::TypeRole::Body, t)
+                .child(SharedString::from(display_name)),
+        )
+        .child({
+            // 5 色块预览（bg / fg / red / green / blue），跟用户参考截图同顺序
+            let mut row = div().flex().flex_row().gap(px(4.0));
+            for color in swatches {
+                row = row.child(
+                    div()
+                        .w(px(16.0))
+                        .h(px(16.0))
+                        .rounded(t.radius.sm)
+                        .bg(color)
+                        .border_1()
+                        .border_color(t.colors.border),
+                );
+            }
+            row
+        })
+        .when(is_selected, |d| {
+            d.child(
+                issh_ui::icon(issh_ui::IconName::Check)
+                    .size(t.icon_size.sm)
+                    .text_color(t.colors.accent_foreground),
+            )
+        })
+        .into_any_element()
+}
+
 /// 标签 + 可选副标题 + 控件横向行（用于 Appearance 的 Dark mode 这种
 /// label + Switch）。helper 非空时在 label 下方显示 muted_foreground xs 灰字，
 /// 用于提示控件状态 / 限制（如"Light theme not implemented"）。
@@ -319,13 +317,13 @@ impl Render for SettingsView {
             .checked(reduced_motion)
             .on_change(cx.listener(|_this, new_value: &bool, _w, cx| {
                 let new_reduced = *new_value;
-                // 切 reduced_motion 时保留 dark/light kind
+                // 切 reduced_motion 时保留当前主题（按 kind 重新构造同主题）。
+                // M43 主题包加入后通过 themes::theme_for(kind) 派发；现仅 Light
+                // / Dark factories 实现，其余 variant fallback dark（Step 3 补全）。
                 let kind = theme(cx).kind;
                 let mut new_theme = match kind {
-                    ThemeKind::Dark => Theme::dark(),
                     ThemeKind::Light => Theme::light(),
-                    ThemeKind::DarkMidnight => Theme::dark_midnight(),
-                    ThemeKind::DarkWarp => Theme::dark_warp(),
+                    _ => Theme::dark(),
                 };
                 new_theme.reduced_motion = new_reduced;
                 cx.set_global(new_theme);
@@ -336,29 +334,44 @@ impl Render for SettingsView {
             }))
             .into_any_element();
 
-        // M39 paseo 风: section label 外置, card 自身不带 header, 整张 card
-        // 就是 rows list。section label 在 card 上方独立 div (灰 Caption)。
+        // ───── 外观（仅含「减少动画」)─────
         let appearance_label = section_label_external("外观", t);
         let appearance_card = Card::new("settings-appearance")
             .outlined()
-            .no_padding() // row helpers (control_row) 自带 px_4 padding
-            .body(
-                div()
-                    .flex()
-                    .flex_col()
-                    .child(control_row(
-                        "主题",
-                        Some("默认 / Midnight 深紫蓝 / Warp Aurora 暖紫 / 浅色（实验）"),
-                        self.theme_select.clone().into_any_element(),
-                        t,
-                    ))
-                    .child(control_row(
-                        "减少动画",
-                        Some("关闭 dialog 入场 / toast 出现等动画"),
-                        motion_switch,
-                        t,
-                    )),
-            );
+            .no_padding()
+            .body(div().flex().flex_col().child(control_row(
+                "减少动画",
+                Some("关闭 dialog 入场 / toast 出现等动画"),
+                motion_switch,
+                t,
+            )));
+
+        // ───── M43 主题包：DARK / LIGHT 分组列表 + 5 色块预览 ─────
+        // 跟用户参考截图同结构：每项左侧主题名 + 右侧 [bg, fg, red, green, blue]
+        // 色块 + 选中 ✓。点击切主题（cx.set_global + 写盘）。
+        let current_kind = t.kind;
+        let theme_dark_label = section_label_external("DARK", t);
+        let theme_light_label = section_label_external("LIGHT", t);
+        let theme_dark_card = Card::new("settings-theme-dark")
+            .outlined()
+            .no_padding()
+            .body({
+                let mut body = div().flex().flex_col();
+                for kind in issh_ui::ALL_THEMES.iter().filter(|k| k.is_dark()) {
+                    body = body.child(theme_row(*kind, current_kind, t));
+                }
+                body
+            });
+        let theme_light_card = Card::new("settings-theme-light")
+            .outlined()
+            .no_padding()
+            .body({
+                let mut body = div().flex().flex_col();
+                for kind in issh_ui::ALL_THEMES.iter().filter(|k| !k.is_dark()) {
+                    body = body.child(theme_row(*kind, current_kind, t));
+                }
+                body
+            });
 
         // ───── Keyboard Shortcuts ─────
         // M35 T15 / Phase A keybinding 自定义：按 ACTIONS 列表 +
@@ -454,8 +467,28 @@ impl Render for SettingsView {
                                         div()
                                             .flex()
                                             .flex_col()
-                                            .child(appearance_label)
-                                            .child(appearance_card),
+                                            .gap(t.anatomy.page.section_gap)
+                                            .child(
+                                                div()
+                                                    .flex()
+                                                    .flex_col()
+                                                    .child(theme_dark_label)
+                                                    .child(theme_dark_card),
+                                            )
+                                            .child(
+                                                div()
+                                                    .flex()
+                                                    .flex_col()
+                                                    .child(theme_light_label)
+                                                    .child(theme_light_card),
+                                            )
+                                            .child(
+                                                div()
+                                                    .flex()
+                                                    .flex_col()
+                                                    .child(appearance_label)
+                                                    .child(appearance_card),
+                                            ),
                                     )
                                 },
                             )
