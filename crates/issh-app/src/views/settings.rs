@@ -14,8 +14,7 @@
 //! （tab 操作 + 终端粘贴）。
 
 use gpui::{div, prelude::*, px, AnyElement, Context, Entity, IntoElement, SharedString, Window};
-use issh_ui::theme::ThemeKind;
-use issh_ui::{theme, Button, Card, Kbd, Switch, Theme, TypographyExt};
+use issh_ui::{theme, Button, Card, Kbd, Theme, TypographyExt};
 
 pub struct SettingsView {
     /// M39: state Entity for reading settings_section + observe 变化 → 重 render。
@@ -226,10 +225,12 @@ fn theme_row(kind: issh_ui::ThemeKind, current: issh_ui::ThemeKind, t: &Theme) -
                 .child(SharedString::from(display_name)),
         )
         .child({
-            // 5 色块预览（bg / fg / red / green / blue），跟用户参考截图同顺序
-            let mut row = div().flex().flex_row().gap(px(4.0));
+            // 5 色块 + ✓-or-占位 包在一个右侧固定容器，让 selected/unselected
+            // row 右边缘对齐（之前 justify_between + 三 child 让 selected 行
+            // 中色块被推开）
+            let mut swatches_row = div().flex().flex_row().gap(px(4.0));
             for color in swatches {
-                row = row.child(
+                swatches_row = swatches_row.child(
                     div()
                         .w(px(16.0))
                         .h(px(16.0))
@@ -239,14 +240,22 @@ fn theme_row(kind: issh_ui::ThemeKind, current: issh_ui::ThemeKind, t: &Theme) -
                         .border_color(t.colors.border),
                 );
             }
-            row
-        })
-        .when(is_selected, |d| {
-            d.child(
+            let check: AnyElement = if is_selected {
                 issh_ui::icon(issh_ui::IconName::Check)
                     .size(t.icon_size.sm)
-                    .text_color(t.colors.accent_foreground),
-            )
+                    .text_color(t.colors.foreground)
+                    .into_any_element()
+            } else {
+                // 透明占位防 layout shift — 跟 icon 同宽高
+                div().w(t.icon_size.sm).h(t.icon_size.sm).into_any_element()
+            };
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(t.spacing.px_2)
+                .child(swatches_row)
+                .child(check)
         })
         .into_any_element()
 }
@@ -293,58 +302,12 @@ impl Render for SettingsView {
         };
         let t = theme(cx);
         let colors = t.colors;
-        // M30：reduced_motion 偏好直接从 global Theme 读，Switch 反映真值。
-        let reduced_motion = t.reduced_motion;
 
         // ───── 页面标题 ─────
-        // M26 T2: page title 用 Title1 (20/600/fg)。
-        // M27: pb 走 anatomy.page.header_to_content_gap (16) — 之前 pb_6=24
-        // 偏松，统一让 page_title 与首 Card 间隔 16，与 home page header 一致。
         let page_title = div()
             .pb(t.anatomy.page.header_to_content_gap)
             .typography(issh_ui::TypeRole::Title1, t)
             .child("设置");
-
-        // ───── Appearance ─────
-        // M39: 合并 dark switch + variant select 为单 theme select（参考 paseo
-        // Theme 单 dropdown 模式）。删除 dark_switch + variant_select_row 二段
-        // UX，用 self.theme_select 一个控件提供 4 选项: 默认 / Midnight /
-        // Warp Aurora / 浅色。Select 默认 BottomEnd placement 右对齐 trigger
-        // 防右上角下拉溢出。
-
-        // M30：reduced motion Switch — 切换"减少动画"偏好，写盘 + 更新 Theme
-        let motion_switch = Switch::new("settings-reduced-motion")
-            .checked(reduced_motion)
-            .on_change(cx.listener(|_this, new_value: &bool, _w, cx| {
-                let new_reduced = *new_value;
-                // 切 reduced_motion 时保留当前主题（按 kind 重新构造同主题）。
-                // M43 主题包加入后通过 themes::theme_for(kind) 派发；现仅 Light
-                // / Dark factories 实现，其余 variant fallback dark（Step 3 补全）。
-                let kind = theme(cx).kind;
-                let mut new_theme = match kind {
-                    ThemeKind::Light => Theme::light(),
-                    _ => Theme::dark(),
-                };
-                new_theme.reduced_motion = new_reduced;
-                cx.set_global(new_theme);
-                cx.refresh_windows();
-                let mut snapshot = crate::app_state_file::load_app_state();
-                snapshot.reduced_motion = Some(new_reduced);
-                crate::app_state_file::save_app_state(&snapshot);
-            }))
-            .into_any_element();
-
-        // ───── 外观（仅含「减少动画」)─────
-        let appearance_label = section_label_external("外观", t);
-        let appearance_card = Card::new("settings-appearance")
-            .outlined()
-            .no_padding()
-            .body(div().flex().flex_col().child(control_row(
-                "减少动画",
-                Some("关闭 dialog 入场 / toast 出现等动画"),
-                motion_switch,
-                t,
-            )));
 
         // ───── M43 主题包：DARK / LIGHT 分组列表 + 5 色块预览 ─────
         // 跟用户参考截图同结构：每项左侧主题名 + 右侧 [bg, fg, red, green, blue]
@@ -481,13 +444,6 @@ impl Render for SettingsView {
                                                     .flex_col()
                                                     .child(theme_light_label)
                                                     .child(theme_light_card),
-                                            )
-                                            .child(
-                                                div()
-                                                    .flex()
-                                                    .flex_col()
-                                                    .child(appearance_label)
-                                                    .child(appearance_card),
                                             ),
                                     )
                                 },
