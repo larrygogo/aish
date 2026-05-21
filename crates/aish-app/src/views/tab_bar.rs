@@ -14,8 +14,9 @@ use std::time::Duration;
 
 use aish_types::TabId;
 use gpui::{
-    div, point, prelude::*, px, App, Context, Entity, FocusHandle, Focusable, KeyDownEvent,
-    MouseDownEvent, ScrollDelta, ScrollHandle, ScrollWheelEvent, Window,
+    anchored, deferred, div, point, prelude::*, px, Anchor, AnchoredPositionMode, App, Context,
+    Entity, FocusHandle, Focusable, KeyDownEvent, MouseButton, MouseDownEvent, ScrollDelta,
+    ScrollHandle, ScrollWheelEvent, Window,
 };
 
 use aish_ui::{ContextMenu, DropdownMenu, IconName, MenuItem, TextInput};
@@ -475,7 +476,7 @@ impl Focusable for TabBarView {
 }
 
 impl Render for TabBarView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // 每帧重设 context menu content（AnyElement 不 Clone，render 内 take 消耗）。
         // 仅当 menu 目标 tab 已选定时构造内容，避免无谓 DropdownMenu 实例化。
         if let Some(tab_id) = self.menu_tab_id {
@@ -599,6 +600,16 @@ impl Render for TabBarView {
                         TabContent::Connection(c) => app.is_session_active(c),
                         _ => false,
                     };
+                    // M39: tab connection 关联 host 的 os_kind, 用于 prefix
+                    // 渲染 OS avatar 替代绿/灰点 (用户反馈「绿点改成系统图标」)
+                    let os_kind: Option<String> = match t.content {
+                        TabContent::Connection(c) => app
+                            .connections
+                            .get(&c)
+                            .and_then(|conn| app.hosts.iter().find(|h| h.id == conn.host_id))
+                            .and_then(|h| h.capabilities.os_kind.clone()),
+                        _ => None,
+                    };
 
                     // editing 模式：跳过 TabItem，直接渲染一个**更宽、不裁切**的 inline
                     // editor box。原因：TabItem 设计目的是"展示长 title 不撑爆 tab bar"，
@@ -677,18 +688,55 @@ impl Render for TabBarView {
                         .cloned()
                         .expect("close_buttons 在 render 顶部已 ensure");
 
-                    // 连接 tab：活跃 = 绿点，已断 = 灰点；默认页 tab 不带前缀
+                    // M39: 连接 tab prefix 改 OS avatar (用户反馈「绿点改成系统图标」)。
+                    // 有 os_kind 且 os_avatar_for 返回 Some → 渲染 14px 圆形带
+                    // 品牌色 bg + 10px SVG / 9px Letter；否则 fallback 到
+                    // 原绿/灰 dot 表达活/断状态 (未探测的兼容路径)。
                     let prefix: gpui::AnyElement = if is_connection {
-                        let dot_color = if is_alive {
-                            colors.success
-                        } else {
-                            colors.muted_foreground
-                        };
-                        div()
-                            .text_color(dot_color)
-                            .text_size(font_size.xs)
-                            .child("●")
-                            .into_any_element()
+                        let avatar = os_kind
+                            .as_deref()
+                            .and_then(crate::avatar::os_avatar_for);
+                        match avatar {
+                            Some(crate::avatar::OsAvatar::Svg { icon, bg }) => div()
+                                .w(px(14.0))
+                                .h(px(14.0))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .bg(gpui::rgb(bg))
+                                .rounded_full()
+                                .child(
+                                    aish_ui::icon(icon)
+                                        .size(px(10.0))
+                                        .text_color(gpui::white()),
+                                )
+                                .into_any_element(),
+                            Some(crate::avatar::OsAvatar::Letter { letter, bg }) => div()
+                                .w(px(14.0))
+                                .h(px(14.0))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .bg(gpui::rgb(bg))
+                                .rounded_full()
+                                .text_color(gpui::white())
+                                .text_size(px(9.0))
+                                .child(letter.to_string())
+                                .into_any_element(),
+                            None => {
+                                // fallback dot（未探测 os_kind，仍展示活/断）
+                                let dot_color = if is_alive {
+                                    colors.success
+                                } else {
+                                    colors.muted_foreground
+                                };
+                                div()
+                                    .text_color(dot_color)
+                                    .text_size(font_size.xs)
+                                    .child("●")
+                                    .into_any_element()
+                            }
+                        }
                     } else {
                         div().child("").into_any_element()
                     };
@@ -705,15 +753,13 @@ impl Render for TabBarView {
                         .child(title)
                         .into_any_element();
 
-                    // suffix: SSH chip（connection tab 专属）+ 关闭按钮
+                    // M39: suffix 删 SSH Badge (用户反馈「删除 ssh 徽标」)
+                    // — 整个 aish 当前只有 SSH 连接，徽标冗余。保留 close_btn。
                     let suffix = div()
                         .flex()
                         .flex_row()
                         .items_center()
                         .gap_2()
-                        .when(is_connection, |d| {
-                            d.child(aish_ui::Badge::new("SSH").primary())
-                        })
                         .child(close_btn)
                         .into_any_element();
 
@@ -739,7 +785,10 @@ impl Render for TabBarView {
         let tab_items: Vec<gpui::AnyElement> = tab_render_data
             .into_iter()
             .map(|(id, data)| match data {
-                TabRenderData::Editing(el) => el,
+                // M39: editing tab wrap deferred + priority 2, 让它在 backdrop
+                // (priority 1) 之上 paint, 用户点 input 时不被 backdrop 截走
+                // (backdrop on_mouse_down → commit_rename)。
+                TabRenderData::Editing(el) => deferred(el).with_priority(2).into_any_element(),
                 TabRenderData::Normal {
                     prefix,
                     title_el,
@@ -955,6 +1004,35 @@ impl Render for TabBarView {
                 // 独立 1px 高 border line — sibling 而非 outer.border_b
                 div().h(px(1.0)).w_full().bg(colors.border),
             )
+            // M39: editing 时加 viewport-size deferred backdrop, 截外部 click
+            // → commit_rename (用户反馈「点击 input 外部无法取消编辑态」)。
+            // 同 popover.rs 模式 (deferred + anchored Window + viewport_size),
+            // rename_input 内部 click 由 input 自己 stop_propagation 不冒泡到
+            // backdrop, 所以 input 内 click 不会触发 commit。
+            .when(self.editing_tab.is_some(), |body| {
+                let viewport = window.viewport_size();
+                body.child(
+                    deferred(
+                        anchored()
+                            .position_mode(AnchoredPositionMode::Window)
+                            .position(point(px(0.0), px(0.0)))
+                            .anchor(Anchor::TopLeft)
+                            .child(
+                                div().w(viewport.width).h(viewport.height).on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener(|this, _ev: &MouseDownEvent, _w, cx| {
+                                        if this.editing_tab.is_some() {
+                                            let text =
+                                                this.rename_input.read(cx).text().to_string();
+                                            this.commit_rename(text, cx);
+                                        }
+                                    }),
+                                ),
+                            ),
+                    )
+                    .with_priority(1),
+                )
+            })
         // context_menu entity 不在这 mount —— RootView 在 root 顶层 mount
         // 让 absolute backdrop / anchored 浮层盖在 terminal / session_picker
         // 之上（tab_bar 在下游 view 之前 paint，自己 mount 会被盖）。
