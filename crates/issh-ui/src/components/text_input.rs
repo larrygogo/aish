@@ -2005,16 +2005,45 @@ impl Render for TextInput {
             let show_cursor_local = show_cursor;
             let ring_local = ring;
 
+            // M42 重写：
+            // - cursor 用 absolute 定位（脱离 flex 不挤压文字）
+            // - 每 row 加占位 canvas 让 bounds_map 命中（空 row 也能 hit test）
+            // - row 容器 relative() 让 absolute cursor 以 row 为参考
+            let visual_lines_for_lookup = visual_lines.clone();
+            let line_layouts_for_iter = self.cached_line_layouts.clone();
+            let cursor_w = px(2.0);
+            let cursor_h = px(14.0);
+            // (20 - 14) / 2 = 3，cursor 垂直居中 row
+            let cursor_top = px(3.0);
+
             let rows: Vec<gpui::AnyElement> = visual_lines
                 .iter()
-                .map(|vl| {
-                    // 此 visual line 的 text 段（vl.byte_start..vl.byte_end）。
+                .enumerate()
+                .map(|(idx, vl)| {
+                    let layout = line_layouts_for_iter[idx].clone();
                     let line_text = displayed_text[vl.byte_start..vl.byte_end].to_string();
 
-                    // 显式行高 = line_h，让空行 row（仅含 cursor）跟非空行
-                    // 视觉行高一致，避免「光标换行后 row 仅 14px 高显得没动」
-                    // 的视觉错觉。line_h = px(20.0) 跟 outer_h 计算同 token。
+                    // cursor 是否归该 row 渲染：
+                    // - cursor 在 [byte_start, byte_end) 内（普通 char 前）→ 是
+                    // - cursor == byte_end 且没有下一 wrap 段从这里开始（同 logical_line）→ 是
+                    //   （行末光标，跟 byte_to_visual_pos 边界规则一致）
+                    let cursor_in_this_row = if displayed_cursor_byte >= vl.byte_start
+                        && displayed_cursor_byte <= vl.byte_end
+                    {
+                        if displayed_cursor_byte == vl.byte_end {
+                            !visual_lines_for_lookup.get(idx + 1).is_some_and(|n| {
+                                n.logical_line == vl.logical_line
+                                    && n.byte_start == displayed_cursor_byte
+                            })
+                        } else {
+                            true
+                        }
+                    } else {
+                        false
+                    };
+
                     let mut row = div()
+                        .relative() // cursor absolute 定位参考
                         .flex()
                         .flex_row()
                         .items_center()
@@ -2022,22 +2051,28 @@ impl Render for TextInput {
                         .text_size(font_size_sm)
                         .text_color(foreground);
 
-                    // cursor 宽度 2px（原 1px 在 HighDPI 上 0.5 物理像素抗锯齿
-                    // 后几乎不可见），视觉上「光标在哪一行」更明显。
-                    let cursor_w = px(2.0);
-                    let cursor_h = px(14.0);
+                    // 整 row 占位 canvas → push 整 row bounds 到 bounds_map，
+                    // key=vl.byte_start。空 row 也有 bounds → click.y 能命中。
+                    let weak_row_canvas = weak_glyph.clone();
+                    let vl_byte_start = vl.byte_start;
+                    row = row.child(
+                        canvas(
+                            move |bounds, _w, cx| {
+                                let _ = weak_row_canvas.update(cx, |t, _cx| {
+                                    t.push_glyph_bounds(vl_byte_start, bounds);
+                                });
+                            },
+                            |_, _, _, _| {},
+                        )
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .size_full(),
+                    );
 
-                    // 逐 char 画 glyph_div；cursor 落 byte == 当前 char byte 时
-                    // 在 char **之前**插入 cursor_div。行末 cursor 由 for 后处理。
+                    // 逐 char glyph_div（不嵌 cursor，避免挤压）
                     let mut b = vl.byte_start;
                     for ch in line_text.chars() {
-                        if b == displayed_cursor_byte && show_cursor_local {
-                            row = row
-                                .child(div().w(cursor_w).h(cursor_h).bg(ring_local).self_center());
-                        } else if b == displayed_cursor_byte {
-                            // cursor blink 不可见时仍占位防止文字跳动
-                            row = row.child(div().w(cursor_w).h(cursor_h).self_center());
-                        }
                         row = row.child(Self::glyph_div(
                             b,
                             ch,
@@ -2047,15 +2082,27 @@ impl Render for TextInput {
                         ));
                         b += ch.len_utf8();
                     }
-                    // 行末 cursor（cursor 在 byte_end 位置 + cursor 在该行而非下一行 wrap）
-                    if b == displayed_cursor_byte {
-                        let cd = if show_cursor_local {
-                            div().w(cursor_w).h(cursor_h).bg(ring_local).self_center()
+
+                    // cursor absolute 定位 — left = layout.x_for_index(cursor_in_row)
+                    if cursor_in_this_row {
+                        let cursor_local = displayed_cursor_byte - vl.byte_start;
+                        let cursor_x = layout.x_for_index(cursor_local);
+                        let bg = if show_cursor_local {
+                            ring_local
                         } else {
-                            div().w(cursor_w).h(cursor_h).self_center()
+                            gpui::transparent_black()
                         };
-                        row = row.child(cd);
+                        row = row.child(
+                            div()
+                                .absolute()
+                                .top(cursor_top)
+                                .left(cursor_x)
+                                .w(cursor_w)
+                                .h(cursor_h)
+                                .bg(bg),
+                        );
                     }
+
                     row.into_any_element()
                 })
                 .collect();
