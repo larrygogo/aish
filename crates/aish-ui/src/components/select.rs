@@ -26,6 +26,12 @@ pub struct Select {
     /// options 对齐, None = 该 option 不显示 dot。caller 不调
     /// `leading_dots()` 时 = 全 None = 不显示 dot (保持原视觉)。
     leading_dots: Vec<Option<gpui::Hsla>>,
+    /// M39: 每 option 前的 leading icon (跟 leading_dots 互斥: 若两者都设,
+    /// icon 优先)。索引跟 options 对齐, None = 不显示 icon。
+    leading_icons: Vec<Option<crate::IconName>>,
+    /// M39: 每 option 后是否画 1px 分隔线 (paseo dropdown 分段 mode + variant)。
+    /// 索引跟 options 对齐, true = 该 option 下方画分隔。
+    separators: Vec<bool>,
 }
 
 impl Select {
@@ -47,6 +53,8 @@ impl Select {
             placeholder: SharedString::default(),
             on_change: None,
             leading_dots: vec![None; len],
+            leading_icons: vec![None; len],
+            separators: vec![false; len],
         }
     }
 
@@ -60,6 +68,25 @@ impl Select {
     pub fn leading_dots(&mut self, dots: Vec<Option<gpui::Hsla>>) -> &mut Self {
         if dots.len() == self.options.len() {
             self.leading_dots = dots;
+        }
+        self
+    }
+
+    /// M39: 给每 option 设 leading icon。Vec 长度 = options 长度, 每项
+    /// Some(IconName) 显示 icon / None 不显示。icon 比 dot 优先 (两者都设
+    /// 时 icon 胜出)。
+    pub fn leading_icons(&mut self, icons: Vec<Option<crate::IconName>>) -> &mut Self {
+        if icons.len() == self.options.len() {
+            self.leading_icons = icons;
+        }
+        self
+    }
+
+    /// M39: 给每 option 后设是否显示分隔线。Vec 长度 = options 长度。paseo
+    /// 风 dropdown 分段 (mode + variants) 用。
+    pub fn separators(&mut self, seps: Vec<bool>) -> &mut Self {
+        if seps.len() == self.options.len() {
+            self.separators = seps;
         }
         self
     }
@@ -197,20 +224,26 @@ impl Render for Select {
         // popover content 选项列表 — 只在展开时构建，避免每帧白白分配 N 个 div
         if popover_open {
             let leading_dots = self.leading_dots.clone();
+            let leading_icons = self.leading_icons.clone();
+            let separators = self.separators.clone();
+            let border_color = t.colors.border;
+            let total = options.len();
             let content = div()
                 .flex()
                 .flex_col()
                 .min_w(gpui::px(200.0))
                 .py(t.spacing.px_1)
-                .children(options.into_iter().enumerate().map(|(i, opt)| {
+                .children(options.into_iter().enumerate().flat_map(|(i, opt)| {
                     let is_selected = i == selected;
-                    let leading = leading_dots.get(i).copied().flatten();
+                    let leading_dot = leading_dots.get(i).copied().flatten();
+                    let leading_icon_kind = leading_icons.get(i).copied().flatten();
+                    let need_separator =
+                        separators.get(i).copied().unwrap_or(false) && i + 1 < total;
                     let weak = weak_self.clone();
-                    // M39 paseo 风 (用户截图对比): selected option 不再用 accent
-                    // bg 反白, 改用 secondary_hover (跟普通 hover 同 bg) + 右侧
-                    // ✓ checkmark 区分 selected 语义。行高 28 → 32 (匹配 paseo
-                    // 行高节奏)。
-                    div()
+                    let muted_fg = t.colors.muted_foreground;
+                    // M39: paseo 风 dropdown — selected ✓ + leading icon/dot
+                    // + 可选分隔线 (mode + variants 分段)。
+                    let row = div()
                         .id(("select-option", i))
                         .h(gpui::px(32.0))
                         .px(t.spacing.px_3)
@@ -221,8 +254,6 @@ impl Render for Select {
                         .gap(t.spacing.px_2)
                         .typography(crate::TypeRole::Body, t)
                         .text_color(t.colors.popover_foreground)
-                        // selected 仍用 secondary_hover bg 让 selected 不消失 (跟
-                        // unhover 区分), 但跟 hover 同色 — 视觉差异靠 ✓ 表达
                         .when(is_selected, |d| d.bg(t.colors.secondary_hover))
                         .cursor_pointer()
                         .hover({
@@ -235,15 +266,21 @@ impl Render for Select {
                                 let _ = weak.update(cx, |s, cx| s.select(i, window, cx));
                             },
                         )
-                        .when_some(leading, |d, color| {
-                            d.child(
-                                div()
-                                    .w(gpui::px(8.0))
-                                    .h(gpui::px(8.0))
-                                    .rounded_full()
-                                    .bg(color)
-                                    .flex_shrink_0(),
-                            )
+                        // leading: icon 优先 → 否则 dot
+                        .when_some(leading_icon_kind, |d, name| {
+                            d.child(icon(name).size(t.icon_size.sm).text_color(muted_fg))
+                        })
+                        .when(leading_icon_kind.is_none(), |d| {
+                            d.when_some(leading_dot, |d, color| {
+                                d.child(
+                                    div()
+                                        .w(gpui::px(8.0))
+                                        .h(gpui::px(8.0))
+                                        .rounded_full()
+                                        .bg(color)
+                                        .flex_shrink_0(),
+                                )
+                            })
                         })
                         .child(div().flex_1().child(opt))
                         .when(is_selected, |d| {
@@ -252,7 +289,19 @@ impl Render for Select {
                                     .size(t.icon_size.sm)
                                     .text_color(t.colors.foreground),
                             )
-                        })
+                        });
+                    let mut out: Vec<gpui::AnyElement> = vec![row.into_any_element()];
+                    if need_separator {
+                        out.push(
+                            div()
+                                .mx(t.spacing.px_2)
+                                .my(t.spacing.px_1)
+                                .h(gpui::px(1.0))
+                                .bg(border_color)
+                                .into_any_element(),
+                        );
+                    }
+                    out
                 }));
 
             self.popover.update(cx, |p, _| {

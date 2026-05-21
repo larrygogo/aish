@@ -58,23 +58,46 @@ impl SettingsView {
             b
         });
 
-        // M39: 统一主题 select — 单 4 选项（默认 / Midnight / Warp Aurora /
-        // 浅色），替代 M38 的 dark switch + variant select 二段式 UX。
-        // 参考 paseo Theme select 单 dropdown 模式。
+        // M39 paseo 风 theme select — 7 option 分段:
+        //  [亮色 (Sun)] [暗色 (Moon)] [跟随系统 (Monitor)]  ← mode 3 项
+        //  --- 分割线 ---
+        //  [默认 (dot indigo)] [Midnight (dot blue)] [Warp Aurora (dot 紫)]  ← dark variants
+        // 选 mode 切大方向 (light / dark / system), 选 variant 切具体 dark
+        // theme。「跟随系统」当前 fallback 到 default dark, 等 OS prefers-
+        // color-scheme 集成实现真跟随。
         let initial_theme_idx = match crate::app_state_file::load_app_state().theme.as_deref() {
-            Some("midnight") => 1,
-            Some("warp") => 2,
-            Some("light") => 3,
-            _ => 0, // dark (默认)
+            Some("light") => 0,
+            Some("system") => 2,
+            Some("midnight") => 4,
+            Some("warp") => 5,
+            // "dark" 或未设 → 暗色 (idx 1) 作为默认显示, dark variant 默认走
+            // idx 3 (默认) 在 dropdown 不显示 active checkmark 但 "暗色" mode
+            // 仍 active checkmark
+            _ => 1,
         };
         let theme_select = cx.new(|cx| {
-            let mut s = Select::new(vec!["默认", "Midnight", "Warp Aurora", "浅色"], cx);
+            let mut s = Select::new(
+                vec![
+                    "亮色",
+                    "暗色",
+                    "跟随系统",
+                    "默认",
+                    "Midnight",
+                    "Warp Aurora",
+                ],
+                cx,
+            );
             s.set_selected(initial_theme_idx, cx);
-            // M39 paseo 风: 每 option 前面带主题 accent 色 leading dot
-            // - 默认 Dark: Linear indigo #5E6AD2
-            // - Midnight: 加亮 indigo #6B7AE0
-            // - Warp Aurora: Warp 紫 #7C5CFC
-            // - 浅色: zinc 灰 #9CA3AF (light bg 的 dot 颜色)
+            // mode 段 leading icon: Sun / Moon / Monitor
+            s.leading_icons(vec![
+                Some(aish_ui::IconName::Sun),
+                Some(aish_ui::IconName::Moon),
+                Some(aish_ui::IconName::Monitor),
+                None,
+                None,
+                None,
+            ]);
+            // variant 段 leading dot: 默认 indigo / Midnight 亮 indigo / Warp 紫
             use gpui::{Hsla, Rgba};
             fn hex_hsla(rgb: u32) -> Hsla {
                 let r = ((rgb >> 16) & 0xFF) as f32 / 255.0;
@@ -83,18 +106,27 @@ impl SettingsView {
                 Rgba { r, g, b, a: 1.0 }.into()
             }
             s.leading_dots(vec![
+                None,
+                None,
+                None,
                 Some(hex_hsla(0x5e6ad2)),
                 Some(hex_hsla(0x6b7ae0)),
                 Some(hex_hsla(0x7c5cfc)),
-                Some(hex_hsla(0x9ca3af)),
             ]);
+            // mode 段 (idx 2) 后画分隔线
+            s.separators(vec![false, false, true, false, false, false]);
             s.on_change(|idx, _w, cx| {
-                // 0 = dark default, 1 = midnight, 2 = warp, 3 = light
                 let cur_reduced = aish_ui::theme(cx).reduced_motion;
                 let (mut new_theme, theme_key): (Theme, &str) = match *idx {
-                    1 => (Theme::dark_midnight(), "midnight"),
-                    2 => (Theme::dark_warp(), "warp"),
-                    3 => (Theme::light(), "light"),
+                    0 => (Theme::light(), "light"),
+                    1 => (Theme::dark(), "dark"),
+                    // 跟随系统: 暂未实现 OS prefers-color-scheme 监听, fallback
+                    // 到 dark + 持久化 "system" key (将来集成后 startup 时读
+                    // OS 主题决定 light/dark)
+                    2 => (Theme::dark(), "system"),
+                    3 => (Theme::dark(), "dark"),
+                    4 => (Theme::dark_midnight(), "midnight"),
+                    5 => (Theme::dark_warp(), "warp"),
                     _ => (Theme::dark(), "dark"),
                 };
                 new_theme.reduced_motion = cur_reduced;

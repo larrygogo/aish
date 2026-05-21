@@ -78,11 +78,14 @@ pub fn run() {
             // 注意：load_app_state 还会在下面被复用读 recent，重复 IO 但极便宜。
             let snapshot = crate::app_state_file::load_app_state();
             // M38/M39: 实验性 dark 变体 — midnight (深紫蓝冷调) / warp
-            // (Warp 风温暖紫)。在 Settings → 外观 → 深色变体 select 切换。
+            // (Warp 风温暖紫)。在 Settings → 外观 → 主题 select 切换。
+            // "system": 跟随系统暂未实现 OS prefers-color-scheme 监听,
+            // fallback 到 dark (将来集成后用 OS 主题决定 light/dark)。
             let mut init_theme = match snapshot.theme.as_deref() {
                 Some("light") => aish_ui::Theme::light(),
                 Some("midnight") => aish_ui::Theme::dark_midnight(),
                 Some("warp") => aish_ui::Theme::dark_warp(),
+                Some("system") => aish_ui::Theme::dark(),
                 _ => aish_ui::Theme::dark(),
             };
             init_theme.reduced_motion = snapshot.reduced_motion.unwrap_or(false);

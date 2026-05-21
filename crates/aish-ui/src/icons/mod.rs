@@ -55,6 +55,10 @@ pub enum IconName {
     Loader,
     // M39 settings sub-nav: 快捷键 icon
     Keyboard,
+    // M39 theme select: 亮色 / 暗色 / 跟随系统 icon
+    Sun,
+    Moon,
+    Monitor,
 }
 
 impl IconName {
@@ -96,6 +100,9 @@ impl IconName {
         IconName::FileQuestion,
         IconName::Loader,
         IconName::Keyboard,
+        IconName::Sun,
+        IconName::Moon,
+        IconName::Monitor,
     ];
 
     /// AssetSource 加载用的 path（对应 assets/icons/ 内文件名）。
@@ -136,6 +143,9 @@ impl IconName {
             IconName::FileQuestion => "icons/file-question.svg",
             IconName::Loader => "icons/loader.svg",
             IconName::Keyboard => "icons/keyboard.svg",
+            IconName::Sun => "icons/sun.svg",
+            IconName::Moon => "icons/moon.svg",
+            IconName::Monitor => "icons/monitor.svg",
         }
     }
 
@@ -191,6 +201,9 @@ impl IconName {
             IconName::FileQuestion => include_bytes!("../../assets/icons/file-question.svg"),
             IconName::Loader => include_bytes!("../../assets/icons/loader.svg"),
             IconName::Keyboard => include_bytes!("../../assets/icons/keyboard.svg"),
+            IconName::Sun => include_bytes!("../../assets/icons/sun.svg"),
+            IconName::Moon => include_bytes!("../../assets/icons/moon.svg"),
+            IconName::Monitor => include_bytes!("../../assets/icons/monitor.svg"),
         }
     }
 }
