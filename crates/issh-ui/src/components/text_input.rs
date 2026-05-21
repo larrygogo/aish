@@ -746,17 +746,19 @@ impl TextInput {
         }
     }
 
-    /// M42: 基于 cached_visual_lines + cached_line_layouts 的精确 hit test。
-    /// 不依赖 bounds_map 的 byte→x 估算，直接用 GPUI LineLayout 真实 glyph
-    /// position 算 byte。row 行匹配仍用 bounds_map y（跟实际 paint 对齐）。
+    /// M42: 参照 Zed editor 架构的精确 hit test。
+    ///
+    /// cached_visual_lines[i] 跟 cached_line_layouts[i] 一一对应（每 visual row
+    /// 一个独立 LineLayout），hit test 直接 `layouts[vl_idx].closest_index_for_x
+    /// (click.x - row_left_x)` 拿 row 内 byte，无需 wrap offset 转换。
     fn cursor_from_click_2d_via_layout(&self, click: gpui::Point<Pixels>) -> usize {
         let vls = &self.cached_visual_lines;
         let layouts = &self.cached_line_layouts;
-        if vls.is_empty() {
+        if vls.is_empty() || vls.len() != layouts.len() {
             return 0;
         }
 
-        // Step 1: click.y → vl_idx (用 bounds_map y 命中精度最高)
+        // Step 1: click.y → vl_idx（用 bounds_map y 命中，跟实际 paint 行对齐）
         let click_y = click.y;
         let mut matched_byte: Option<usize> = None;
         for (b, bnds) in &self.bounds_map {
@@ -768,6 +770,7 @@ impl TextInput {
         let vl_idx = if let Some(b) = matched_byte {
             byte_to_visual_pos(b, vls).0
         } else {
+            // click 在 row 之上 / 之下：clamp 到首末
             let first_y = self
                 .bounds_map
                 .first()
@@ -776,48 +779,33 @@ impl TextInput {
             if click_y < first_y {
                 0
             } else {
-                vls.len().saturating_sub(1)
+                vls.len() - 1
             }
         };
-        let vl = match vls.get(vl_idx) {
-            Some(v) => v,
-            None => return self.text.len(),
-        };
+        let vl = &vls[vl_idx];
+        let layout = &layouts[vl_idx];
 
-        // Step 2: 拿对应 logical line 的 layout
-        let layout = match layouts.get(vl.logical_line) {
-            Some(l) => l,
-            None => return vl.byte_end,
-        };
-
-        // Step 3: 算 logical_line_byte_start（同 logical_line 的第一个 vl 的 byte_start）
-        let logical_byte_start = vls
-            .iter()
-            .find(|v| v.logical_line == vl.logical_line)
-            .map(|v| v.byte_start)
-            .unwrap_or(vl.byte_start);
-
-        // Step 4: row paint 左边缘 x（row 第一个 byte 的 bounds.origin.x）
+        // Step 2: row paint 左边缘 x（row 第一个 byte 的 bounds.origin.x）。
+        // 空 row（vl.byte_start == vl.byte_end）bounds_map 内无 entry → fallback
+        // 到 same logical_line 前一非空 row 的左边缘 / 或第一个 row 的左边缘。
         let row_left_x = self
             .bounds_map
             .iter()
-            .find(|(b, _)| *b == vl.byte_start)
+            .find(|(b, _)| *b == vl.byte_start && *b < vl.byte_end)
             .map(|(_, bnds)| bnds.origin.x)
+            .or_else(|| {
+                // 空 row 兜底：用 bounds_map 中任一 entry 的 x（容器 paint 左
+                // 边缘在所有 row 一致）
+                self.bounds_map.first().map(|(_, b)| b.origin.x)
+            })
             .unwrap_or(px(0.0));
 
-        // Step 5: vl 在 logical line 内的 x 起点（wrap 后第 N 段起点）
-        let local_byte_start = vl.byte_start - logical_byte_start;
-        let wrap_x = layout.x_for_index(local_byte_start);
-
-        // Step 6: click row-relative x → logical-line absolute x → byte
+        // Step 3: row-relative x → byte via layout.closest_index_for_x
         let relative_x = click.x - row_left_x;
-        let logical_x = wrap_x + relative_x;
-        let local_byte = layout.closest_index_for_x(logical_x);
+        let local_byte = layout.closest_index_for_x(relative_x);
 
-        // 拼回全文 byte，clamp 到 vl 范围内（closest_index_for_x 可能给出
-        // 超过 vl.byte_end 的 byte 当 click 在行末右侧，需 clamp 防 cursor
-        // 跨越到下一行）
-        let final_byte = logical_byte_start + local_byte;
+        // Step 4: 拼回全文 byte
+        let final_byte = vl.byte_start + local_byte;
         final_byte.clamp(vl.byte_start, vl.byte_end)
     }
 
@@ -1617,17 +1605,21 @@ pub(crate) fn compute_visual_lines(
     result
 }
 
-/// M42 multiline hit-test 修复：用 GPUI text_system 真实 layout 替换
-/// approx_char_width 估算，算出精确的 VisualLines + per-logical-line LineLayouts。
+/// M42 multiline hit-test 修复（参照 Zed editor 架构）：
 ///
-/// 返回 (visual_lines, line_layouts)：
-/// - visual_lines: 跟 compute_visual_lines 同 struct，wrap 位置真实精确
-/// - line_layouts: 每个 logical line 一个 LineLayout（wrap 段共享），index =
-///   visual_lines[i].logical_line。hit test 时用 layout.closest_index_for_x
-///   做精确 byte 定位
+/// 用 GPUI text_system 真实 layout 替换 approx_char_width 估算。**每个
+/// visual row 单独 layout**，跟 paint 后的 row 一一对应（vls.len() ==
+/// layouts.len()），hit test 直接 `layouts[row_idx].closest_index_for_x(local_x)`
+/// 无需 wrap x_offset 转换。
 ///
-/// 性能：每帧 split('\n') 后每段调 text_system.layout_line —— GPUI 内置
-/// line_layout_cache 同 text+font+size 命中缓存，单帧多次调成本接近 O(1)。
+/// 算法：
+/// 1. 按 `\n` 拆 logical lines
+/// 2. 每段先 shape 整 logical line 拿真实 glyph metrics
+/// 3. 扫 glyph.position.x 算 wrap 段（word break 优先，char-level fallback）
+/// 4. 对每个 wrap 段单独 layout_line → per-row LineLayout
+///
+/// 性能：每 visual row 一次 layout_line — GPUI 内置 line_layout_cache 同
+/// text+font+size 命中缓存，重 render 廉价。
 pub(crate) fn compute_visual_lines_with_layout(
     text: &str,
     container_w: Pixels,
@@ -1636,80 +1628,59 @@ pub(crate) fn compute_visual_lines_with_layout(
     font_size: Pixels,
     color: gpui::Hsla,
 ) -> (Vec<VisualLine>, Vec<Arc<LineLayout>>) {
+    let mk_run = |len: usize| TextRun {
+        len,
+        font: font.clone(),
+        color,
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    let shape_segment = |seg: &str| -> Arc<LineLayout> {
+        text_system.layout_line(seg, font_size, &[mk_run(seg.len())], None)
+    };
+
     let mut visual_lines = Vec::new();
     let mut layouts: Vec<Arc<LineLayout>> = Vec::new();
 
     let mut logical_idx = 0usize;
-    // split 用 split_terminator 保留 trailing 空行
     let mut byte_cursor = 0usize;
     let mut logical_iter = text.split('\n').peekable();
 
     while let Some(logical) = logical_iter.next() {
         let logical_byte_start = byte_cursor;
-        let layout = if logical.is_empty() {
-            // 空 logical line：跳 layout（避免 0-len shape 出错），用空 layout
-            text_system.layout_line(
-                "",
-                font_size,
-                &[TextRun {
-                    len: 0,
-                    font: font.clone(),
-                    color,
-                    background_color: None,
-                    underline: None,
-                    strikethrough: None,
-                }],
-                None,
-            )
-        } else {
-            text_system.layout_line(
-                logical,
-                font_size,
-                &[TextRun {
-                    len: logical.len(),
-                    font: font.clone(),
-                    color,
-                    background_color: None,
-                    underline: None,
-                    strikethrough: None,
-                }],
-                None,
-            )
-        };
 
-        // 算 wrap boundaries (None max_lines = 不限制)
-        let wrap_boundaries: Vec<usize> = if logical.is_empty() {
-            Vec::new()
+        if logical.is_empty() {
+            // 空 logical line（trailing \n / 中间连续 \n）：1 个空 visual row
+            visual_lines.push(VisualLine {
+                logical_line: logical_idx,
+                byte_start: logical_byte_start,
+                byte_end: logical_byte_start,
+            });
+            layouts.push(shape_segment(""));
         } else {
-            // compute_wrap_boundaries 是 LineLayout 私有 method，对外通过
-            // WrappedLineLayout::compute_wrap_boundaries 暴露。但我们不需要
-            // 完整 wrapped layout — 改走 manual scan glyph.position.x
-            let mut boundaries = Vec::new();
+            // Step 1: shape 整 logical line 拿真实 glyph metrics 算 wrap 段
+            let full_layout = shape_segment(logical);
+            let mut segments: Vec<(usize, usize)> = Vec::new();
             let mut last_wrap_byte = 0usize;
             let mut last_break_candidate: Option<usize> = None;
-            for run in &layout.runs {
+            for run in &full_layout.runs {
                 for glyph in &run.glyphs {
                     let glyph_byte = glyph.index;
-                    // 上一次 wrap 后从该 byte 起的 x = position.x - last_wrap_x_offset
-                    // 由于 GPUI position.x 是从 logical line 起点累加，wrap 时
-                    // 我们要确定的是「glyph 是否超出 container_w 从 last_wrap_byte
-                    // 之后的距离」。
                     let last_wrap_x = if last_wrap_byte == 0 {
                         px(0.0)
                     } else {
-                        layout.x_for_index(last_wrap_byte)
+                        full_layout.x_for_index(last_wrap_byte)
                     };
                     let glyph_rel_x = glyph.position.x - last_wrap_x;
                     if glyph_rel_x > container_w && last_wrap_byte < glyph_byte {
-                        // 优先回退到 last_break_candidate（空格 / 标点后）
                         let wrap_at = last_break_candidate
                             .filter(|b| *b > last_wrap_byte && *b <= glyph_byte)
                             .unwrap_or(glyph_byte);
-                        boundaries.push(wrap_at);
+                        segments.push((last_wrap_byte, wrap_at));
                         last_wrap_byte = wrap_at;
                         last_break_candidate = None;
                     }
-                    // 该 glyph 后是否可断字（按字符判断）
                     if let Some(ch) = logical[glyph_byte..].chars().next() {
                         if is_break_after(ch) {
                             last_break_candidate = Some(glyph_byte + ch.len_utf8());
@@ -1717,34 +1688,31 @@ pub(crate) fn compute_visual_lines_with_layout(
                     }
                 }
             }
-            boundaries
-        };
+            segments.push((last_wrap_byte, logical.len()));
 
-        // 把 wrap boundaries 转成 VisualLines
-        let mut start = 0usize;
-        for &wrap_byte in &wrap_boundaries {
-            visual_lines.push(VisualLine {
-                logical_line: logical_idx,
-                byte_start: logical_byte_start + start,
-                byte_end: logical_byte_start + wrap_byte,
-            });
-            start = wrap_byte;
+            // Step 2: 每个 wrap 段独立 shape，跟 paint row 1:1 对应
+            for (seg_start, seg_end) in segments {
+                visual_lines.push(VisualLine {
+                    logical_line: logical_idx,
+                    byte_start: logical_byte_start + seg_start,
+                    byte_end: logical_byte_start + seg_end,
+                });
+                layouts.push(shape_segment(&logical[seg_start..seg_end]));
+            }
         }
-        // 该 logical line 的最后一个 visual line（含 wrap 后剩余 + 整行无 wrap 时的全部）
-        visual_lines.push(VisualLine {
-            logical_line: logical_idx,
-            byte_start: logical_byte_start + start,
-            byte_end: logical_byte_start + logical.len(),
-        });
 
-        layouts.push(layout);
         byte_cursor += logical.len();
         if logical_iter.peek().is_some() {
-            // 不是最后一段 → 跳过 \n 一字节
-            byte_cursor += 1;
+            byte_cursor += 1; // 跳过 \n
         }
         logical_idx += 1;
     }
+
+    debug_assert_eq!(
+        visual_lines.len(),
+        layouts.len(),
+        "M42 invariant: per-visual-row layout 1:1"
+    );
 
     (visual_lines, layouts)
 }
