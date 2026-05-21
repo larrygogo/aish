@@ -11,6 +11,8 @@ use gpui::{
     MouseUpEvent, Pixels, Point, ScrollDelta, ScrollWheelEvent, UTF16Selection, Window,
 };
 
+use aish_ui::TypographyExt;
+
 use crate::bridge::Bridge;
 use crate::ssh_actor::encode_key;
 use crate::state::{AppState, ConnectionPhase, SessionCommand, SshEvent};
@@ -1071,39 +1073,80 @@ impl Render for TerminalView {
             let app = self.state.read(cx);
             let phase = app.connection_phases.get(&c).cloned();
             let label = app.connections.get(&c).map(|x| x.label.clone());
-            let colors = aish_ui::theme(cx).colors;
-            let fs = aish_ui::theme(cx).font_size;
+            let theme_ref = aish_ui::theme(cx);
+            let colors = theme_ref.colors;
             match phase {
-                Some(ConnectionPhase::Connecting) => Some(
-                    div()
-                        .absolute()
-                        .top_0()
-                        .left_0()
-                        .right_0()
-                        .bottom_0()
-                        .flex()
-                        .flex_col()
-                        .items_center()
-                        .justify_center()
-                        .gap_3()
-                        .bg(gpui::rgba(0x000000cc)) // 半透明黑遮罩
-                        .child(
-                            div()
-                                .text_size(fs.lg)
-                                .text_color(colors.foreground)
-                                .child(format!(
-                                    "正在连接 {} …",
-                                    label.clone().unwrap_or_default()
-                                )),
-                        )
-                        .child(
-                            div()
-                                .text_size(fs.sm)
-                                .text_color(colors.muted_foreground)
-                                .child("SSH 握手 + PTY 初始化 + tmux/OS 探测"),
-                        )
-                        .into_any_element(),
-                ),
+                Some(ConnectionPhase::Connecting) => {
+                    // M39: 重写 connecting overlay (用户反馈「连接界面很丑」)。
+                    // 之前是大片黑遮罩 + 两行白字, 改 EmptyState 4-slot 风
+                    // (icon container + title + description), 走 theme token
+                    // 不硬编码颜色。icon 容器 56×56 圆形 + primary 10% bg +
+                    // primary 20% border + 24px Loader icon。文字层次:
+                    // Title2 (16/600) + Caption (12/muted) 间距 anatomy 节奏。
+                    let label_str = label.clone().unwrap_or_default();
+                    Some(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .left_0()
+                            .right_0()
+                            .bottom_0()
+                            .flex()
+                            .flex_col()
+                            .items_center()
+                            .justify_center()
+                            .gap_3()
+                            // bg 走 theme background 半透明, 不再硬编码 0x000000cc
+                            .bg(colors.background.opacity(0.85))
+                            // icon container 56×56 圆形带 primary tint
+                            .child(
+                                div()
+                                    .w(px(56.0))
+                                    .h(px(56.0))
+                                    .rounded_full()
+                                    .bg(colors.primary.opacity(0.10))
+                                    .border_1()
+                                    .border_color(colors.primary.opacity(0.20))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .child(
+                                        aish_ui::icon(aish_ui::IconName::Loader)
+                                            .size(px(24.0))
+                                            .text_color(colors.primary),
+                                    ),
+                            )
+                            // title + description 集中, gap_1 (4px) 内部紧凑
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .items_center()
+                                    .gap_1()
+                                    .child(
+                                        div()
+                                            .typography(
+                                                aish_ui::TypeRole::Title2,
+                                                theme_ref,
+                                            )
+                                            .text_color(colors.foreground)
+                                            .child(format!("正在连接 {}", label_str)),
+                                    )
+                                    .child(
+                                        div()
+                                            .typography(
+                                                aish_ui::TypeRole::Caption,
+                                                theme_ref,
+                                            )
+                                            .text_color(colors.muted_foreground)
+                                            .child(
+                                                "SSH 握手 · PTY 初始化 · tmux / OS 探测",
+                                            ),
+                                    ),
+                            )
+                            .into_any_element(),
+                    )
+                }
                 Some(ConnectionPhase::Disconnected { reason }) => {
                     // M35 T12: 中央 ErrorState（替代之前底部 strip）— icon +
                     // 「连接已断开」标题 + reason (Code typography muted) +
