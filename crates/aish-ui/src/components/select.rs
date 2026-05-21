@@ -188,24 +188,24 @@ impl Render for Select {
                 .children(options.into_iter().enumerate().map(|(i, opt)| {
                     let is_selected = i == selected;
                     let weak = weak_self.clone();
+                    // M39 paseo 风 (用户截图对比): selected option 不再用 accent
+                    // bg 反白, 改用 secondary_hover (跟普通 hover 同 bg) + 右侧
+                    // ✓ checkmark 区分 selected 语义。行高 28 → 32 (匹配 paseo
+                    // 行高节奏)。
                     div()
                         .id(("select-option", i))
-                        .h(gpui::px(28.0))
+                        .h(gpui::px(32.0))
                         .px(t.spacing.px_3)
                         .flex()
+                        .flex_row()
                         .items_center()
-                        // M26 Select option：Body (13/400)，selected/normal 走
-                        // typography 后 text_color override
+                        .justify_between()
+                        .gap(t.spacing.px_2)
                         .typography(crate::TypeRole::Body, t)
-                        .text_color(if is_selected {
-                            t.colors.accent_foreground
-                        } else {
-                            t.colors.popover_foreground
-                        })
-                        // selected 保留 accent 染色（"已选中"语义需要区别于 hover）；
-                        // hover 走 secondary_hover 与项目其他大容器一致，避免
-                        // hover/selected 同色用户分不清状态
-                        .when(is_selected, |d| d.bg(t.colors.accent))
+                        .text_color(t.colors.popover_foreground)
+                        // selected 仍用 secondary_hover bg 让 selected 不消失 (跟
+                        // unhover 区分), 但跟 hover 同色 — 视觉差异靠 ✓ 表达
+                        .when(is_selected, |d| d.bg(t.colors.secondary_hover))
                         .cursor_pointer()
                         .hover({
                             let hover_bg = t.colors.secondary_hover;
@@ -217,7 +217,14 @@ impl Render for Select {
                                 let _ = weak.update(cx, |s, cx| s.select(i, window, cx));
                             },
                         )
-                        .child(opt)
+                        .child(div().flex_1().child(opt))
+                        .when(is_selected, |d| {
+                            d.child(
+                                icon(IconName::Check)
+                                    .size(t.icon_size.sm)
+                                    .text_color(t.colors.foreground),
+                            )
+                        })
                 }));
 
             self.popover.update(cx, |p, _| {
