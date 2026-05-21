@@ -1423,22 +1423,6 @@ pub(crate) fn compute_copy_payload(
 ///   单独 \r 也归一化为 \n（Mac 老剪贴板 / 某些 terminal）。
 ///
 /// 不 trim 前后空格 —— 用户可能有意粘前导空格。
-/// 算 multiline 容器视觉高度时该看哪段 text。
-///
-/// - paste 一段带 trailing `\n` 的内容后，cursor 通常在 trimmed 末尾或之前
-///   → 返回 trimmed_text，避免容器撑高到 max_lines
-/// - 用户主动按 Enter 在尾部创建空行 → cursor > trimmed_len（光标在
-///   trailing whitespace 之后）→ 返回全文，让 outer_h 反映真实换行数
-///   防止 cursor 落进 overflow_hidden 视区外（「换不了行」bug）
-pub(crate) fn pick_text_for_height(text: &str, cursor: usize) -> &str {
-    let trimmed_len = text.trim_end().len();
-    if cursor > trimmed_len {
-        text
-    } else {
-        &text[..trimmed_len]
-    }
-}
-
 pub(crate) fn compute_paste_payload(raw: &str, multiline: bool) -> String {
     if multiline {
         // \r\n → \n 优先（不能让 \r 单独留下，否则 \r 字符 render 异常）；
@@ -2166,16 +2150,13 @@ impl Render for TextInput {
             // 首帧 fallback 400px，下一帧自然 correct。
             let line_h = px(20.0); // 每行视觉高度 ≈ font_size 14 + 行距 6
             let py = px(4.0); // 上下 padding，让 first/last 行不贴 border
-            let container_w = self
-                .viewport_bounds
-                .map(|b| b.size.width)
-                .unwrap_or(px(400.0));
-            // M37: 算高度时 trim_end paste 带的 trailing \n / 空白（兜底
-            // compute_paste_payload 的 trim）。bug fix (2026-05-21)：cursor 在
-            // trailing 之后时保留全文 — 见 pick_text_for_height doc。
-            let text_for_h: &str = pick_text_for_height(&self.text, self.cursor);
-            let vls_for_h = compute_visual_lines(text_for_h, container_w, font_size_sm);
-            let n_lines = vls_for_h.len();
+                              // M42 修复：outer_h 用 cached_visual_lines 真实行数（含尾部空行）
+                              // 算，不再 cursor-based trim — 之前 pick_text_for_height 当 cursor
+                              // 在 trailing 之前会 trim 末尾空行，导致用户「按 Enter 创建多空行
+                              // 然后把 cursor 移到前面 → 容器缩 → 空行消失」。
+                              // paste 路径 trailing \n 由 compute_paste_payload 已 trim，set_text
+                              // caller 也不应传 trailing。
+            let n_lines = self.cached_visual_lines.len().max(1);
             let visible_lines = n_lines.clamp(1, self.max_lines);
             let outer_h = line_h * visible_lines as f32 + py * 2.0;
             container = container
@@ -2739,40 +2720,6 @@ mod tests {
     #[test]
     fn compute_paste_payload_empty_clipboard_returns_empty() {
         assert!(super::compute_paste_payload("", false).is_empty());
-    }
-
-    // pick_text_for_height (bug fix 2026-05-21)：用户在尾部按 Enter 时高度
-    // 应该跟随增长，不被 trim_end 截掉
-
-    #[test]
-    fn pick_text_for_height_trims_when_cursor_in_body() {
-        // paste 完，cursor 还在 trimmed text 内 → 走 trim 分支
-        assert_eq!(super::pick_text_for_height("hello\n\n", 5), "hello");
-    }
-
-    #[test]
-    fn pick_text_for_height_no_trim_when_cursor_in_trailing() {
-        // 用户在 "hello" 后按 Enter 2 次，cursor=7 (hello\n\n)，trimmed_len=5
-        // → cursor > trimmed_len → 返回全文不 trim
-        assert_eq!(super::pick_text_for_height("hello\n\n", 7), "hello\n\n");
-    }
-
-    #[test]
-    fn pick_text_for_height_no_trim_at_single_trailing_newline() {
-        // 用户在 "hello" 后按 Enter 1 次，cursor=6 (hello\n)，trimmed_len=5
-        // → cursor > trimmed_len → 不 trim，第二行空行可见
-        assert_eq!(super::pick_text_for_height("hello\n", 6), "hello\n");
-    }
-
-    #[test]
-    fn pick_text_for_height_no_trailing_returns_text() {
-        // 没 trailing whitespace → trim 后等于原文
-        assert_eq!(super::pick_text_for_height("hello", 5), "hello");
-    }
-
-    #[test]
-    fn pick_text_for_height_empty_text() {
-        assert_eq!(super::pick_text_for_height("", 0), "");
     }
 
     #[test]
