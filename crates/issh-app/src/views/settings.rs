@@ -195,12 +195,32 @@ fn two_column_row(left: &str, right: &str, t: &Theme) -> AnyElement {
         .into_any_element()
 }
 
-/// M35 T15 / M39: shortcut 专用行。
+/// M35 T15 / M39 / Phase A keybinding 自定义：shortcut 专用行。
 ///
-/// M39: 顺序倒过来 (paseo 风) — **左侧描述 + 右侧 Kbd chip + 「自定义」
-/// ghost button**, 跟 paseo 截图一致。「自定义」当前 toast 提示开发中,
-/// 后续实现真正 keybinding 捕获 + 持久化。
-fn shortcut_row(id: &'static str, keys: &str, desc: &str, t: &Theme) -> AnyElement {
+/// 接受 action_id（如 "palette"），从 state.keybindings 读 user override，
+/// 没有则走 keybindings::default_for。显示用 format_for_display 转 ⌘⇧K 风。
+/// 「自定义」点击 → 设 pending_keybinding_capture = Some(action_id) → 触发
+/// KeybindingCaptureView 弹窗。已自定义时多显示「重置」按钮（清掉 override）。
+fn shortcut_row(
+    state: &Entity<crate::state::AppState>,
+    action_id: &'static str,
+    desc: &str,
+    t: &Theme,
+    cx: &Context<SettingsView>,
+) -> AnyElement {
+    let app = state.read(cx);
+    let custom = app.keybindings.get(action_id).cloned();
+    let keys_raw = custom
+        .clone()
+        .unwrap_or_else(|| crate::keybindings::default_for(action_id).to_string());
+    let keys_display = crate::keybindings::format_for_display(&keys_raw);
+    let is_overridden = custom.is_some();
+
+    let state_for_rebind = state.clone();
+    let action_id_for_rebind = action_id.to_string();
+    let state_for_reset = state.clone();
+    let action_id_for_reset = action_id.to_string();
+
     div()
         .flex()
         .flex_row()
@@ -210,25 +230,51 @@ fn shortcut_row(id: &'static str, keys: &str, desc: &str, t: &Theme) -> AnyEleme
         .py(px(10.0))
         .gap(t.spacing.px_3)
         .child(
-            // 描述左侧 flex_1 占余宽
             div()
                 .flex_1()
                 .typography(issh_ui::TypeRole::Body, t)
                 .child(SharedString::from(desc.to_string())),
         )
         .child(
-            // Kbd chip
+            // Kbd chip 显示当前键（自定义优先）
             div()
                 .flex()
                 .flex_row()
                 .items_center()
-                .child(Kbd::new(id, SharedString::from(keys.to_string()))),
+                .child(Kbd::new(action_id, SharedString::from(keys_display))),
         )
+        .when(is_overridden, |d| {
+            // 「重置」ghost button — 仅在已 override 时显示，清掉 user override
+            // 让该 action 回到 default_for 默认值。
+            let state_for_reset = state_for_reset.clone();
+            let action_id_for_reset = action_id_for_reset.clone();
+            d.child(
+                div()
+                    .id(SharedString::from(format!("shortcut-reset-{}", action_id)))
+                    .px(t.spacing.px_2)
+                    .py_0p5()
+                    .rounded(t.radius.md)
+                    .typography(issh_ui::TypeRole::Caption, t)
+                    .text_color(t.colors.muted_foreground)
+                    .cursor_pointer()
+                    .hover(|s| s.bg(t.colors.secondary_hover))
+                    .on_mouse_down(gpui::MouseButton::Left, move |_ev, _w, cx| {
+                        let id = action_id_for_reset.clone();
+                        state_for_reset.update(cx, |s, cx| {
+                            s.keybindings.remove(&id);
+                            cx.notify();
+                        });
+                        let mut snapshot = crate::app_state_file::load_app_state();
+                        snapshot.keybindings.remove(&id);
+                        crate::app_state_file::save_app_state(&snapshot);
+                    })
+                    .child("重置"),
+            )
+        })
         .child(
-            // 「自定义」ghost button — 当前 placeholder, click toast 提示
-            // 开发中。未来实现 keybinding 捕获 dialog 替换。
+            // 「自定义」ghost button — 触发 KeybindingCaptureView 弹窗
             div()
-                .id(SharedString::from(format!("shortcut-rebind-{}", id)))
+                .id(SharedString::from(format!("shortcut-rebind-{}", action_id)))
                 .px(t.spacing.px_2)
                 .py_0p5()
                 .rounded(t.radius.md)
@@ -236,12 +282,13 @@ fn shortcut_row(id: &'static str, keys: &str, desc: &str, t: &Theme) -> AnyEleme
                 .text_color(t.colors.muted_foreground)
                 .cursor_pointer()
                 .hover(|s| s.bg(t.colors.secondary_hover))
-                .on_mouse_down(
-                    gpui::MouseButton::Left,
-                    |_ev: &gpui::MouseDownEvent, _w, cx| {
-                        issh_ui::toast_info(cx, "自定义快捷键功能开发中");
-                    },
-                )
+                .on_mouse_down(gpui::MouseButton::Left, move |_ev, _w, cx| {
+                    let id = action_id_for_rebind.clone();
+                    state_for_rebind.update(cx, |s, cx| {
+                        s.pending_keybinding_capture = Some(id);
+                        cx.notify();
+                    });
+                })
                 .child("自定义"),
         )
         .into_any_element()
@@ -355,42 +402,21 @@ impl Render for SettingsView {
             );
 
         // ───── Keyboard Shortcuts ─────
-        // M35 T15: shortcut 改用 Kbd chip 视觉化按键。
-        // M37: 按 OS 显示对应快捷键（macOS Cmd / 其他 Ctrl）。Mac 用户看到
-        // ⌘ 符号 + Win/Linux 用户看到 Ctrl，原生体验对齐
+        // M35 T15 / Phase A keybinding 自定义：按 ACTIONS 列表 +
+        // shortcut_row 读 state.keybindings override，展示 default_for 兜底。
+        // mac_only action 在非 mac 平台跳过。
         let mac = cfg!(target_os = "macos");
-        let k_palette = if mac { "⌘P / ⌘K" } else { "Ctrl+P" };
-        let k_paste = if mac { "⌘V" } else { "Ctrl+Shift+V" };
-        let k_copy = if mac { "⌘C" } else { "Ctrl+Shift+C" };
-        let k_new_tab = if mac { "⌘T" } else { "Ctrl+T" };
-        let k_close_tab = if mac { "⌘W" } else { "Ctrl+W" };
-        let k_home = if mac { "⌘1" } else { "Ctrl+1" };
-        let k_terminal = if mac { "⌘2" } else { "Ctrl+2" };
-        let k_settings_nav = if mac { "⌘3" } else { "Ctrl+3" };
         let shortcuts_label = section_label_external("快捷键", t);
         let shortcuts_card = Card::new("settings-shortcuts")
             .outlined()
             .no_padding() // row helpers 自带 px_4 padding
             .body({
-                let mut body = div()
-                    .flex()
-                    .flex_col()
-                    .child(shortcut_row("sc-palette", k_palette, "打开命令面板", t))
-                    .child(shortcut_row("sc-copy", k_copy, "复制选中文本", t))
-                    .child(shortcut_row("sc-paste", k_paste, "粘贴", t))
-                    .child(shortcut_row("sc-new-tab", k_new_tab, "新建标签页", t))
-                    .child(shortcut_row("sc-close-tab", k_close_tab, "关闭标签页", t))
-                    .child(shortcut_row("sc-home", k_home, "切到主页", t))
-                    .child(shortcut_row("sc-terminal", k_terminal, "切到终端", t))
-                    .child(shortcut_row("sc-settings", k_settings_nav, "切到设置", t));
-                if mac {
-                    // macOS native Cmd+, 打开 Settings（Mac 通用约定）
-                    body = body.child(shortcut_row(
-                        "sc-mac-settings",
-                        "⌘,",
-                        "打开设置（macOS 通用）",
-                        t,
-                    ));
+                let mut body = div().flex().flex_col();
+                for action in crate::keybindings::ACTIONS {
+                    if action.mac_only && !mac {
+                        continue;
+                    }
+                    body = body.child(shortcut_row(&self.state, action.id, action.label, t, cx));
                 }
                 body
             });

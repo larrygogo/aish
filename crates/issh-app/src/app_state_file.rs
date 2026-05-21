@@ -28,6 +28,11 @@ pub struct AppStateFile {
     /// 用户点 logo 区域 toggle 后写盘。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sidebar_expanded: Option<bool>,
+    /// Keybinding overrides — action_id → keystroke 字符串 ("ctrl-shift-c"
+    /// 风格)。仅包含用户改过的项；未改的 action 走 keybindings::default_for。
+    /// Phase A 仅 UI / 持久化 / 显示，实际触发仍 hardcoded（等 Phase B 路由生效）。
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub keybindings: HashMap<String, String>,
 }
 
 pub fn app_state_path() -> Option<PathBuf> {

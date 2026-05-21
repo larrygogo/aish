@@ -109,6 +109,7 @@ pub fn run() {
             // M35 T9: 回灌 sidebar_expanded 偏好（into_last_connected 消耗
             // self，先取出需要的字段）
             let sidebar_expanded = loaded_state.sidebar_expanded.unwrap_or(false);
+            let keybindings = loaded_state.keybindings.clone();
             let last_connected = loaded_state.into_last_connected();
             let channel = EventChannel::new();
             let tx_for_state = channel.tx.clone();
@@ -117,6 +118,7 @@ pub fn run() {
                 s.last_connected = last_connected;
                 s.hosts_load_error = hosts_load_error;
                 s.sidebar_expanded = sidebar_expanded;
+                s.keybindings = keybindings;
                 // 注入 event_tx：让 alacritty Term 的 TitleListener 能把 OSC
                 // 0/1/2 title event 推回主循环
                 s.event_tx = Some(tx_for_state);
@@ -429,6 +431,8 @@ struct RootView {
     session_picker: Entity<crate::views::SessionPickerView>,
     /// M35 T8: 全局 ⌘K / Ctrl+P palette。state.pending_palette driven open。
     command_palette: Entity<crate::views::CommandPaletteView>,
+    /// Phase A 自定义快捷键捕获 dialog。state.pending_keybinding_capture driven。
+    keybinding_capture: Entity<crate::views::KeybindingCaptureView>,
     /// M22：每个 ConnectionId 一个独立 InputBarView entity，草稿（文字 + 图片
     /// 缩略图 + TextInput cursor / IME）天然按 conn 隔离。lazy 创建于 render
     /// 内首次遇到该 conn 时；conn 销毁（state.connections 不再包含）→ observe
@@ -480,6 +484,8 @@ impl RootView {
         let command_palette = cx.new(|cx| {
             crate::views::CommandPaletteView::new(state.clone(), bridge.clone(), tx.clone(), cx)
         });
+        let keybinding_capture =
+            cx.new(|cx| crate::views::KeybindingCaptureView::new(state.clone(), cx));
 
         let toast_manager = cx.global::<issh_ui::ToastHandle>().0.clone();
 
@@ -495,6 +501,7 @@ impl RootView {
             host_form,
             session_picker,
             command_palette,
+            keybinding_capture,
             input_bars: HashMap::new(),
             toast_manager,
             focus_handle: cx.focus_handle(),
@@ -921,6 +928,10 @@ impl Render for RootView {
         // state.pending_palette 决定 open/close — Dialog 自管 backdrop）。
         // 与 host_form / toast 同 z-layer，可在任意 sidebar / tab 触发。
         root = root.child(self.command_palette.clone());
+
+        // Phase A：KeybindingCapture dialog 同 command_palette 风格永驻 mount，
+        // state.pending_keybinding_capture 控制 open/close。
+        root = root.child(self.keybinding_capture.clone());
 
         // Context menus 在 root 顶层 mount —— tab_bar / home 自己 mount 时
         // paint 顺序在下游 view（terminal_view / session_picker）之前，会被

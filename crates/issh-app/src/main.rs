@@ -4,6 +4,7 @@ mod app;
 mod app_state_file;
 mod avatar;
 mod bridge;
+mod keybindings;
 mod logo;
 mod migration;
 mod persistence;

@@ -478,6 +478,15 @@ pub struct AppState {
     /// 触发；palette 显示后用户 fuzzy search hosts，Enter 直接 open_connection。
     /// 通过 RootView handle_global_key 切换。
     pub pending_palette: bool,
+    /// 自定义快捷键捕获 dialog 触发：Some(action_id) = 正在为该 action 捕获新
+    /// 键。Settings → Shortcuts → 「自定义」点击设置，KeybindingCaptureView
+    /// observe 后开 dialog。捕获保存或 Esc 取消后清回 None。
+    pub pending_keybinding_capture: Option<String>,
+
+    /// 用户自定义的快捷键覆盖。action_id → keystroke 字符串 ("ctrl-shift-c")。
+    /// 启动时从 app_state.toml 回灌。Settings 显示走 user override OR
+    /// keybindings::default_for(action_id)。Phase A 不影响真路由。
+    pub keybindings: HashMap<String, String>,
 
     pub modal: Option<HostFormState>,
     pub last_connected: HashMap<HostId, SystemTime>,
@@ -582,6 +591,8 @@ impl AppState {
             sidebar_expanded: false, // M35 T9: 默认折叠，保留 muscle memory
             pending_session_picker: None,
             pending_palette: false,
+            pending_keybinding_capture: None,
+            keybindings: HashMap::new(),
             sessions: HashMap::new(),
             modal: None,
             last_connected: HashMap::new(),
