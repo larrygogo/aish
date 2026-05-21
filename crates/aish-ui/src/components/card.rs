@@ -449,18 +449,36 @@ impl Render for CardEntity {
         // Card 所有 variant 的 idle bg 都是 t.colors.card；hover/active 用 secondary
         // 灰阶（与 stateless 时代逻辑一致，line 137-149）。
         // M36 T7: hover_glow_color 设了时改走 primary tint 路径（spec §4.4）。
-        // M37: glass 模式下 bg 改纯黑 75% opacity —— colors.card #101113 半透明
-        // 会被 aurora indigo/cyan 染色（GPUI 没 backdrop blur 无法降饱和），
-        // 用 hsla(0,0,0.04,0.75) 中性黑只透"漂浮"不透"色相"，避免冲突
+        // M37: glass 模式下 bg 改纯黑 75% opacity，避免 colors.card 被 aurora
+        // 染色（GPUI 没 backdrop blur）。
+        // M39: 用户反馈「Host Card / active Card 静默背景改灰色，hover 提高
+        // 亮度」。glass 模式从「纯黑 4%/75%」改用 secondary 灰阶半透明（idle
+        // secondary 0.7 / hover secondary_hover 0.75），hover 主要靠灰阶提亮
+        // 而非 primary tint。border 仍走 hover_glow primary 作 actionable 提示。
         let idle_bg = if self.glass {
-            gpui::hsla(0.0, 0.0, 0.04, 0.75)
+            gpui::hsla(
+                t.colors.secondary.h,
+                t.colors.secondary.s,
+                t.colors.secondary.l,
+                0.7,
+            )
         } else {
             t.colors.card
         };
         let glow = self.hover_glow_color;
-        let hover_bg = match glow {
-            Some(g) => g.opacity(0.05),
-            None => t.colors.secondary_hover,
+        let hover_bg = if self.glass {
+            // glass 模式: 提亮一档的灰 (secondary_hover) 半透明
+            gpui::hsla(
+                t.colors.secondary_hover.h,
+                t.colors.secondary_hover.s,
+                t.colors.secondary_hover.l,
+                0.75,
+            )
+        } else {
+            match glow {
+                Some(g) => g.opacity(0.05),
+                None => t.colors.secondary_hover,
+            }
         };
         let hover_border = glow.map(|g| g.opacity(0.25));
         let active_bg = t.colors.secondary_active;
