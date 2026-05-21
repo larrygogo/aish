@@ -126,7 +126,7 @@ impl CommandPaletteView {
 
         let input = cx.new(|cx| {
             let mut i = TextInput::new(cx);
-            i.placeholder("搜索 host（label / host / user）...");
+            i.placeholder("搜索主机（标签 / 地址 / 用户名）...");
             i
         });
         // input 文本变化 → 重置 selected_idx + cx.notify 触发重 render 排序
@@ -373,7 +373,7 @@ impl Render for CommandPaletteView {
             let hint = if query_empty {
                 "开始输入以搜索保存的主机"
             } else {
-                "无匹配的 host"
+                "无匹配的主机"
             };
             div()
                 .py(spacing.px_4)

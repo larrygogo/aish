@@ -291,6 +291,10 @@ impl Render for TabItem {
             .id(self.id.clone())
             .relative()
             .h(px(40.0))
+            // M39: tab 选项卡 min 140 / max 200 width 约束 (用户反馈「需要
+            // 有最大宽度和最小宽度」)。flex_shrink_0 防 flex 容器压缩, max_w
+            // 防超长 title 撑爆 tab bar, min_w 防短 title (如 "1") 看着太窄。
+            .min_w(px(140.0))
             .max_w(px(200.0))
             .overflow_hidden()
             .flex_shrink_0()

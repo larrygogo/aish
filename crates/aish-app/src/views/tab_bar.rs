@@ -488,13 +488,13 @@ impl Render for TabBarView {
                 .items(vec![
                     MenuItem::new("重命名").icon(IconName::Pencil),
                     MenuItem::new("折叠到主页"),
-                    MenuItem::new("关闭")
-                        .icon(IconName::X)
-                        .shortcut(if cfg!(target_os = "macos") {
+                    MenuItem::new("关闭").icon(IconName::X).shortcut(
+                        if cfg!(target_os = "macos") {
                             "⌘W"
                         } else {
                             "Ctrl+W"
-                        }),
+                        },
+                    ),
                     MenuItem::new("关闭其他"),
                 ])
                 .min_width(gpui::px(180.0))
@@ -644,13 +644,11 @@ impl Render for TabBarView {
                         .id(gpui::SharedString::from(format!("tab-editing-{}", id)))
                         .h(px(36.0))
                         .my(px(2.0))
-                        // w 固定 240：editing 时 box 宽度不能随内容变化。
-                        // 之前 min_w(180) + max_w(280) 但没 w，flex 子元素自然
-                        // 宽 = content，input 打字时 text_row 自然宽变大 → box
-                        // 跟着 grow → '一边输入 box 一边变大'体感不像 input。
-                        // 固定 240：横向 scroll 跟随 cursor 由 TextInput 内部
-                        // scroll_offset 负责（看不见的字交给 input 自己卷动）。
-                        .w(px(240.0))
+                        // M39: editing tab 宽度跟 TabItem 一致 (min 140 / max
+                        // 200, 用户反馈「即使在编辑状态下也要保持」)。input
+                        // 内部 overflow_hidden 裁超长 title 防溢出邻 tab。
+                        .min_w(px(140.0))
+                        .max_w(px(200.0))
                         .flex_shrink_0()
                         .px(theme.spacing.px_3)
                         .flex()

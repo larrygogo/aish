@@ -99,7 +99,7 @@ impl HomeView {
         let weak_add_header = cx.weak_entity();
         let header_add_btn = cx.new(|cx| {
             let mut b = aish_ui::Button::new("home-add-host-btn", cx);
-            b.label("+ 添加 host")
+            b.label("+ 添加主机")
                 .primary()
                 .on_click(move |_ev, _w, cx| {
                     if let Some(this) = weak_add_header.upgrade() {
@@ -111,7 +111,7 @@ impl HomeView {
         let weak_add_empty = cx.weak_entity();
         let empty_add_btn = cx.new(|cx| {
             let mut b = aish_ui::Button::new("home-empty-add-host", cx);
-            b.label("+ 添加 host")
+            b.label("+ 添加主机")
                 .primary()
                 .on_click(move |_ev, _w, cx| {
                     if let Some(this) = weak_add_empty.upgrade() {
@@ -1282,7 +1282,7 @@ impl Render for HomeView {
                 aish_ui::EmptyState::new("home-no-hosts")
                     .icon(aish_ui::IconName::Inbox)
                     .title("还没有保存的连接")
-                    .description("点击右上角 + 添加 host 开始")
+                    .description("点击右上角「+ 添加主机」开始")
                     .action(self.empty_add_btn.clone())
                     .into_any_element(),
             )

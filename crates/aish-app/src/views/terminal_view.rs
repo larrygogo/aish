@@ -198,7 +198,7 @@ impl TerminalView {
         let weak_edit = cx.weak_entity();
         let edit_host_btn = cx.new(|cx| {
             let mut b = aish_ui::Button::new("terminal-edit-host", cx);
-            b.label("编辑 host")
+            b.label("编辑主机")
                 .secondary()
                 .on_click(move |_ev, _w, cx| {
                     if let Some(this) = weak_edit.upgrade() {

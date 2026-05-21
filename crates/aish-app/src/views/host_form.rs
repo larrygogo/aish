@@ -751,11 +751,11 @@ impl Render for HostFormModal {
         let auth_kind = self.auth_kind;
         let is_edit = kind == "edit";
         let title = match kind {
-            "add" => "添加 Host",
-            "edit" => "编辑 Host",
-            _ => "Host",
+            "add" => "添加主机",
+            "edit" => "编辑主机",
+            _ => "主机",
         };
-        let primary_label = "Save";
+        let primary_label = "保存";
 
         let err = err_opt.flatten();
         // Save 按钮 disabled 联动实时校验：host/port 任一有 inline error
@@ -787,17 +787,17 @@ impl Render for HostFormModal {
             ))
             .child(field_row(
                 cx,
-                "host",
+                "主机",
                 self.host_input.clone(),
                 self.host_error,
             ))
             .child(field_row(
                 cx,
-                "port",
+                "端口",
                 self.port_input.clone(),
                 self.port_error,
             ))
-            .child(field_row(cx, "user", self.user_input.clone(), None))
+            .child(field_row(cx, "用户名", self.user_input.clone(), None))
             // M29 D-3: Radio 横排替代 Tabs Entity
             .child(
                 div()

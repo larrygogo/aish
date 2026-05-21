@@ -293,8 +293,8 @@ impl Render for SessionPickerView {
             // 不带 action（关闭即可回 raw shell，不需要主 CTA）。
             aish_ui::EmptyState::new("session-picker-empty")
                 .icon(aish_ui::IconName::Inbox)
-                .title("没有可用的 tmux session")
-                .description("关闭此弹窗回到 raw shell")
+                .title("没有可用的 tmux 会话")
+                .description("关闭此弹窗回到原始 shell")
                 .into_any_element()
         } else {
             div()

@@ -169,16 +169,26 @@ pub fn run() {
                                 SshErrorKind::Io => "网络中断",
                                 SshErrorKind::Protocol => "会话异常",
                             };
+                            // M39 i18n 深度排查: russh 底层 io::Error 常有英文
+                            // prefix ("connect failed: " / "io error: " 等),
+                            // 跟 kind_zh "连接失败：" 重复且中英混杂。strip 这些
+                            // 常见 prefix 让 toast / error state 干净。
+                            let cleaned_msg = msg
+                                .strip_prefix("connect failed: ")
+                                .or_else(|| msg.strip_prefix("io error: "))
+                                .or_else(|| msg.strip_prefix("connection failed: "))
+                                .unwrap_or(msg.as_str())
+                                .to_string();
                             // Disconnect 这种'远端主动断 / 长时间 idle 后 client
                             // 自己关'的场景 msg 含 'Disconnected'。比'协议错误'
                             // 更直观，提示用户双击 tab 可重连。
                             let user_msg = if msg.contains("Disconnect") {
-                                format!("{}: 连接已断开 — 双击 tab 可重连", label)
+                                format!("{}：连接已断开 — 双击 tab 可重连", label)
                             } else {
-                                format!("{}: {} — {}", label, kind_zh, msg)
+                                format!("{}：{} — {}", label, kind_zh, cleaned_msg)
                             };
                             aish_ui::toast_error(cx, user_msg);
-                            state.drop_session(conn, format!("{}: {}", kind_zh, msg));
+                            state.drop_session(conn, format!("{}：{}", kind_zh, cleaned_msg));
                             cx.notify();
                         }
                         SshEvent::OsDetected { host_id, os_kind } => {

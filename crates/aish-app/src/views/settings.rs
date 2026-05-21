@@ -429,7 +429,7 @@ impl Render for SettingsView {
                     ))
                     .child(control_row(
                         "GitHub",
-                        Some("查看源码 / 提 issue / star"),
+                        Some("查看源码 / 提交问题 / 加 star"),
                         self.open_github_btn.clone().into_any_element(),
                         t,
                     )),
