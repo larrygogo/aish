@@ -11,8 +11,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    div, point, prelude::*, px, Animation, AnyElement, App, BoxShadow, Context, ElementId,
-    FocusHandle, IntoElement, MouseButton, MouseDownEvent, Window,
+    div, prelude::*, px, Animation, AnyElement, App, Context, ElementId, FocusHandle, IntoElement,
+    MouseButton, MouseDownEvent, Window,
 };
 
 use crate::components::button::{press_opacity_at, HoverState};
@@ -252,7 +252,6 @@ impl Render for TabItem {
         let hover_bg = t.colors.secondary_hover;
         let active_press_bg = t.colors.secondary_active;
         let primary = t.colors.primary;
-        let ring_color = t.colors.ring;
         let spacing_px_4 = t.spacing.px_4;
         let spacing_px_2 = t.spacing.px_2;
         let medium = t.motion.medium;
@@ -348,20 +347,11 @@ impl Render for TabItem {
                 // 非 active 时附 GPUI .hover() 真实视觉源（机制同 NavItem）
                 el = el.hover(move |s| s.bg(hover_bg));
             }
-            if now_focused {
-                let mut glow = ring_color;
-                glow.a = 0.4;
-                el = el.shadow(vec![BoxShadow {
-                    color: glow,
-                    offset: point(px(0.0), px(0.0)),
-                    blur_radius: px(4.0),
-                    spread_radius: px(2.0),
-                }]);
-            }
+            // M39: 用户反馈「tab 选项卡不要发光」— 删 focus ring glow
+            // shadow。tab 是 chrome 不是主交互元素, 不需要 focus 视觉提示。
             return el.into_any_element();
         }
 
-        let ring_show_static = now_focused && !focus_animating;
         let anim_id: ElementId = (
             "motion-tab-item",
             press_count
@@ -383,25 +373,8 @@ impl Render for TabItem {
                     // M34 v2: 反向 lerp hover → idle
                     el = el.bg(crate::lerp_hsla(hover_bg, idle_bg, delta));
                 }
-                if focus_animating {
-                    let mut glow = ring_color;
-                    glow.a = 0.4 * delta;
-                    el = el.shadow(vec![BoxShadow {
-                        color: glow,
-                        offset: point(px(0.0), px(0.0)),
-                        blur_radius: px(4.0),
-                        spread_radius: px(2.0),
-                    }]);
-                } else if ring_show_static {
-                    let mut glow = ring_color;
-                    glow.a = 0.4;
-                    el = el.shadow(vec![BoxShadow {
-                        color: glow,
-                        offset: point(px(0.0), px(0.0)),
-                        blur_radius: px(4.0),
-                        spread_radius: px(2.0),
-                    }]);
-                }
+                // M39: 用户反馈「tab 选项卡不要发光」— 删 focus ring glow
+                // (focus_animating fade-in + ring_show_static 静态两路都去)。
                 if pressing {
                     el = el.opacity(press_opacity_at(delta));
                 }
