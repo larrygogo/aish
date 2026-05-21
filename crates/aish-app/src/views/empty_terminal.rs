@@ -18,7 +18,7 @@ impl EmptyTerminalGuideView {
         let weak = cx.weak_entity();
         let go_home_btn = cx.new(|cx| {
             let mut b = Button::new("empty-terminal-go-home", cx);
-            b.label("回到 Home").primary().on_click(move |_ev, _w, cx| {
+            b.label("回到主页").primary().on_click(move |_ev, _w, cx| {
                 if let Some(this) = weak.upgrade() {
                     this.update(cx, |this, cx| {
                         this.state.update(cx, |s, cx| {
@@ -51,7 +51,7 @@ impl Render for EmptyTerminalGuideView {
                 aish_ui::EmptyState::new("empty-terminal")
                     .icon(aish_ui::IconName::Server)
                     .title("还没有活跃连接")
-                    .description("从 Home 选择一个 host 开始 SSH 会话")
+                    .description("从主页选择一个主机开始 SSH 会话")
                     .action(self.go_home_btn.clone()),
             )
     }
