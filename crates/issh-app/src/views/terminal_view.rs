@@ -255,10 +255,14 @@ impl TerminalView {
         // 中断语义），Ctrl+V 直接粘贴（牺牲 ^V quoted-insert，普通用户基本不用）
         let win_plain_ctrl = cfg!(target_os = "windows") && ctrl && !shift && !alt;
 
+        // Phase B: 主路径走自定义 binding (state.keybindings)，平台辅助
+        // 路径 (Win Ctrl+C 选区复制 / Win Ctrl+V 直接粘贴) 保留 hardcoded
+        // 作 fallback — 用户改了 copy 默认后 Win 仍能用 Ctrl+C 复制选区。
+        let bindings = self.state.read(cx).keybindings.clone();
+
         // 复制：
-        // - Ctrl+Shift+C (Win/Linux 通用)
-        // - Cmd+C (macOS)
-        // - Ctrl+C 且有选区 (Windows 惯例)
+        // - 自定义 binding 主路径 (默认 Ctrl+Shift+C / Cmd+C)
+        // - Win Ctrl+C 选区复制 (平台辅助，不可关闭)
         let selected_text_opt = || {
             self.state
                 .read(cx)
@@ -266,10 +270,12 @@ impl TerminalView {
                 .and_then(crate::terminal::selection::selected_text)
         };
         let kc = key.eq_ignore_ascii_case("c");
-        let is_copy_shift = ctrl && shift && !alt && kc;
-        let is_copy_cmd = cmd_mac && !ctrl && !alt && !shift && kc;
+        let is_copy_binding = crate::keybindings::matches(
+            &event.keystroke,
+            &crate::keybindings::current_for("copy", &bindings),
+        );
         let is_copy_win_ctrl = win_plain_ctrl && kc && selected_text_opt().is_some();
-        if is_copy_shift || is_copy_cmd || is_copy_win_ctrl {
+        if is_copy_binding || is_copy_win_ctrl {
             if let Some(text) = selected_text_opt() {
                 cx.write_to_clipboard(ClipboardItem::new_string(text));
             }
@@ -277,14 +283,14 @@ impl TerminalView {
         }
 
         // 粘贴：
-        // - Ctrl+Shift+V (Win/Linux 通用)
-        // - Cmd+V (macOS)
-        // - Ctrl+V (Windows 直接粘贴，牺牲 ^V quoted-insert)
+        // - 自定义 binding 主路径 (默认 Ctrl+Shift+V / Cmd+V)
+        // - Win Ctrl+V 直接粘贴 (平台辅助)
         let kv = key.eq_ignore_ascii_case("v");
-        let is_paste = (ctrl && shift && !alt && kv)
-            || (cmd_mac && !ctrl && !alt && !shift && kv)
-            || (win_plain_ctrl && kv);
-        if is_paste {
+        let is_paste_binding = crate::keybindings::matches(
+            &event.keystroke,
+            &crate::keybindings::current_for("paste", &bindings),
+        );
+        if is_paste_binding || (win_plain_ctrl && kv) {
             self.paste(conn, cx);
             return;
         }
@@ -302,22 +308,24 @@ impl TerminalView {
             return;
         }
 
-        // 关闭当前 tab：Ctrl+W (Win/Linux) / Cmd+W (macOS) — Chrome/VSCode 标准
+        // 关闭当前 tab：默认 Ctrl+W (Win/Linux) / Cmd+W (macOS) — Chrome/VSCode 标准
         // 远端 shell 也有 Ctrl+W = delete-prev-word，但用户在 GUI 终端里期望
         // Ctrl+W 关 tab 更强（用户能用 prefix-bs 或选词替代远端 ctrl-w）。
-        let is_close_tab = (ctrl && !shift && !alt && !cmd_mac && key.eq_ignore_ascii_case("w"))
-            || (cmd_mac && !ctrl && !shift && !alt && key.eq_ignore_ascii_case("w"));
-        if is_close_tab {
+        if crate::keybindings::matches(
+            &event.keystroke,
+            &crate::keybindings::current_for("close-tab", &bindings),
+        ) {
             self.close_current_tab(cx);
             return;
         }
 
-        // 新建 tab：Ctrl+T (Win/Linux) / Cmd+T (macOS)
+        // 新建 tab：默认 Ctrl+T (Win/Linux) / Cmd+T (macOS)
         // 与 tab_bar + 按钮路径一致。覆盖远端 shell Ctrl+T = transpose-chars，
         // 与 Ctrl+W 一样优先 GUI 操作。
-        let is_new_tab = (ctrl && !shift && !alt && !cmd_mac && key.eq_ignore_ascii_case("t"))
-            || (cmd_mac && !ctrl && !shift && !alt && key.eq_ignore_ascii_case("t"));
-        if is_new_tab {
+        if crate::keybindings::matches(
+            &event.keystroke,
+            &crate::keybindings::current_for("new-tab", &bindings),
+        ) {
             self.state.update(cx, |s, cx| {
                 s.append_default_tab();
                 s.sidebar = crate::state::SidebarTab::Home;

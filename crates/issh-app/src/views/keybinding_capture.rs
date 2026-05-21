@@ -7,9 +7,8 @@
 //!   - Esc 由 Dialog 自身处理，回 handle_close → 清 pending_keybinding_capture
 //!   - 不合法（仅按 modifier 或裸键无 modifier）忽略不更新
 //!
-//! Phase A 限制说明：保存写盘后 UI 立即反映新键，但实际触发仍走 RootView /
-//! terminal_view 等 hardcoded 路由（等 Phase B 改造）。Dialog body 底部
-//! 醒目提示这点。
+//! Phase B 之后：保存写盘后 RootView::handle_global_key 与 terminal_view 的
+//! key handler 都读 state.keybindings 即时生效（不需重启）。
 
 use gpui::{div, prelude::*, px, Context, Entity, IntoElement, KeyDownEvent, SharedString, Window};
 use issh_ui::{theme, Dialog, TypographyExt};
@@ -244,7 +243,7 @@ impl Render for KeybindingCaptureView {
                         } else {
                             "按任意组合键 · Esc 取消"
                         })
-                        .child(div().child("Phase A：保存后需重启 issh 生效")),
+                        .child(div().child("保存后立即生效")),
                 );
 
         self.dialog.update(cx, |d, _cx| {

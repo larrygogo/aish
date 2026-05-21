@@ -508,34 +508,32 @@ impl RootView {
         }
     }
 
-    /// 全局快捷键路由：
-    /// - Ctrl+1/2/3 切 sidebar tab（Home/Terminal/Settings）
-    /// - Ctrl+P / Cmd+P / Cmd+K → 打开 ⌘K Command Palette（M35 T8）
+    /// 全局快捷键路由（Phase B：读 state.keybindings 路由）：
+    /// - palette / home / terminal / settings 走自定义 binding
+    /// - mac-settings 仅 macOS 平台生效
     ///
-    /// Ctrl+W / Ctrl+T / Ctrl+Tab 仍只在 terminal_view focused 时生效（涉及
-    /// 当前 tab 操作，Home/Settings 模式无意义）。
+    /// Ctrl+W / Ctrl+T / Ctrl+Tab 等 tab 操作快捷键由 terminal_view 在 focused
+    /// 时处理（在 Home/Settings 模式下无意义）。
     fn handle_global_key(&mut self, ev: &gpui::KeyDownEvent, cx: &mut Context<Self>) {
-        let key = ev.keystroke.key.as_str();
-        let m = &ev.keystroke.modifiers;
+        let bindings = self.state.read(cx).keybindings.clone();
+        let ks = &ev.keystroke;
 
-        // M35 T8: Command Palette trigger — Ctrl+P (Linux/Win) / Cmd+P / Cmd+K (macOS)
-        // 不要求 shift / alt 不按；platform 简化只看 control 或 platform key。
-        let palette_combo = !m.shift
-            && !m.alt
-            && ((m.control && !m.platform && key == "p")
-                || (m.platform && !m.control && (key == "p" || key == "k")));
-        if palette_combo {
+        // palette: 默认 ctrl-p (Win/Linux) / cmd-k (mac)
+        if crate::keybindings::matches(ks, &crate::keybindings::current_for("palette", &bindings)) {
             self.state.update(cx, |s, cx| {
-                s.pending_palette = !s.pending_palette; // toggle: 再按一次关闭
+                s.pending_palette = !s.pending_palette;
                 cx.notify();
             });
             return;
         }
 
-        // M37: macOS Cmd+, → 打开 Settings（所有 macOS native app 通用约定，
-        // System Preferences / Xcode / 浏览器全用此快捷键）。Linux/Win 用户
-        // 走 Ctrl+3 / Cmd+3 已能切，不必再加快捷键
-        if cfg!(target_os = "macos") && m.platform && !m.control && !m.shift && !m.alt && key == ","
+        // M37: macOS Cmd+, → 打开 Settings（macOS native app 通用约定）
+        // Linux/Win 走 Ctrl+3，跳过本分支
+        if cfg!(target_os = "macos")
+            && crate::keybindings::matches(
+                ks,
+                &crate::keybindings::current_for("mac-settings", &bindings),
+            )
         {
             self.state.update(cx, |s, cx| {
                 if s.sidebar != SidebarTab::Settings {
@@ -546,23 +544,24 @@ impl RootView {
             return;
         }
 
-        // 切 sidebar 的主修饰键：macOS = Cmd (platform)，其他 = Ctrl
-        // M37: 让 Mac 用户用 Cmd+1/2/3 切 sidebar（浏览器 Cmd+1/2/3 切 tab 同款
-        // 习惯），其他平台保留 Ctrl+1/2/3
-        let sidebar_mod_ok = if cfg!(target_os = "macos") {
-            m.platform && !m.control && !m.shift && !m.alt
-        } else {
-            m.control && !m.platform && !m.shift && !m.alt
-        };
-        if !sidebar_mod_ok {
-            return;
-        }
-        let target = match key {
-            "1" => SidebarTab::Home,
-            "2" => SidebarTab::Terminal,
-            "3" => SidebarTab::Settings,
-            _ => return,
-        };
+        // 3 个 sidebar tab 切换：home / terminal / settings
+        let target =
+            if crate::keybindings::matches(ks, &crate::keybindings::current_for("home", &bindings))
+            {
+                SidebarTab::Home
+            } else if crate::keybindings::matches(
+                ks,
+                &crate::keybindings::current_for("terminal", &bindings),
+            ) {
+                SidebarTab::Terminal
+            } else if crate::keybindings::matches(
+                ks,
+                &crate::keybindings::current_for("settings", &bindings),
+            ) {
+                SidebarTab::Settings
+            } else {
+                return;
+            };
         self.state.update(cx, |s, cx| {
             if s.sidebar != target {
                 s.sidebar = target;

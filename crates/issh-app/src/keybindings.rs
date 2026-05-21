@@ -1,10 +1,9 @@
-//! Keybinding 数据模型 + keystroke 字符串编解码（Phase A）。
+//! Keybinding 数据模型 + keystroke 字符串编解码 + 严格匹配（Phase A + B）。
 //!
-//! Phase A 范围：Settings UI 捕获 + 持久化到 app_state.toml + 显示自定义键。
-//! Phase B（未实现）：把 RootView / terminal_view / 各 view 的 hardcoded
-//! match 路由改成读 keybindings map。在 Phase A 阶段用户改了 binding 能在
-//! Settings 看到新键，但**实际触发仍走默认 hardcoded 路由**，故 capture
-//! dialog 内提示「Phase B 实现后立即生效」。
+//! Phase A：Settings UI 捕获 + 持久化到 app_state.toml + 显示自定义键。
+//! Phase B：RootView::handle_global_key 与 terminal_view 的 key handler
+//! 都走 `current_for(action_id, &bindings)` + `matches(keystroke, &expected)`
+//! 实现真路由生效（保存后立即生效）。
 //!
 //! keystroke 字符串格式：`{modifier}-{modifier}-...{key}`，modifier 顺序固定
 //! `ctrl, alt, shift, cmd`（GPUI Keystroke 同序），key 是 GPUI 给的 raw key
@@ -209,6 +208,42 @@ pub fn format_for_display(keystroke_str: &str) -> String {
     }
 }
 
+/// 拿 action 当前生效的 keystroke 字符串 — 优先用户 override，否则 default。
+/// Phase B 路由用本函数取「当前应该匹配的键」。
+pub fn current_for(action_id: &str, custom: &std::collections::HashMap<String, String>) -> String {
+    custom
+        .get(action_id)
+        .cloned()
+        .unwrap_or_else(|| default_for(action_id).to_string())
+}
+
+/// 严格匹配 keystroke 与 expected 字符串 — modifier 集合完全相等 + key 字面相等。
+/// 不允许 "extra modifiers"（如 `ctrl-p` 不匹配 `ctrl-shift-p`），跟当前
+/// hardcoded 路由（`!m.shift && !m.alt` 显式排除）行为一致。
+///
+/// 空 expected → false（防 default_for 给未知 action 返回空串时误匹配空 keystroke）。
+pub fn matches(keystroke: &gpui::Keystroke, expected: &str) -> bool {
+    if expected.is_empty() {
+        return false;
+    }
+    let parts: Vec<&str> = expected.split('-').collect();
+    let Some(key) = parts.last() else {
+        return false;
+    };
+    let mods = &parts[..parts.len() - 1];
+
+    let expect_ctrl = mods.contains(&"ctrl");
+    let expect_alt = mods.contains(&"alt");
+    let expect_shift = mods.contains(&"shift");
+    let expect_cmd = mods.contains(&"cmd");
+
+    keystroke.modifiers.control == expect_ctrl
+        && keystroke.modifiers.alt == expect_alt
+        && keystroke.modifiers.shift == expect_shift
+        && keystroke.modifiers.platform == expect_cmd
+        && keystroke.key.as_str().eq_ignore_ascii_case(key)
+}
+
 /// 验证 keystroke 是否能作为可绑定快捷键 — 必须有至少一个 modifier + 一个 key。
 /// 防止用户绑了「a」这种裸键导致跟普通输入冲突。
 pub fn is_valid_binding(keystroke_str: &str) -> bool {
@@ -279,5 +314,53 @@ mod tests {
     #[test]
     fn default_for_unknown_returns_empty() {
         assert_eq!(default_for("does-not-exist"), "");
+    }
+
+    #[test]
+    fn matches_strict_modifier_set() {
+        let k_ctrl_p = ks(
+            Modifiers {
+                control: true,
+                ..Default::default()
+            },
+            "p",
+        );
+        assert!(matches(&k_ctrl_p, "ctrl-p"));
+        assert!(!matches(&k_ctrl_p, "ctrl-shift-p"));
+        assert!(!matches(&k_ctrl_p, "cmd-p"));
+        assert!(!matches(&k_ctrl_p, "p"));
+    }
+
+    #[test]
+    fn matches_key_case_insensitive() {
+        let k = ks(
+            Modifiers {
+                control: true,
+                shift: true,
+                ..Default::default()
+            },
+            "C",
+        );
+        assert!(matches(&k, "ctrl-shift-c"));
+    }
+
+    #[test]
+    fn matches_empty_expected_false() {
+        let k = ks(
+            Modifiers {
+                control: true,
+                ..Default::default()
+            },
+            "p",
+        );
+        assert!(!matches(&k, ""));
+    }
+
+    #[test]
+    fn current_for_falls_back_to_default() {
+        let mut custom = std::collections::HashMap::new();
+        assert_eq!(current_for("palette", &custom), default_for("palette"));
+        custom.insert("palette".to_string(), "ctrl-shift-x".to_string());
+        assert_eq!(current_for("palette", &custom), "ctrl-shift-x");
     }
 }
