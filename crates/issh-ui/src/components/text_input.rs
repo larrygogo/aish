@@ -2067,6 +2067,27 @@ impl Render for TextInput {
                         b += ch.len_utf8();
                     }
 
+                    // 空行 selection 标识：行内无 glyph 时 per-glyph bg(accent)
+                    // 路径不生效，给空行加固定宽度（0.5em ≈ 6px）的 accent bar
+                    // 表示「该换行符在 selection 内」。条件：vl 是空行且 sel
+                    // 跨过 vl.byte_start (含端点)。
+                    if vl.byte_start == vl.byte_end {
+                        if let Some(sel) = &sel_for_glyph {
+                            if sel.start <= vl.byte_start && vl.byte_start < sel.end {
+                                let bar_w = font_size_sm * 0.5;
+                                row = row.child(
+                                    div()
+                                        .absolute()
+                                        .top(cursor_top)
+                                        .left(px(0.0))
+                                        .w(bar_w)
+                                        .h(cursor_h)
+                                        .bg(accent),
+                                );
+                            }
+                        }
+                    }
+
                     // cursor absolute 定位 — left = layout.x_for_index(cursor_in_row)
                     if cursor_in_this_row {
                         let cursor_local = displayed_cursor_byte - vl.byte_start;
