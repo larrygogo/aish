@@ -165,7 +165,10 @@ impl Theme {
                 fg: 0xd8dee9,
                 surface: 0x3b4252,
                 border: 0x434c5e,
-                muted_fg: 0x4c566a,
+                // muted_fg 不用 nord3 #4c566a — 跟 secondary_hover (bg lighten 10%)
+                // lightness 只差 3% 看不清。用 nord3 跟 nord4 之间的中间灰
+                // 让 hover 行的次级文字可读。
+                muted_fg: 0x7b88a1,
                 accent: 0x88c0d0,
                 destructive: 0xbf616a,
                 success: 0xa3be8c,
