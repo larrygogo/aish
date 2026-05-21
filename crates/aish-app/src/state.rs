@@ -423,6 +423,24 @@ pub enum SidebarTab {
     Settings,
 }
 
+/// M39: Settings 内部子页（用户反馈「拆成不同的菜单」）。
+/// 进入 Settings tab 后 sidebar 换成 SettingsSection sub-nav, settings 内容
+/// 区按当前选中 section 渲染对应 card.
+///
+/// TODO: 当前 enum 已定义但尚未连接到 SidebarNav / SettingsView, 用户中断
+/// 切到 card 风格改造任务, sub-nav 拆分待后续完成。allow dead_code 保留。
+#[allow(dead_code)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum SettingsSection {
+    /// 外观 + 偏好（主题 select + 减少动画 switch）
+    #[default]
+    General,
+    /// 快捷键参考表
+    Shortcuts,
+    /// 版本 / GitHub / 配置目录
+    About,
+}
+
 /// Tab 内容类型。默认页显示 host 卡片，连接页显示该 connection 的终端。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TabContent {

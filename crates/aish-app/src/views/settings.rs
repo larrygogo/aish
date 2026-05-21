@@ -95,6 +95,9 @@ impl SettingsView {
 }
 
 /// section card 的 header：Title3 (14/SEMIBOLD/fg) + px/py + 底部 border。
+/// M39 前用法：作为 Card.header() 内嵌渲染。M39 改 paseo 风后保留但仅 legacy
+/// 用途（外置 section_label_external 替代）。
+#[allow(dead_code)]
 fn section_header(title: &'static str, t: &Theme) -> AnyElement {
     div()
         .px_4()
@@ -102,6 +105,19 @@ fn section_header(title: &'static str, t: &Theme) -> AnyElement {
         .typography(aish_ui::TypeRole::Title3, t)
         .border_b_1()
         .border_color(t.colors.border)
+        .child(title)
+        .into_any_element()
+}
+
+/// M39 paseo 风：section label 渲染在 card **外**上方，灰色 Caption，与
+/// card 间留 8px gap。card 自身不再带 header，整张 card 就是 rows list。
+/// 参考 paseo 截图风格 (Navigation / Tabs & Panes / Projects)。
+fn section_label_external(title: &'static str, t: &Theme) -> AnyElement {
+    div()
+        .pb_2()
+        .px_1() // 略缩进让 label 跟 card 左边缘视觉对齐
+        .typography(aish_ui::TypeRole::Caption, t)
+        .text_color(t.colors.muted_foreground)
         .child(title)
         .into_any_element()
 }
@@ -245,10 +261,12 @@ impl Render for SettingsView {
             }))
             .into_any_element();
 
+        // M39 paseo 风: section label 外置, card 自身不带 header, 整张 card
+        // 就是 rows list。section label 在 card 上方独立 div (灰 Caption)。
+        let appearance_label = section_label_external("外观", t);
         let appearance_card = Card::new("settings-appearance")
             .outlined()
-            .no_padding() // M27: section_header + row helpers 都自带 px_4，opt-out 防双重
-            .header(section_header("外观", t))
+            .no_padding() // row helpers (control_row) 自带 px_4 padding
             .body(
                 div()
                     .flex()
@@ -280,10 +298,10 @@ impl Render for SettingsView {
         let k_home = if mac { "⌘1" } else { "Ctrl+1" };
         let k_terminal = if mac { "⌘2" } else { "Ctrl+2" };
         let k_settings_nav = if mac { "⌘3" } else { "Ctrl+3" };
+        let shortcuts_label = section_label_external("快捷键", t);
         let shortcuts_card = Card::new("settings-shortcuts")
             .outlined()
-            .no_padding() // M27: section_header + row helpers 都自带 px_4，opt-out 防双重
-            .header(section_header("快捷键", t))
+            .no_padding() // row helpers 自带 px_4 padding
             .body({
                 let mut body = div()
                     .flex()
@@ -344,10 +362,10 @@ impl Render for SettingsView {
             )
             .into_any_element();
 
+        let about_label = section_label_external("关于", t);
         let about_card = Card::new("settings-about")
             .outlined()
-            .no_padding() // M27: section_header + row helpers 都自带 px_4，opt-out 防双重
-            .header(section_header("关于", t))
+            .no_padding() // row helpers 自带 px_4 padding
             .body(
                 div()
                     .flex()
@@ -381,13 +399,28 @@ impl Render for SettingsView {
                     .py(t.anatomy.page.outer_py_top)
                     .child(page_title)
                     .child(
+                        // M39 paseo 风: 每 section = [label] + [card], section
+                        // 间 gap_section_gap (24). label 自己已含 pb_2 (8) 跟
+                        // card 间内紧凑。
                         div()
                             .flex()
                             .flex_col()
                             .gap(t.anatomy.page.section_gap)
-                            .child(appearance_card)
-                            .child(shortcuts_card)
-                            .child(about_card),
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .child(appearance_label)
+                                    .child(appearance_card),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .child(shortcuts_label)
+                                    .child(shortcuts_card),
+                            )
+                            .child(div().flex().flex_col().child(about_label).child(about_card)),
                     ),
             )
     }
