@@ -153,7 +153,10 @@ impl Render for ToastManager {
             .collect();
         div()
             .absolute()
-            .bottom(px(96.0))
+            // M39: bottom 从 96 → 24, toast 更贴窗口底部（用户反馈「位置往
+            // 下一些」）。接受跟 input bar 在右下角略重叠 — toast 浮于 input
+            // bar 之上，符合系统通知惯例（macOS / Win 通知都是 overlay）。
+            .bottom(px(24.0))
             .right(right_spacing)
             .flex()
             .flex_col_reverse()
