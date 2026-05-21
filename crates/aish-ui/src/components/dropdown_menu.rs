@@ -87,8 +87,9 @@ impl RenderOnce for DropdownMenu {
 
             let mut row = div()
                 .relative()
-                // M25 加密度：行高 28 → 26（Linear/Warp 紧凑列表风）
-                .h(gpui::px(26.0))
+                // M39: 行高 26 → 32 跟 paseo dropdown 节奏一致 (用户反馈
+                // 右键菜单很丑), px_3 → px_3 维持。
+                .h(gpui::px(32.0))
                 .px(t.spacing.px_3)
                 .flex()
                 .flex_row()
@@ -105,7 +106,7 @@ impl RenderOnce for DropdownMenu {
             }
 
             if let Some(icon_name) = item.icon {
-                row = row.child(icon(icon_name).size(gpui::px(14.0)).text_color(fg));
+                row = row.child(icon(icon_name).size(t.icon_size.sm).text_color(fg));
             }
             row = row.child(div().flex_1().child(item.label.clone()));
             if let Some(sc) = item.shortcut {

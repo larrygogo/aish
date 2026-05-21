@@ -22,6 +22,10 @@ pub struct Select {
     popover: Entity<Popover>,
     placeholder: SharedString,
     on_change: Option<ChangeHandler>,
+    /// M39 paseo 风: 每 option 前面的 leading dot 颜色 (8px 圆点)。索引跟
+    /// options 对齐, None = 该 option 不显示 dot。caller 不调
+    /// `leading_dots()` 时 = 全 None = 不显示 dot (保持原视觉)。
+    leading_dots: Vec<Option<gpui::Hsla>>,
 }
 
 impl Select {
@@ -33,18 +37,30 @@ impl Select {
             p.placement(PopoverPlacement::BottomEnd);
             p
         });
+        let options: Vec<SharedString> = options.into_iter().map(Into::into).collect();
+        let len = options.len();
         Self {
             focus_handle: cx.focus_handle(),
-            options: options.into_iter().map(Into::into).collect(),
+            options,
             selected: 0,
             popover,
             placeholder: SharedString::default(),
             on_change: None,
+            leading_dots: vec![None; len],
         }
     }
 
     pub fn placeholder(&mut self, p: impl Into<SharedString>) -> &mut Self {
         self.placeholder = p.into();
+        self
+    }
+
+    /// M39 paseo 风: 给每 option 设 leading dot 颜色 (8px 圆点)。Vec 长度
+    /// 必须等于 options 长度, 每项 Some(color) 显示 dot / None 不显示。
+    pub fn leading_dots(&mut self, dots: Vec<Option<gpui::Hsla>>) -> &mut Self {
+        if dots.len() == self.options.len() {
+            self.leading_dots = dots;
+        }
         self
     }
 
@@ -180,6 +196,7 @@ impl Render for Select {
 
         // popover content 选项列表 — 只在展开时构建，避免每帧白白分配 N 个 div
         if popover_open {
+            let leading_dots = self.leading_dots.clone();
             let content = div()
                 .flex()
                 .flex_col()
@@ -187,6 +204,7 @@ impl Render for Select {
                 .py(t.spacing.px_1)
                 .children(options.into_iter().enumerate().map(|(i, opt)| {
                     let is_selected = i == selected;
+                    let leading = leading_dots.get(i).copied().flatten();
                     let weak = weak_self.clone();
                     // M39 paseo 风 (用户截图对比): selected option 不再用 accent
                     // bg 反白, 改用 secondary_hover (跟普通 hover 同 bg) + 右侧
@@ -217,6 +235,16 @@ impl Render for Select {
                                 let _ = weak.update(cx, |s, cx| s.select(i, window, cx));
                             },
                         )
+                        .when_some(leading, |d, color| {
+                            d.child(
+                                div()
+                                    .w(gpui::px(8.0))
+                                    .h(gpui::px(8.0))
+                                    .rounded_full()
+                                    .bg(color)
+                                    .flex_shrink_0(),
+                            )
+                        })
                         .child(div().flex_1().child(opt))
                         .when(is_selected, |d| {
                             d.child(

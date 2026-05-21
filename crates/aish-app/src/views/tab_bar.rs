@@ -487,8 +487,14 @@ impl Render for TabBarView {
             let menu = DropdownMenu::new("tab-context-menu")
                 .items(vec![
                     MenuItem::new("重命名").icon(IconName::Pencil),
-                    MenuItem::new("折叠到 Home"),
-                    MenuItem::new("关闭").icon(IconName::X).shortcut("Ctrl+W"),
+                    MenuItem::new("折叠到主页"),
+                    MenuItem::new("关闭")
+                        .icon(IconName::X)
+                        .shortcut(if cfg!(target_os = "macos") {
+                            "⌘W"
+                        } else {
+                            "Ctrl+W"
+                        }),
                     MenuItem::new("关闭其他"),
                 ])
                 .min_width(gpui::px(180.0))
@@ -693,9 +699,7 @@ impl Render for TabBarView {
                     // 品牌色 bg + 10px SVG / 9px Letter；否则 fallback 到
                     // 原绿/灰 dot 表达活/断状态 (未探测的兼容路径)。
                     let prefix: gpui::AnyElement = if is_connection {
-                        let avatar = os_kind
-                            .as_deref()
-                            .and_then(crate::avatar::os_avatar_for);
+                        let avatar = os_kind.as_deref().and_then(crate::avatar::os_avatar_for);
                         match avatar {
                             Some(crate::avatar::OsAvatar::Svg { icon, bg }) => div()
                                 .w(px(14.0))
@@ -705,11 +709,7 @@ impl Render for TabBarView {
                                 .justify_center()
                                 .bg(gpui::rgb(bg))
                                 .rounded_full()
-                                .child(
-                                    aish_ui::icon(icon)
-                                        .size(px(10.0))
-                                        .text_color(gpui::white()),
-                                )
+                                .child(aish_ui::icon(icon).size(px(10.0)).text_color(gpui::white()))
                                 .into_any_element(),
                             Some(crate::avatar::OsAvatar::Letter { letter, bg }) => div()
                                 .w(px(14.0))

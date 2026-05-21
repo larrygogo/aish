@@ -70,6 +70,24 @@ impl SettingsView {
         let theme_select = cx.new(|cx| {
             let mut s = Select::new(vec!["默认", "Midnight", "Warp Aurora", "浅色"], cx);
             s.set_selected(initial_theme_idx, cx);
+            // M39 paseo 风: 每 option 前面带主题 accent 色 leading dot
+            // - 默认 Dark: Linear indigo #5E6AD2
+            // - Midnight: 加亮 indigo #6B7AE0
+            // - Warp Aurora: Warp 紫 #7C5CFC
+            // - 浅色: zinc 灰 #9CA3AF (light bg 的 dot 颜色)
+            use gpui::{Hsla, Rgba};
+            fn hex_hsla(rgb: u32) -> Hsla {
+                let r = ((rgb >> 16) & 0xFF) as f32 / 255.0;
+                let g = ((rgb >> 8) & 0xFF) as f32 / 255.0;
+                let b = (rgb & 0xFF) as f32 / 255.0;
+                Rgba { r, g, b, a: 1.0 }.into()
+            }
+            s.leading_dots(vec![
+                Some(hex_hsla(0x5e6ad2)),
+                Some(hex_hsla(0x6b7ae0)),
+                Some(hex_hsla(0x7c5cfc)),
+                Some(hex_hsla(0x9ca3af)),
+            ]);
             s.on_change(|idx, _w, cx| {
                 // 0 = dark default, 1 = midnight, 2 = warp, 3 = light
                 let cur_reduced = aish_ui::theme(cx).reduced_motion;
