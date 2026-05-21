@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use gpui::{
     div, prelude::*, px, size, App, Bounds, Context, Entity, SharedString, TitlebarOptions, Window,
-    WindowBackgroundAppearance, WindowBounds, WindowControlArea, WindowOptions,
+    WindowAppearance, WindowBackgroundAppearance, WindowBounds, WindowControlArea, WindowOptions,
 };
 use gpui_platform::application;
 use issh_types::ConnectionId;
@@ -32,6 +32,22 @@ pub(crate) fn retain_alive_entities<K, V>(
     K: Eq + std::hash::Hash,
 {
     map.retain(|k, _| is_alive(k));
+}
+
+/// 把 GPUI WindowAppearance（OS 系统主题）映射到 issh Theme。
+/// Light / VibrantLight → light，Dark / VibrantDark → dark。
+/// 仅 "跟随系统" 模式走这里 — 用户显式选 Midnight / Warp 等 dark variant 时
+/// 不参与 system follow（保留用户偏好）。
+pub(crate) fn theme_for_appearance(
+    appearance: WindowAppearance,
+    reduced_motion: bool,
+) -> issh_ui::Theme {
+    let mut theme = match appearance {
+        WindowAppearance::Light | WindowAppearance::VibrantLight => issh_ui::Theme::light(),
+        WindowAppearance::Dark | WindowAppearance::VibrantDark => issh_ui::Theme::dark(),
+    };
+    theme.reduced_motion = reduced_motion;
+    theme
 }
 
 /// AssetSource 链：先尝试 issh-ui 的 IconName 体系，再尝试 issh-app 自己的
@@ -79,8 +95,9 @@ pub fn run() {
             let snapshot = crate::app_state_file::load_app_state();
             // M38/M39: 实验性 dark 变体 — midnight (深紫蓝冷调) / warp
             // (Warp 风温暖紫)。在 Settings → 外观 → 主题 select 切换。
-            // "system": 跟随系统暂未实现 OS prefers-color-scheme 监听,
-            // fallback 到 dark (将来集成后用 OS 主题决定 light/dark)。
+            // M41 "system": 启动时 window 还没创建无 appearance，先 fallback
+            // dark；open_window callback 内会立刻按 window.appearance() 校准
+            // 一次 + 注册 observe_window_appearance 后续 OS 主题切换自动跟随。
             let mut init_theme = match snapshot.theme.as_deref() {
                 Some("light") => issh_ui::Theme::light(),
                 Some("midnight") => issh_ui::Theme::dark_midnight(),
@@ -397,7 +414,32 @@ pub fn run() {
             let tx_for_window = channel.tx.clone();
             let state_for_window = state.clone();
 
-            cx.open_window(window_options, move |_window, cx| {
+            cx.open_window(window_options, move |window, cx| {
+                // M41「跟随系统」OS prefers-color-scheme 集成：
+                // 1) 窗口创建后立刻按 OS appearance 同步一次 — 启动时
+                //    init_theme 用了 dark fallback（window 还没创建无 appearance），
+                //    这里拿到真实 appearance 后做首次校准。
+                // 2) 注册 observe_window_appearance：OS 主题切换时，若用户
+                //    仍是 "跟随系统" 模式，自动同步 issh theme。
+                let snapshot = crate::app_state_file::load_app_state();
+                if snapshot.theme.as_deref() == Some("system") {
+                    let reduced = snapshot.reduced_motion.unwrap_or(false);
+                    cx.set_global(theme_for_appearance(window.appearance(), reduced));
+                }
+                window
+                    .observe_window_appearance(|window, cx| {
+                        // 实时读 snapshot.theme — 用户切到非 system 模式后这里
+                        // 立刻停止 follow（不会再覆盖用户选的 light/dark/midnight/warp）
+                        let snapshot = crate::app_state_file::load_app_state();
+                        if snapshot.theme.as_deref() != Some("system") {
+                            return;
+                        }
+                        let reduced = snapshot.reduced_motion.unwrap_or(false);
+                        cx.set_global(theme_for_appearance(window.appearance(), reduced));
+                        cx.refresh_windows();
+                    })
+                    .detach();
+
                 cx.new(|cx| {
                     RootView::new(
                         state_for_window.clone(),

@@ -58,17 +58,15 @@ impl SettingsView {
             b
         });
 
-        // M39 paseo 风 theme select — 7 option 分段:
+        // M39 paseo 风 theme select — 5 option 分段:
         //  [亮色 (Sun)] [暗色 (Moon)] [跟随系统 (Monitor)]  ← mode 3 项
         //  --- 分割线 ---
-        //  [默认 (dot indigo)] [Midnight (dot blue)] [Warp Aurora (dot 紫)]  ← dark variants
+        //  [Midnight (dot blue)] [Warp Aurora (dot 紫)]  ← dark variants
         // 选 mode 切大方向 (light / dark / system), 选 variant 切具体 dark
-        // theme。「跟随系统」当前 fallback 到 default dark, 等 OS prefers-
-        // color-scheme 集成实现真跟随。
-        // 删「默认」option (跟「暗色」语义重复 — 暗色 = 默认 dark theme,
-        // 不需要再列 default variant), dark variants 段只列非默认的 Midnight
-        // / Warp Aurora。共 5 项: 亮色 / 暗色 / 跟随系统 / [sep] / Midnight
-        // / Warp Aurora。
+        // theme。
+        // M41:「跟随系统」已集成 GPUI WindowAppearance — 选中时按 OS 当前
+        // light/dark 应用对应 theme，OS 主题切换由 app.rs 注册的
+        // observe_window_appearance 实时同步。
         let initial_theme_idx = match crate::app_state_file::load_app_state().theme.as_deref() {
             Some("light") => 0,
             Some("system") => 2,
@@ -108,12 +106,17 @@ impl SettingsView {
             ]);
             // mode 段 (idx 2) 后画分隔线
             s.separators(vec![false, false, true, false, false]);
-            s.on_change(|idx, _w, cx| {
+            s.on_change(|idx, w, cx| {
                 let cur_reduced = issh_ui::theme(cx).reduced_motion;
+                // idx 2 「跟随系统」：用 window.appearance() 决定 light/dark；
+                // 系统主题后续变化由 app.rs::observe_window_appearance 同步。
                 let (mut new_theme, theme_key): (Theme, &str) = match *idx {
                     0 => (Theme::light(), "light"),
                     1 => (Theme::dark(), "dark"),
-                    2 => (Theme::dark(), "system"),
+                    2 => (
+                        crate::app::theme_for_appearance(w.appearance(), cur_reduced),
+                        "system",
+                    ),
                     3 => (Theme::dark_midnight(), "midnight"),
                     4 => (Theme::dark_warp(), "warp"),
                     _ => (Theme::dark(), "dark"),
