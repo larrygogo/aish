@@ -517,13 +517,17 @@ impl Render for SidebarNavView {
 
         // settings + toggle 同区，两种模式共用 layout
         // M35.1 D2: item 间距 gap_1(4) → gap_2(8) 对照 shadcn sidebar
+        // M39: Settings tab 时隐藏 settings_item (主区已经是 settings, 底部
+        // 再放 settings 入口冗余且 active 视觉跟 sub-nav 重复) — 用户反馈
+        // 「设置页面不要显示设置」。
+        let in_settings = current == SidebarTab::Settings;
         let bottom_section = div()
             .px(spacing.px_2)
             .pb(spacing.px_2)
             .flex()
             .flex_col()
             .gap(spacing.px_2)
-            .child(self.settings_item.clone())
+            .when(!in_settings, |d| d.child(self.settings_item.clone()))
             .child(toggle_btn);
 
         // M39: nav section — Settings tab 时换 sub-nav (通用 / 快捷键 / 关于),
@@ -553,8 +557,10 @@ impl Render for SidebarNavView {
         };
 
         // 「最近连接」list（仅展开模式显示 — 折叠 64px 无空间放 host label）
+        // M39: Settings tab 时隐藏 recent_section (主区是 settings, 不需要
+        // host 列表干扰) — 用户反馈「设置页面不要显示最近连接」。
         let recent_section: Option<gpui::AnyElement> =
-            if expanded && !recent_row_entities.is_empty() {
+            if !in_settings && expanded && !recent_row_entities.is_empty() {
                 Some(
                     div()
                         .px(spacing.px_3)
