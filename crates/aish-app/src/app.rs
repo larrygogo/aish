@@ -638,11 +638,11 @@ impl Render for RootView {
         // M39 Phase 2: aurora 配色抽 ColorTokens.aurora_a / aurora_b 跟 theme
         // 联动（default 冷双色 / midnight 紫蓝 / warp 紫+粉 / light 极淡）。
         //
-        // M39 Phase 4.4 (回到 M37 原版 2 layer 对角结构 + alpha 降低):
+        // M39 Phase 4.4 (回到 M37 原版 2 layer 对角结构 + alpha 极淡):
         // 5 层嵌套椭圆 halo 视觉太"圆"显丑，回到 M37 原版「2 layer top-left
-        // + bottom-right 对角分布」简单结构，但用 .opacity(0.5) 把 token alpha
-        // 缩半 — 比 M37 原版 0.18/0.14 alpha 还浅一档（Warp Aurora 现在变
-        // 0.125/0.10），让 aurora 更克制不抢戏。
+        // + bottom-right 对角分布」简单结构，但用 .opacity(0.1) 把 token alpha
+        // 降到 1/10 — Warp Aurora 现在变 0.025/0.020 极淡 brand tint，
+        // aurora 仅作底层色相暗示，不抢主信息。
         let aurora_a = colors.aurora_a;
         let aurora_b = colors.aurora_b;
         let main = div()
@@ -665,7 +665,7 @@ impl Render for RootView {
                     .h(gpui::relative(1.2))
                     .bg(gpui::linear_gradient(
                         135.0,
-                        gpui::linear_color_stop(aurora_a.opacity(0.5), 0.0),
+                        gpui::linear_color_stop(aurora_a.opacity(0.1), 0.0),
                         gpui::linear_color_stop(aurora_a.opacity(0.0), 1.0),
                     )),
             )
@@ -679,7 +679,7 @@ impl Render for RootView {
                     .h(gpui::relative(1.2))
                     .bg(gpui::linear_gradient(
                         315.0,
-                        gpui::linear_color_stop(aurora_b.opacity(0.5), 0.0),
+                        gpui::linear_color_stop(aurora_b.opacity(0.1), 0.0),
                         gpui::linear_color_stop(aurora_b.opacity(0.0), 1.0),
                     )),
             )
