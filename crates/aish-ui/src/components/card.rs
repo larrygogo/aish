@@ -480,7 +480,14 @@ impl Render for CardEntity {
                 None => t.colors.secondary_hover,
             }
         };
-        let hover_border = glow.map(|g| g.opacity(0.25));
+        // M39: glass 模式下 hover 不显示边框（用户反馈：「hover 的时候也不要
+        // 显示边框」），仅靠 bg 灰阶提亮表达 hover 状态。non-glass 仍走
+        // hover_glow primary border 作 actionable 提示。
+        let hover_border = if self.glass {
+            None
+        } else {
+            glow.map(|g| g.opacity(0.25))
+        };
         let active_bg = t.colors.secondary_active;
         let radius_lg = t.radius.lg;
         let border_color = t.colors.border;
