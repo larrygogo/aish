@@ -10,23 +10,23 @@
 
 ## 当前状态
 
-- **活跃分支**：main（2026-05-20 完成 M38 paseo/WezTerm 借鉴落地：daemon 化
-  brainstorm spec + WezTerm 调研 + ConnectionAlias mnemonic ID +
-  RemoteCapabilities 重构 + aish-ui Charter 执行手册 + IconSize/Opacity
-  token + InlineError primitive + Dark Midnight 实验性 variant + Settings
-  深色变体 Select UI + popover overlay 修复）
+- **活跃分支**：main（2026-05-21 完成 M39 Warp 视觉重做 + paseo 风全套
+  polish：Warp Aurora dark variant + 31 commit 视觉 / UX 持续 polish。详
+  见下方 M39 段）
 - **motion 系统状态**：✅ **完整收尾**（M30 入场 + M31 press+focus + M32-M34
   hover enter + hover leave fade-out + tab indicator fade-in 全套，6 个
   entity 组件 Button / IconButton / Card / NavItem / TabItem / ListRow +
   Dialog + Toast 全部 motion 覆盖；GPUI .hover() fallback 防 hover stuck）
 - **设计系统状态**：✅ **完整落地**（M38 charter 415 行 16 章把 typography
   / anatomy / motion / hover 子系统串成顶层执行手册 + 25+ Forbidden 清单；
-  IconSize / Opacity / surface_workspace 三个 token 补全；Dark 主题 2 个
-  variant：默认 indigo / Midnight 深紫蓝）
-- **下一里程碑候选**：M36 用户视觉验收后 polish（如有） / Skeleton 业务接入
-  (UX 风险 defer) / Light theme 完整调优 / daemon 化 Phase 1+（spec brainstorm
-  状态，需明确 CLI / MCP 真实需求触发） / 长期 roadmap 看
-  [桌面版 Moshi Roadmap](roadmap-moshi-desktop.md)
+  IconSize / Opacity / surface_workspace 三个 token 补全；Dark 主题 3 个
+  variant：默认 indigo / Midnight 深紫蓝 / Warp Aurora 暖紫；Settings 子
+  导航 sub-nav 拆分；Select dropdown paseo 风 leading icon/dot + separator）
+- **下一里程碑候选**：M36 用户视觉验收后 polish（如有） / Light theme 完整
+  调优 / 自定义快捷键 keybinding 真实捕获 + 持久化 (settings 已加 placeholder
+  button) / 跟随系统主题 OS prefers-color-scheme 监听集成 / daemon 化
+  Phase 1+（spec brainstorm 状态，需明确 CLI / MCP 真实需求触发） / 长期
+  roadmap 看 [桌面版 Moshi Roadmap](roadmap-moshi-desktop.md)
 - **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **297** +
   aish-app **185** + aish-secrets **8** + aish-types **26** + 其他 crate，
   共 **615** tests) 全过
@@ -34,6 +34,124 @@
 ---
 
 ## Milestones（按时间倒序）
+
+### M39 — Warp 视觉重做 + paseo 风全套 polish（2026-05-20 / 21）— ✅ 主线完成（31 commit）
+
+- **范围**：用户「整体视觉语言重做 + Warp 风」诉求驱动的大型视觉迭代。从
+  spec/Phase 1-4 后扩散到 home / settings / sidebar / tab / select /
+  dropdown / toast / loading / empty state / i18n 等几乎全 view polish。
+  期间发生多次用户反馈驱动微调（一项做了又改、视觉效果回退/再尝试）。
+- **起源**：用户「这个圆还是太丑了改回最开始的，但是颜色浅一点」/「主题
+  选择那个还没改」/「设置点进去之后整个 sidebar 换成设置页面的」等连续
+  反馈，每次驱动 1-3 commit。
+
+**两大主线**：
+
+**A. Warp 视觉重做（spec / Phase 1-4 + 反复调整）**：
+- `a0c2887` Warp 风视觉重做 brainstorm spec（7 个 ADR + 5 阶段 + Risk 表）
+- `43337dd` Phase 1: Warp Aurora dark variant（accent #7C5CFC 暖紫 +
+  surface 深紫红黑 + 5 守护测试）
+- `07e108a` Phase 2: Aurora 配色抽 ColorTokens.aurora_a / aurora_b 跟
+  theme 联动（default 冷双色 / midnight 紫蓝 / warp 紫+粉 / light 极淡）
+- `c1a6f24` Phase 3: Card / Dialog 圆角拉大 (anatomy.card.radius 8→10,
+  anatomy.dialog.radius 8→12)
+- `d761c7f` → `ef6b56d` Phase 4: sidebar 顶部 2px brand bar gradient,
+  用户反馈「这是什么东西」revert
+- Aurora 形状反复试: `257aa9e` 4 layer 不规则 → `2995855` 5 层嵌套椭圆
+  (Gemini 风) → `9044245` 回到 M37 原版 2 layer 对角 → `027c14c` alpha
+  ×0.1 极淡。最终保留 M37 原版结构 + alpha 0.1。
+
+**B. paseo 风 polish 大波**（用户截图 driven）：
+
+UI primitive 改造：
+- `c3def12` Select dropdown 加 ✓ checkmark + 弱化 selected bg (paseo 风)
+- `1b3a571` (M38) Popover overlay 修复 (deferred + viewport-size backdrop)
+- `a3a0c56` Select 默认 BottomEnd placement (右对齐 trigger)
+- `867caaa` Select 加 leading_dots + DropdownMenu 行高 26→32
+- `eba6d48` Select 加 leading_icons + separators (paseo 风分段)
+- `66e9cb1` theme select 删「默认」option + shortcut row 描述左 Kbd 右 +
+  「自定义」placeholder button
+
+视觉调整：
+- `bdba89d` Host / Active Card glass 模式 idle 改灰色 + hover 提亮
+- `a4d68d8` glass 模式 hover 不显示边框
+- `d591d5b` Host Card 内边距 12→16
+- `1ced259` Active Card overlay 文字溢出 ellipsis 截断
+- `30f2e4b` Active Card overlay 移到顶部 + ⌘K → ⌘K/Ctrl+P 按系统
+- `54ca1f9` TabItem 删 focus ring glow shadow
+- `5957448` 连接中 overlay 重做 4-slot EmptyState 风
+- `a8da302` toast bottom 96→24 (反馈往下)
+- 后续 `66e9cb1` 内 toast 24→80 (反馈太低挡 input)
+- `056af04` About 页简化为 3 row 平铺 (版本 / 配置目录 / GitHub)
+- `507f843` Settings card 改 paseo 风 (section label 外置 + card 无 header)
+
+Sidebar 拆分：
+- `713de8d` 进入 Settings 后 sidebar 换 sub-nav (通用 / 快捷键 / 关于),
+  新加 IconName::Keyboard + 4 个 NavItem entity (back / general /
+  shortcuts / about), SettingsView 持 state observe settings_section
+- `dbbeb70` Settings tab 时隐藏最近连接 + 设置 item
+
+Tab 改造：
+- `a6b089b` tab 三连改 (OS icon prefix + 删 SSH badge + editing deferred
+  backdrop 外部点击取消)
+- `39e5228` tab 加 min_w 140 + max_w 200 (editing 也保持)
+
+Theme select 7 选项分段 (用户截图反馈最终形态):
+- `eba6d48` 6 option (亮色 / 暗色 / 跟随系统 / sep / 默认 / Midnight /
+  Warp Aurora) — 用 Sun/Moon/Monitor icon + 3 主题 dot
+- `66e9cb1` 删「默认」option (跟「暗色」语义重复) → 5 option
+
+i18n 深度排查：
+- `d34127a` humanize_last_connected / win 改中文 (刚刚 / N 分钟前 / N 窗口)
+- `b9f4463` empty_terminal 「Home / host」→ 「主页 / 主机」
+- `39e5228` 深度排查 host_form (标题/字段/Save) / home / command_palette /
+  terminal_view / session_picker / settings about, russh 底层英文 prefix
+  strip
+
+**关键设计文档新增**：
+- `docs/superpowers/specs/2026-05-20-aish-warp-visual-overhaul-design.md` —
+  Warp 视觉重做 brainstorm spec (7 ADR)
+- 新 lucide SVG icon: keyboard.svg / sun.svg / moon.svg / monitor.svg
+- 新 SVG-backed IconName: Keyboard / Sun / Moon / Monitor
+
+**新 Token / API**：
+- `ColorTokens.aurora_a / aurora_b` (跟 theme 联动的 aurora 配色)
+- `ColorTokens.sidebar_bg_top` 维持
+- `Theme::dark_warp()` 第 3 个 dark variant
+- `ThemeKind::DarkWarp` + `is_dark()` helper
+- `Select.leading_dots()` + `Select.leading_icons()` + `Select.separators()`
+- `PopoverPlacement::BottomEnd` (右对齐 trigger)
+- `AppState.settings_section: SettingsSection { General / Shortcuts / About }`
+- `SettingsSection` enum
+
+**Lessons**：
+
+- **用户审美迭代多轮 trade-off**: aurora 形状从 2 layer → 4 layer → 5 层
+  嵌套椭圆 → 回到 2 layer + 极淡 alpha, 5 个 commit 反复才落到稳定形态。
+  教训: GPUI linear_gradient 限 2 stop 没法做真 radial halo, 试验多种
+  approximation 后认清「视觉舒服」就是 alpha 低 + 简单对角 — 复杂技巧
+  反而显丑。
+- **paseo 截图驱动 polish 高效**: 截图直接对比让设计意图清晰, 比纯文字
+  需求快很多 (10+ commit 都由截图驱动)。
+- **「按用户反馈微调」的复杂度**: toast 位置反复 96→24→80, host card
+  内边距 12→16, hover border 加了又删 — 视觉是个 trial-and-error 过程,
+  接受多次微调而非一次完美。
+- **i18n 深度排查需要工具化**: 单纯 grep 不够 (技术名 SSH/tmux/Ctrl 等
+  必须保留), 实际需要分类: 用户可见 label / placeholder / button text
+  改中文, error message prefix strip, 系统按键 / 品牌名 / 文件路径 / 格式
+  示例保留。
+- **tab editing 外部点击取消**: GPUI deferred + viewport-size anchored
+  backdrop 双 priority 方案 (backdrop priority 1, editing tab wrap
+  deferred priority 2 让 input 在 backdrop 之上 paint) — paseo popover
+  同模式。
+- **「跟随系统」OS 主题监听**: GPUI 当前不直接支持 OS prefers-color-scheme
+  事件, 加了「跟随系统」option 但 fallback 到 dark, 持久化 theme="system"
+  留待将来 OS API 集成 (macOS Notification + Win SystemSettings.UISettings)。
+- **Warp 视觉特征落地难点**: GPUI 无 backdrop-filter blur / 无 radial
+  gradient, 「玻璃质感」用 viewport 拉到 1.4× 的 linear gradient 极低
+  alpha (0.1×) + half-transparent card bg 视觉模拟。Warp 真 brand identity
+  靠 ColorTokens.aurora_a (Warp 紫) + accent (#7C5CFC) + card glass 三层
+  组合, 形状不规则 / 复杂 halo 都不必要。
 
 ### M38 — paseo / WezTerm 借鉴落地（2026-05-20）— ✅ 主线完成（16 commit）
 
