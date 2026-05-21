@@ -144,8 +144,10 @@ impl Theme {
                 is_dark: true,
                 bg: 0x282a36,
                 fg: 0xf8f8f2,
-                surface: 0x44475a,
-                border: 0x44475a,
+                surface: 0x44475a, // Dracula "current line / selection" 色
+                // border 不跟 surface 同色（之前都 #44475a 重叠看不到 border）
+                // 用 Dracula 风格略亮一档的灰紫
+                border: 0x565869,
                 muted_fg: 0x6272a4,
                 accent: 0xbd93f9,
                 destructive: 0xff5555,
