@@ -30,7 +30,7 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      # aish-secrets 在 Linux 通过 keyring crate 的 sync-secret-service feature
+      # issh-secrets 在 Linux 通过 keyring crate 的 sync-secret-service feature
       # 链接到系统 libdbus（用于 D-Bus IPC 与 secret-service 守护进程通信）。
       # macOS / Windows 用各自原生 keychain API，不需要装 libdbus。
       - name: Install libdbus on Linux (for keyring crate)

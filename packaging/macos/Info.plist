@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
   <key>CFBundleName</key>
-  <string>aish</string>
+  <string>issh</string>
   <key>CFBundleDisplayName</key>
-  <string>aish</string>
+  <string>issh</string>
   <key>CFBundleIdentifier</key>
-  <string>com.larrygogo.aish</string>
+  <string>com.larrygogo.issh</string>
   <key>CFBundleVersion</key>
   <string>0.1.0</string>
   <key>CFBundleShortVersionString</key>
@@ -15,13 +15,13 @@
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleExecutable</key>
-  <string>aish</string>
+  <string>issh</string>
 
-  <!-- 图标：引用 Resources/aish.icns -->
+  <!-- 图标：引用 Resources/issh.icns -->
   <key>CFBundleIconFile</key>
-  <string>aish</string>
+  <string>issh</string>
   <key>CFBundleIconName</key>
-  <string>aish</string>
+  <string>issh</string>
 
   <key>LSMinimumSystemVersion</key>
   <string>13.0</string>

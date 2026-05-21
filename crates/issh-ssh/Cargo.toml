@@ -1,0 +1,20 @@
+[package]
+name = "issh-ssh"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "issh SSH 客户端层（russh 包装）"
+
+[dependencies]
+issh-types = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+russh = { workspace = true }
+russh-keys = { workspace = true }
+russh-sftp = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }

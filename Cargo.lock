@@ -63,106 +63,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "aish-app"
-version = "0.1.0"
-dependencies = [
- "aish-secrets",
- "aish-sftp",
- "aish-ssh",
- "aish-tmux",
- "aish-types",
- "aish-ui",
- "alacritty_terminal",
- "anyhow",
- "arboard",
- "bytes",
- "dirs 5.0.1",
- "gpui",
- "gpui_platform",
- "icns",
- "ico",
- "image",
- "resvg",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 1.0.69",
- "tokio",
- "toml 0.8.23",
- "tracing",
- "tracing-subscriber",
- "uuid",
- "winresource",
-]
-
-[[package]]
-name = "aish-secrets"
-version = "0.1.0"
-dependencies = [
- "aish-types",
- "anyhow",
- "keyring",
- "thiserror 1.0.69",
- "tracing",
-]
-
-[[package]]
-name = "aish-sftp"
-version = "0.1.0"
-dependencies = [
- "aish-ssh",
- "aish-types",
- "anyhow",
- "bytes",
- "thiserror 1.0.69",
- "tracing",
-]
-
-[[package]]
-name = "aish-ssh"
-version = "0.1.0"
-dependencies = [
- "aish-types",
- "anyhow",
- "async-trait",
- "russh",
- "russh-keys",
- "russh-sftp",
- "thiserror 1.0.69",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "aish-tmux"
-version = "0.1.0"
-dependencies = [
- "aish-types",
- "bytes",
- "thiserror 1.0.69",
- "tracing",
-]
-
-[[package]]
-name = "aish-types"
-version = "0.1.0"
-dependencies = [
- "petname",
- "serde",
- "serde_json",
- "uuid",
-]
-
-[[package]]
-name = "aish-ui"
-version = "0.1.0"
-dependencies = [
- "arboard",
- "gpui",
- "tracing",
-]
-
-[[package]]
 name = "alacritty_terminal"
 version = "0.26.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3240,6 +3140,106 @@ dependencies = [
  "core-foundation 0.10.0",
  "core-foundation-sys",
  "leaky-cow",
+]
+
+[[package]]
+name = "issh-app"
+version = "0.1.0"
+dependencies = [
+ "alacritty_terminal",
+ "anyhow",
+ "arboard",
+ "bytes",
+ "dirs 5.0.1",
+ "gpui",
+ "gpui_platform",
+ "icns",
+ "ico",
+ "image",
+ "issh-secrets",
+ "issh-sftp",
+ "issh-ssh",
+ "issh-tmux",
+ "issh-types",
+ "issh-ui",
+ "resvg",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "toml 0.8.23",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "winresource",
+]
+
+[[package]]
+name = "issh-secrets"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "issh-types",
+ "keyring",
+ "thiserror 1.0.69",
+ "tracing",
+]
+
+[[package]]
+name = "issh-sftp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "issh-ssh",
+ "issh-types",
+ "thiserror 1.0.69",
+ "tracing",
+]
+
+[[package]]
+name = "issh-ssh"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "issh-types",
+ "russh",
+ "russh-keys",
+ "russh-sftp",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "issh-tmux"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "issh-types",
+ "thiserror 1.0.69",
+ "tracing",
+]
+
+[[package]]
+name = "issh-types"
+version = "0.1.0"
+dependencies = [
+ "petname",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
+name = "issh-ui"
+version = "0.1.0"
+dependencies = [
+ "arboard",
+ "gpui",
+ "tracing",
 ]
 
 [[package]]

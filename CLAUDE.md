@@ -1,4 +1,4 @@
-# aish 项目工作流（覆盖全局）
+# issh 项目工作流（覆盖全局）
 
 > 本文件 **覆盖** `~/.claude/CLAUDE.md` 里 `feature-list.json` / `claude-progress.md`
 > 那一套全局工作流。本仓走 superpowers 流：每个里程碑独立 spec + plan，存在
@@ -13,8 +13,8 @@
 | 阶段 | 输出 | 路径 |
 |---|---|---|
 | Brainstorm | 与人对话明确目标、约束、UX | （无文件，对话即可）|
-| **Spec** | 设计文档（数据模型、架构图、Risk 表）| `docs/superpowers/specs/YYYY-MM-DD-aish-<milestone>-design.md` |
-| **Plan** | 实施计划（File Structure / 编号 Task / Self-Review）| `docs/superpowers/plans/YYYY-MM-DD-aish-<milestone>.md` |
+| **Spec** | 设计文档（数据模型、架构图、Risk 表）| `docs/superpowers/specs/YYYY-MM-DD-issh-<milestone>-design.md` |
+| **Plan** | 实施计划（File Structure / 编号 Task / Self-Review）| `docs/superpowers/plans/YYYY-MM-DD-issh-<milestone>.md` |
 | Implement | 按 Plan 的 Task 顺序执行，每条 Task 跑质量门禁 | 代码 |
 | Commit | 中文描述提交，每条独立 commit，逐个 Task 提 | git |
 
@@ -74,11 +74,11 @@ cargo test --workspace
 ## 技术栈速查
 
 - Rust stable（edition 2021）+ nightly fmt/clippy
-- workspace：`aish-types` / `aish-ssh` / `aish-tmux` / `aish-sftp` / `aish-secrets` / `aish-app`
+- workspace：`issh-types` / `issh-ssh` / `issh-tmux` / `issh-sftp` / `issh-secrets` / `issh-app`
 - GUI：GPUI（git dep，pin Zed main）
 - 终端：alacritty_terminal（解析 + grid + scrollback）
 - SSH：russh
-- Tmux：raw `tmux attach`（M3-archived 的 -CC 控制模式见 `aish-tmux/src/lib.rs` 顶注释）
+- Tmux：raw `tmux attach`（M3-archived 的 -CC 控制模式见 `issh-tmux/src/lib.rs` 顶注释）
 - 异步：tokio multi-thread runtime + GPUI bridge（mpsc）
 
 ---
@@ -92,4 +92,4 @@ cargo test --workspace
 - **actor 模式**：单一 raw shell，`AttachTmux` = 在 channel 发 `tmux attach -t '<sess>'\r`
 - **UI 顶层**：RootView = TabBar + body（按 current_tab.content 切 DefaultPage / Terminal+ConnectionChip）+ overlay (HostFormModal / SessionPickerView)
 - **鼠标事件**：alacritty Term mode `MOUSE_MODE+SGR_MOUSE` → 转 SGR escape 给远端；否则本地 selection / scroll
-- **远端 tmux 需要 `set -g mouse on`** 才能让 aish 的鼠标 click/drag/wheel 在 tmux 内生效
+- **远端 tmux 需要 `set -g mouse on`** 才能让 issh 的鼠标 click/drag/wheel 在 tmux 内生效

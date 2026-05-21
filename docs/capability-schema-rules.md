@@ -1,6 +1,6 @@
 # Capability Schema 演进规则
 
-> aish 的远端能力探测数据怎么定义、怎么演进、怎么不踩兼容性坑。
+> issh 的远端能力探测数据怎么定义、怎么演进、怎么不踩兼容性坑。
 >
 > 触发本文件的 milestone：2026-05-20 RemoteCapabilities 重构
 > （[plan](superpowers/plans/2026-05-20-aish-remote-capabilities.md)）。
@@ -9,7 +9,7 @@
 
 ## 1. 什么是 capability
 
-aish 在 SSH 连接建立后，会探测远端的各种属性来调整本地行为。比如：
+issh 在 SSH 连接建立后，会探测远端的各种属性来调整本地行为。比如：
 
 - 知道远端是 ubuntu → Host 卡片显示 Ubuntu logo
 - 知道远端 tmux 没开 mouse → 弹 toast 引导用户
@@ -29,7 +29,7 @@ aish 在 SSH 连接建立后，会探测远端的各种属性来调整本地行�
 - 探测一次后可以缓存，下次连接不用重测
 - 例子：`os_kind` / `arch` / 默认 `shell`
 
-存放：`HostConfig.capabilities: HostCapabilities`（在 `aish-types/src/lib.rs`）
+存放：`HostConfig.capabilities: HostCapabilities`（在 `issh-types/src/lib.rs`）
 持久化：随 `hosts.json` 一起 atomic write
 
 ### Session-level capability — 每次连接重测，**不持久化**
@@ -42,7 +42,7 @@ aish 在 SSH 连接建立后，会探测远端的各种属性来调整本地行�
 存放：`SshEvent` 推送 + `state.rs` 内存状态（如 `tmux_state: HashMap<ConnectionId, TmuxState>`）
 持久化：**不持久化**
 
-**判断准则**：「用户重启 aish 后这个能力还成立吗？」
+**判断准则**：「用户重启 issh 后这个能力还成立吗？」
 - 是 → host-level，写 `HostCapabilities`
 - 不一定 → session-level，走 event + state
 
@@ -50,7 +50,7 @@ aish 在 SSH 连接建立后，会探测远端的各种属性来调整本地行�
 
 ## 3. Schema 演进规则（append-only）
 
-aish 的 `hosts.json` 没有 migration 框架，靠 schema 自身的**前向兼容**保证升级
+issh 的 `hosts.json` 没有 migration 框架，靠 schema 自身的**前向兼容**保证升级
 不破坏。规则借鉴 paseo「append-only schema + capability flag」+ WezTerm
 「append-only enum + ident 永不复用」的组合。
 
@@ -60,7 +60,7 @@ aish 的 `hosts.json` 没有 migration 框架，靠 schema 自身的**前向兼�
 - 加注释 `/// DEPRECATED since vX.X — 改用 new_field`
 - 反序列化继续接受
 - 序列化时同步写 new_field（双写过渡期）
-- 真要清掉至少跨一个 minor release，且让用户至少打开 aish 一次完成迁移
+- 真要清掉至少跨一个 minor release，且让用户至少打开 issh 一次完成迁移
 
 ### 3.2 只放 `Option<T>` + `#[serde(default)]`
 
@@ -117,8 +117,8 @@ pub struct HostCapabilities {
   - 探测时机（哪个 actor task / 什么命令）
   - `None` 的语义（一定是「未探测」，不是「未安装」）
   - 用途（哪个 UI / 行为决策用它）
-- [ ] 在 `aish-types/src/lib.rs` 加 roundtrip 测试
-- [ ] 在 `aish-types/src/lib.rs` 加「字段缺失时 default 为 None」测试
+- [ ] 在 `issh-types/src/lib.rs` 加 roundtrip 测试
+- [ ] 在 `issh-types/src/lib.rs` 加「字段缺失时 default 为 None」测试
 - [ ] 探测函数加单元测试（在 `ssh_actor.rs` 或专门的 `capabilities/` 模块）
 - [ ] **不**为新字段加版本号或迁移逻辑 —— 走 append-only
 
@@ -126,7 +126,7 @@ pub struct HostCapabilities {
 
 ## 5. 跟 daemon 化 spec 的关系
 
-本文档定义的规则适用于 **aish 当前单进程架构**。如果未来推进
+本文档定义的规则适用于 **issh 当前单进程架构**。如果未来推进
 [daemon 化](superpowers/specs/2026-05-20-aish-daemonize-design.md)（spec
 ADR-006），还会有一层 **wire-level capability**（daemon ↔ client 协议能力
 协商），那是另一码事：

@@ -1,5 +1,5 @@
 /**
- * aish 图标生成脚本
+ * issh 图标生成脚本
  *
  * 单一 SVG 真相来源 → PNG 套装 + ICO (Windows) + ICNS (macOS)
  *
@@ -16,7 +16,7 @@ import { Icns, IcnsImage } from "@fiahfy/icns";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
 const ICONS_DIR = join(ROOT, "assets", "icons");
-const SVG_PATH = join(ICONS_DIR, "aish.svg");
+const SVG_PATH = join(ICONS_DIR, "issh.svg");
 
 // 所有需要生成的 PNG 尺寸
 const PNG_SIZES = [16, 32, 48, 64, 128, 256, 512, 1024];
@@ -48,7 +48,7 @@ function renderPng(svgData, size) {
 }
 
 async function main() {
-  console.log("📦 aish 图标生成开始...\n");
+  console.log("📦 issh 图标生成开始...\n");
 
   const svgData = readFileSync(SVG_PATH, "utf-8");
 
@@ -59,7 +59,7 @@ async function main() {
   const pngBuffers = new Map();
   for (const size of PNG_SIZES) {
     const png = renderPng(svgData, size);
-    const outPath = join(ICONS_DIR, `aish-${size}.png`);
+    const outPath = join(ICONS_DIR, `issh-${size}.png`);
     writeFileSync(outPath, png);
     pngBuffers.set(size, png);
     console.log(`  ✅ PNG ${size}×${size} → ${outPath}`);
@@ -67,11 +67,11 @@ async function main() {
 
   // 2. 生成 ICO（Windows）
   const icoPngs = ICO_SIZES.map((size) => {
-    const path = join(ICONS_DIR, `aish-${size}.png`);
+    const path = join(ICONS_DIR, `issh-${size}.png`);
     return path;
   });
   const icoBuffer = await pngToIco(icoPngs);
-  const icoPath = join(ROOT, "assets", "aish.ico");
+  const icoPath = join(ROOT, "assets", "issh.ico");
   writeFileSync(icoPath, icoBuffer);
   console.log(`  ✅ ICO → ${icoPath}`);
 
@@ -82,7 +82,7 @@ async function main() {
     const image = IcnsImage.fromPNG(pngBuf, osType);
     icns.append(image);
   }
-  const icnsPath = join(ROOT, "assets", "aish.icns");
+  const icnsPath = join(ROOT, "assets", "issh.icns");
   writeFileSync(icnsPath, icns.data);
   console.log(`  ✅ ICNS → ${icnsPath}`);
 

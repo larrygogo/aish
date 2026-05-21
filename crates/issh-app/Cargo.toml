@@ -1,0 +1,64 @@
+[package]
+name = "issh-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "issh 主应用（GPUI 在 M1 接入）"
+include = ["src/**/*", "assets/**/*", "Cargo.toml"]
+
+build = "build.rs"
+
+[[bin]]
+name = "issh"
+path = "src/main.rs"
+
+[dependencies]
+issh-types = { workspace = true }
+issh-ssh = { workspace = true }
+issh-tmux = { workspace = true }
+issh-ui = { workspace = true }
+bytes = { workspace = true }
+issh-sftp = { workspace = true }
+issh-secrets = { workspace = true }
+anyhow = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+gpui = { workspace = true }
+gpui_platform = { workspace = true }
+uuid = { workspace = true }
+alacritty_terminal = { workspace = true }
+dirs = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+toml = { workspace = true }
+arboard = { workspace = true }
+image = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[build-dependencies]
+# 必须与 GPUI 内部使用的 resvg 版本一致 —— 否则会触发 cargo feature
+# unification 把 fontdb / tiny-skia / usvg 等收敛到不兼容版本，破坏 GPUI
+# 的字体光栅化路径（表现为整窗文字不渲染但纯色 quad 正常）。
+# GPUI rev aa16a3b 内部用 resvg 0.45，所以 build-dep 也固定 0.45。
+resvg = "=0.45.1"
+icns  = "0.4"
+ico   = "0.5"
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
+[package.metadata.bundle]
+name              = "issh"
+identifier        = "com.larrygogo.issh"
+version           = "0.1.0"
+copyright         = "Copyright © 2026 larry. MIT License."
+category          = "Developer Tool"
+short_description = "AI-powered SSH client"
+icon              = ["assets/icons/issh.svg"]

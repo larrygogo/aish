@@ -1,13 +1,13 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/aish-types",
-    "crates/aish-ssh",
-    "crates/aish-tmux",
-    "crates/aish-sftp",
-    "crates/aish-secrets",
-    "crates/aish-app",
-    "crates/aish-ui",
+    "crates/issh-types",
+    "crates/issh-ssh",
+    "crates/issh-tmux",
+    "crates/issh-sftp",
+    "crates/issh-secrets",
+    "crates/issh-app",
+    "crates/issh-ui",
 ]
 
 [workspace.package]
@@ -15,7 +15,7 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 authors = ["larry"]
-repository = "https://github.com/larrygogo/aish"
+repository = "https://github.com/larrygogo/issh"
 rust-version = "1.80"
 
 [workspace.dependencies]
@@ -36,12 +36,12 @@ toml = "0.8"
 petname = { version = "3.0", default-features = false, features = ["default-rng", "default-words"] }
 
 # 本地 crate
-aish-types = { path = "crates/aish-types" }
-aish-ssh = { path = "crates/aish-ssh" }
-aish-tmux = { path = "crates/aish-tmux" }
-aish-sftp = { path = "crates/aish-sftp" }
-aish-secrets = { path = "crates/aish-secrets" }
-aish-ui = { path = "crates/aish-ui" }
+issh-types = { path = "crates/issh-types" }
+issh-ssh = { path = "crates/issh-ssh" }
+issh-tmux = { path = "crates/issh-tmux" }
+issh-sftp = { path = "crates/issh-sftp" }
+issh-secrets = { path = "crates/issh-secrets" }
+issh-ui = { path = "crates/issh-ui" }
 gpui = { git = "https://github.com/zed-industries/zed", rev = "aa16a3bf9d579ed858490d2bd1765df6d9cef5aa" }
 # gpui_platform 必须显式启用 `font-kit` feature —— 否则它的 default = []
 # 导致 gpui_macos 的 `font-kit` feature 也关掉（gpui_platform 的 font-kit

@@ -1,0 +1,17 @@
+[package]
+name = "issh-types"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "issh 共享类型定义（零业务逻辑）"
+
+[dependencies]
+serde = { workspace = true }
+uuid = { workspace = true }
+petname = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

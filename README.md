@@ -1,4 +1,4 @@
-# aish
+# issh
 
 AI 友好的跨平台 SSH 桌面客户端。专为远程使用 AI CLI 工具（Claude Code、Codex、Aider 等）优化。
 

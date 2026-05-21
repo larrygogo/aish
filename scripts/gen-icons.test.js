@@ -17,8 +17,8 @@ const PNG_SIZES = [16, 32, 48, 64, 128, 256, 512, 1024];
 
 describe("PNG 套装", () => {
   for (const size of PNG_SIZES) {
-    it(`aish-${size}.png 存在且为有效 PNG`, () => {
-      const path = join(ICONS_DIR, `aish-${size}.png`);
+    it(`issh-${size}.png 存在且为有效 PNG`, () => {
+      const path = join(ICONS_DIR, `issh-${size}.png`);
       expect(existsSync(path)).toBe(true);
 
       const buf = readFileSync(path);
@@ -35,8 +35,8 @@ describe("PNG 套装", () => {
 });
 
 describe("ICO (Windows)", () => {
-  it("aish.ico 存在且魔法字节正确", () => {
-    const path = join(ROOT, "assets", "aish.ico");
+  it("issh.ico 存在且魔法字节正确", () => {
+    const path = join(ROOT, "assets", "issh.ico");
     expect(existsSync(path)).toBe(true);
 
     const buf = readFileSync(path);
@@ -51,8 +51,8 @@ describe("ICO (Windows)", () => {
 });
 
 describe("ICNS (macOS)", () => {
-  it("aish.icns 存在且魔法字节正确", () => {
-    const path = join(ROOT, "assets", "aish.icns");
+  it("issh.icns 存在且魔法字节正确", () => {
+    const path = join(ROOT, "assets", "issh.icns");
     expect(existsSync(path)).toBe(true);
 
     const buf = readFileSync(path);
@@ -65,8 +65,8 @@ describe("ICNS (macOS)", () => {
 });
 
 describe("SVG 源文件", () => {
-  it("aish.svg 存在", () => {
-    const path = join(ICONS_DIR, "aish.svg");
+  it("issh.svg 存在", () => {
+    const path = join(ICONS_DIR, "issh.svg");
     expect(existsSync(path)).toBe(true);
   });
 });

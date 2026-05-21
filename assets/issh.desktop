@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=issh
+GenericName=SSH Client
+Comment=AI-powered SSH client with tmux visualization
+Exec=issh %u
+Icon=issh
+Terminal=false
+Categories=Network;RemoteAccess;Development;
+Keywords=ssh;terminal;tmux;ai;
+StartupWMClass=issh

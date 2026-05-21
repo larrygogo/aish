@@ -1,4 +1,4 @@
-# aish Superpowers 索引
+# issh Superpowers 索引
 
 > 全部里程碑 plan + spec 的索引 + 当前状态 + 下一步候选。
 >
@@ -27,8 +27,8 @@
   button) / 跟随系统主题 OS prefers-color-scheme 监听集成 / daemon 化
   Phase 1+（spec brainstorm 状态，需明确 CLI / MCP 真实需求触发） / 长期
   roadmap 看 [桌面版 Moshi Roadmap](roadmap-moshi-desktop.md)
-- **质量门禁基线**：fmt + clippy 0 warning + test (aish-ui **297** +
-  aish-app **185** + aish-secrets **8** + aish-types **26** + 其他 crate，
+- **质量门禁基线**：fmt + clippy 0 warning + test (issh-ui **297** +
+  issh-app **185** + issh-secrets **8** + issh-types **26** + 其他 crate，
   共 **615** tests) 全过
 
 ---
@@ -164,7 +164,7 @@ i18n 深度排查：
 - **不在范围**：daemon 化 Phase 1+（spec 推荐结论是「不立刻启动 Phase 1+，
   等 CLI/MCP 真实需求触发」，本次只做 Phase 0 + 独立价值项）
 - **起源**：用户提「看看 github 上的 paseo 项目，能给我们提供哪些思路」→
-  clone paseo + wezterm 系统读 → 三次发现 aish 现状比预估更完整（Phase 0
+  clone paseo + wezterm 系统读 → 三次发现 issh 现状比预估更完整（Phase 0
   已基本做完 / Badge 已存在 / EmptyState 已存在），节省了三次返工
 
 **架构线 — daemon 化探索（5 commit）**：
@@ -180,9 +180,9 @@ i18n 深度排查：
   - §7 10 条 Risk + mitigation / §8 6 个 open questions
   - status: brainstorm（不挂 INDEX 直到推进）
 - **4fa8003 — Phase 0 ConnectionAlias mnemonic ID**：发现原 Phase 0 四项
-  里三项已被 aish 现有持久化覆盖（dirs::config_dir() + atomic write 比
+  里三项已被 issh 现有持久化覆盖（dirs::config_dir() + atomic write 比
   paseo ~/.paseo 更 OS-native）/ capability flag 需要 wire schema 才有意义
-  / ListenTarget 需要 daemon 才有意义 → 只做 mnemonic ID。aish-types 加
+  / ListenTarget 需要 daemon 才有意义 → 只做 mnemonic ID。issh-types 加
   ConnectionAlias(String) newtype + petname 3.0 (default-features=false
   只要库 features) + 5 个测试。不绑定 ConnectionId 单独工具型类型，等
   CLI / ssh_actor 自然需要时再串
@@ -205,11 +205,11 @@ i18n 深度排查：
 **UI 美学线 — paseo borrowing 落地（11 commit）**：
 
 - **7535503 — paseo UI 美学借鉴笔记**：对照 paseo design.md 13 章 +
-  theme.ts token 系统，跟 aish-ui 现状（M22-M37 typography / anatomy /
+  theme.ts token 系统，跟 issh-ui 现状（M22-M37 typography / anatomy /
   motion / hover 子系统）找可借鉴 / 已对齐 / 不该抄三类。**核心发现**：
-  aish 已有完整 typography 9 role / anatomy 6 类 / motion 4 档（比 paseo
+  issh 已有完整 typography 9 role / anatomy 6 类 / motion 4 档（比 paseo
   在动效维度更深），真正缺的是「顶层执行手册 + 几个零散 token」
-- **07866d3 — aish-ui Charter 执行手册（A）**：写 docs/design/aish-ui-charter.md
+- **07866d3 — issh-ui Charter 执行手册（A）**：写 docs/design/issh-ui-charter.md
   跟现有 principles.md 配套（principles = 为什么 / charter = 怎么做）。
   415 行 16 章覆盖 Character / Token 系统 / Hierarchy / Buttons / Borders
   / Pickers / Density / Responsiveness / Copy（中文）/ States / List rows
@@ -218,13 +218,13 @@ i18n 深度排查：
 - **1fb5215 — IconSize + Opacity token（B）**：补 paseo notes B 项 —
   IconSize { xs:12 / sm:14 / md:16 / lg:18 / xl:20 } + Opacity { disabled:0.6
   / press:0.7 }（仅 state semantic，视觉 overlay opacity 保持 view-level）。
-  BorderWidth 跳过（aish 全部走 GPUI .border_1() 已统一）
+  BorderWidth 跳过（issh 全部走 GPUI .border_1() 已统一）
 - **f2e7fd3 — surface_workspace 语义 token（E）**：给 terminal / workspace
   主区背景留独立语义位置，当前等同 background + 守护测试。借鉴 paseo
   surfaceWorkspace 命名，未来差异化（tmux attach 偏色 / fullscreen tint）
   无需改 view 代码
 - **12647db — InlineError primitive（F-partial）**：empty_state.rs 早已
-  存在（M28 4-slot anatomy），本次只补 inline error。aish-ui 新增
+  存在（M28 4-slot anatomy），本次只补 inline error。issh-ui 新增
   InlineError primitive (Caption 12/400 + destructive color) + host_form
   字段错误从 ad-hoc 7 行迁到 1 行 `InlineError::new(msg)`，字号 13→12
   更克制
@@ -232,7 +232,7 @@ i18n 深度排查：
   DarkMidnight variant + is_dark() helper。新文件 theme/dark_midnight.rs
   深紫蓝 surface + 加亮 indigo accent。terminal/colors.rs + elevation_1/2/3
   改 is_dark() 模式让 dark family 共享 ANSI palette / shadow alpha。
-  destructive / success / warning 跨主题一致（视觉锚点）。aish-app 启动
+  destructive / success / warning 跨主题一致（视觉锚点）。issh-app 启动
   时支持 app_state.toml theme="midnight" 加载
 - **93768f3 — 把现有 callsite 迁移到 IconSize / Opacity token**：用户
   反馈「我看不到效果」后发现 token 加了但没人用 → 系统扫 callsite，迁移
@@ -266,9 +266,9 @@ i18n 深度排查：
   RemoteCapabilities 重构 plan
 - `docs/capability-schema-rules.md` — capability schema 演进规则
   （append-only + 7 项 checklist）
-- `docs/design/aish-ui-charter.md` — aish-ui 设计执行手册 415 行 16 章
+- `docs/design/issh-ui-charter.md` — issh-ui 设计执行手册 415 行 16 章
 
-**新增代码**（aish-ui）：
+**新增代码**（issh-ui）：
 - `theme/dark_midnight.rs` — Dark Midnight 实验性主题
 - `components/inline_error.rs` — InlineError primitive
 
@@ -278,14 +278,14 @@ i18n 深度排查：
 - `ThemeKind::DarkMidnight` + `ThemeKind::is_dark()` helper
 
 **测试基线**：601 → **615 tests**（+14 新测试 / 维持现有）
-- aish-types: 16 → 26 (+10：ConnectionAlias 5 + HostCapabilities 5)
-- aish-ui: 288 → 297 (+9：IconSize/Opacity 2 + InlineError 2 +
+- issh-types: 16 → 26 (+10：ConnectionAlias 5 + HostCapabilities 5)
+- issh-ui: 288 → 297 (+9：IconSize/Opacity 2 + InlineError 2 +
   dark_midnight 4 + surface_workspace 1)
-- aish-app: 184 → 185 (+1)
+- issh-app: 184 → 185 (+1)
 
 **Lessons**：
 
-- **三次「aish 现状比预估更完整」**：Phase 0 持久化 / Badge / EmptyState
+- **三次「issh 现状比预估更完整」**：Phase 0 持久化 / Badge / EmptyState
   都已存在。教训：spec 阶段要先 grep / read 现状再立 scope，不要凭印象
   写 scope。每次发现都得修订原计划范围
 - **paseo notes 推荐顺序 ≠ 实施时实际落地**：notes 说做 A→B→D→E→C→F→G，
@@ -311,7 +311,7 @@ i18n 深度排查：
   disabled 0.5→0.6）时仍主动告知。中间发现已有 primitive（Badge /
   EmptyState）也是「跳过 + 报告」而非「问要不要跳过」
 
-- **范围**：让 aish 在 macOS / Windows / Linux 各自呈现 OS native 体验，覆盖
+- **范围**：让 issh 在 macOS / Windows / Linux 各自呈现 OS native 体验，覆盖
   键盘 / 鼠标 / 字体 / 窗口 / UI 5 层。无 spec/plan，按 /loop dynamic mode
   分轮渐进推进，用户反馈 + 推断 ROI 双驱动
 - **起源**：用户反馈"我希望用户在不同的系统上都能体验到原生的感觉"，触发
@@ -360,8 +360,8 @@ i18n 深度排查：
     解析失败
   - **Settings 快捷键列表按 OS 显示** (`3a597cb`) — Mac ⌘ / Win/Linux Ctrl
 - **i18n 全面中文化** (`0bea109` + `10d9ee1`) — 用户可见界面统一中文，保留品牌
-  / 技术名（aish / tmux / SSH / Esc / placeholder example values）
-- **测试**：aish-ui 286 / aish-app 184+，全 workspace pass。新增覆盖：font
+  / 技术名（issh / tmux / SSH / Esc / placeholder example values）
+- **测试**：issh-ui 286 / issh-app 184+，全 workspace pass。新增覆盖：font
   fallback (5)、compute_paste_payload trim (1)、encode_ctrl_special_keys (1)、
   encode_alt_arrows_word_movement (1)、last_n_non_empty_rows (4)
 - **Lessons**：
@@ -541,7 +541,7 @@ i18n 深度排查：
   - **T12 Disconnected ErrorState ✅** (`7ec238a`)：中央 ErrorState 替代
     底部 strip，3 button (重连 / 编辑 host / 复制错误)
 - **Phase C（v0.next+2）4/6 task 完成 (2026-05-15)：**
-  - **T14 Kbd chip ✅** (`b775959`)：aish-ui 新 RenderOnce 组件 + 3 单测
+  - **T14 Kbd chip ✅** (`b775959`)：issh-ui 新 RenderOnce 组件 + 3 单测
   - **T15 Settings shortcuts + 关于页 ✅** (`942c76f`)：shortcuts 接 Kbd
     chip + 加 ⌘K palette 行 + About 加 logo hero。后续 fix `afa8356`
     chip 拉伸 + 颜色对比度
@@ -558,11 +558,11 @@ i18n 深度排查：
     earn-every-pixel 原则
   - **T16 Linux brand icon 补 8 个 ⏸ blocked**：rocky/mint/manjaro/nixos/
     gentoo/opensuse/raspbian/elementary SVG 资产需手动放进
-    `crates/aish-ui/assets/icons/distros/` 后才能 include_bytes! 嵌入。
+    `crates/issh-ui/assets/icons/distros/` 后才能 include_bytes! 嵌入。
     实施环境无外网 fetch 能力，等用户提供资产或下次 maintainer 补
 - Spec：[`specs/2026-05-15-aish-m35-uiux-overhaul-design.md`](specs/2026-05-15-aish-m35-uiux-overhaul-design.md)
 - Plan：[`plans/2026-05-15-aish-m35-uiux-overhaul.md`](plans/2026-05-15-aish-m35-uiux-overhaul.md)
-- 测试基线：aish-ui 274 → 278（+4 个新 pure-fn 测试），aish-app 150 →
+- 测试基线：issh-ui 274 → 278（+4 个新 pure-fn 测试），issh-app 150 →
   167（+17 parse_connection_string / fuzzy_score 单测），共 559 全过
 
 - **M35.1 follow-up — Sidebar 视觉质感补强（2026-05-17）— ✅ 已完成**
@@ -609,17 +609,17 @@ i18n 深度排查：
 
 - **M35.2 follow-up — 字体 fallback 系统（2026-05-17）— ✅ 已完成（manual 视觉验收 pending）**
   - 背景：home.rs:739 `⌧` (U+2327 Miscellaneous Technical) 显示成方块 tofu。
-    根因调研发现 aish **所有字体调用都不挂 fallback chain** — `Styled::font_family()`
+    根因调研发现 issh **所有字体调用都不挂 fallback chain** — `Styled::font_family()`
     只设 family 不动 `font_fallbacks`，任何主字体（JetBrainsMono Nerd Font）
     不带的 glyph 都直接 tofu 无兜底
   - GPUI 原生支持 `FontFallbacks` (`text_system/font_fallbacks.rs`) + Font.fallbacks
-    字段，aish 一直没用
+    字段，issh 一直没用
   - 决策：跨平台 symbol fallback chain（**0 bundle 字体开销**）
   - 5 commit + ~140 行：
     - **T0 调研结论入 plan**（`db956fc`）：`Styled::font(Font)` 是唯一公开同时
       设 family + fallbacks 的 API（`.font_family()` 只设 family）；TextStyleRefinement
       经 `#[derive(Refineable)]` 生成；TextRun 带 fallbacks 全程贯通到渲染
-    - **T1 aish-ui/font 模块**（`50a12d3`）：FONT_FALLBACK_CHAIN 5 项常量
+    - **T1 issh-ui/font 模块**（`50a12d3`）：FONT_FALLBACK_CHAIN 5 项常量
       (`Symbols Nerd Font`, `Segoe UI Symbol`, `Apple Symbols`,
       `Noto Sans Symbols 2`, `Noto Sans CJK SC`) + OnceLock 单例 fallbacks() +
       `code_font()` / `sans_font()` helper + 5 单测；theme::typography 提升为
@@ -630,17 +630,17 @@ i18n 深度排查：
     - **T3 home preview 替换 ad-hoc font_family**（`3749698`）：home.rs:790
       之前 `.font_family("JetBrains Mono")` 是 **bug** — bundle 字体名是
       `"JetBrainsMono Nerd Font"`，`"JetBrains Mono"` 在 GPUI 找不到会
-      silent fallback 到系统默认 mono；改走 `aish_ui::code_font()` 同时
+      silent fallback 到系统默认 mono；改走 `issh_ui::code_font()` 同时
       拿正确字体名 + fallback chain
     - **T4 终端字体接 fallback**（`8c28ac8`）：grid_renderer.rs
       terminal_gpui_font() 挂 fallbacks；font.rs cell_size() 保持只查主字体
       metric（fallback 字体是 proportional，cell width 不可信）
   - **Lessons**：
     - **`Styled::font_family(name)` 是设计陷阱** — 名字暗示只设 family，
-      实际上**清空了 fallback 链**（覆盖 text_style 字段而非 merge）。aish
+      实际上**清空了 fallback 链**（覆盖 text_style 字段而非 merge）。issh
       之前所有字体调用都受这个 API 设计影响。如要保留 fallback，必须走
       `.font(Font)`
-    - **bundle 字体名 vs 字体 family name 不一致** — aish bundle 的是
+    - **bundle 字体名 vs 字体 family name 不一致** — issh bundle 的是
       `JetBrainsMonoNerdFont-Regular.ttf`，但 GPUI 注册名 `"JetBrainsMono Nerd Font"`
       （ttf 内嵌的 family name）；home.rs:790 用错了写成 `"JetBrains Mono"`
       但因 silent fallback 没暴露问题，长期 mono 字体 fallback 到非 mono
@@ -652,9 +652,9 @@ i18n 深度排查：
   - **不引入 bundle 字体** — 包大小 0 增长，仅引用系统字体名（平台找不到
     自动跳过）
   - Plan：[`plans/2026-05-17-aish-m35.2-font-fallback.md`](plans/2026-05-17-aish-m35.2-font-fallback.md)
-  - 测试：aish-ui 281 → **286**（+5 font 模块测试），workspace 全过
+  - 测试：issh-ui 281 → **286**（+5 font 模块测试），workspace 全过
   - **Manual 视觉验收 pending**（用户跑 GUI）：
-    1. home 页「继续工作」card "新加坡开发 · ⌧ tmux:aish" 的 ⌧ 不再是
+    1. home 页「继续工作」card "新加坡开发 · ⌧ tmux:issh" 的 ⌧ 不再是
        方块（U+2327 走系统 Segoe UI Symbol 兜底）
     2. terminal 内 `echo "⌧ ⊟ ⎇ ⌘ ◐ ♣"` 全部有 glyph 不 tofu
     3. terminal cell 对齐不破坏（fallback 仅渲染层挂、metric 不变）
@@ -667,7 +667,7 @@ i18n 深度排查：
      差异明显
   2. 切到 Light → 深色变体 select 自动隐藏；切回 Dark → select 记得上次
      选择（state 跨切换保留）
-  3. 任何切换重启 aish 都持久保留（写盘 app_state.toml theme 字段）
+  3. 任何切换重启 issh 都持久保留（写盘 app_state.toml theme 字段）
   4. Settings dropdown 弹出时不被旁边的「减少动画」switch 透出来 / 不被
      覆盖（popover overlay 修复验证）
   5. host form 输错 host / port → 字段下方红字是 Caption (12px) 不是
@@ -692,7 +692,7 @@ i18n 深度排查：
   enter-leave 视觉抖动）
 - 5 组件 fire_hover + render base_bg match + animator 反向 lerp 全套更新
 - 关键 commit: `96ad9a2`
-- 测试：aish-ui 266 / aish-app 153 / aish-secrets 8 不变
+- 测试：issh-ui 266 / issh-app 153 / issh-secrets 8 不变
 
 ### M34 — Batch polish（detach-detect + SSH passphrase + TabItem entity）（2026-05-15）— ✅ 已完成
 
@@ -706,14 +706,14 @@ i18n 深度排查：
   AttachTmux 命令 set，ChannelMsg::Data 内 has_detach_marker 时 emit
 - 抽 has_detach_marker(data: &[u8]) pure fn + 6 单测（typical / short
   form / no false positive / partial no match / anywhere / empty）
-- aish-app 147 → 153 (+6)
+- issh-app 147 → 153 (+6)
 
 **2. SSH key passphrase** (`c61cee5` + `617d6c0`)
-- aish-types SshAuth::KeyFile 加 `passphrase: String`（skip_serializing
+- issh-types SshAuth::KeyFile 加 `passphrase: String`（skip_serializing
   不入 hosts.json，同 password 模式存 keyring）
-- aish-secrets 加 set_passphrase / get_passphrase / delete_passphrase，
+- issh-secrets 加 set_passphrase / get_passphrase / delete_passphrase，
   username 用 `{host_id}-passphrase`（与 password 不同 entry）
-- aish-ssh client.rs 传 passphrase 给 russh load_secret_key（空 → None，
+- issh-ssh client.rs 传 passphrase 给 russh load_secret_key（空 → None，
   非空 → Some）
 - ssh_actor connection_task: KeyFile + passphrase=="" 时 SecretStore::get_passphrase
   填回；NoEntry 不报错（未加密私钥合法 fallback）
@@ -723,7 +723,7 @@ i18n 深度排查：
 - host_form view：KeyFile 模式 render keyfile_row + passphrase field（label
   "passphrase"，placeholder "passphrase (optional, for encrypted keys)"）；
   Password 模式仅 password field；runtime .update placeholder 切语义
-- aish-secrets 5 → 8 (+3 passphrase 单测)
+- issh-secrets 5 → 8 (+3 passphrase 单测)
 
 **3. TabItem 升 Entity + tab_bar render split** (`9e14a18`)
 - 应用 M33 home render split 通用模板到 tab_bar，让 TabItem 也获得
@@ -737,7 +737,7 @@ i18n 深度排查：
   title_for_preview } } collect；Phase B drop borrow + tab_entity.update +
   wrap div with drag/drop/middle/right listener；Phase C reborrow theme +
   plus_btn / arrows / final layout
-- aish-ui 268 → 266 (-5 旧 stateless + 3 新 hover 状态机 pure fn)
+- issh-ui 268 → 266 (-5 旧 stateless + 3 新 hover 状态机 pure fn)
 
 至此 M30-M34 motion 系统**全套完整收尾**：所有主要交互元素 (Button /
 IconButton / NavItem / TabItem / Card host_card / Dialog / Toast /
@@ -750,7 +750,7 @@ sidebar nav) 都有 hover transition + press feedback；home render split
 - 范围：把 Card 升 stateful Entity 给 home host card 加 hover transition
   + press feedback（M32 路线延续到 Card 组件）
 - 实际进展：
-  - ✅ T1 (`834671f`)：CardEntity 旁挂在 aish-ui，含完整 HoverState +
+  - ✅ T1 (`834671f`)：CardEntity 旁挂在 issh-ui，含完整 HoverState +
     fire_press + fire_hover + render 三路 animator wrapper，与 Button
     模式对称
   - ✅ T2 (`ac63224`)：home.rs render split 3 阶段重构 + host_cards
@@ -766,7 +766,7 @@ sidebar nav) 都有 hover transition + press feedback；home render split
   - `baf4605` — spec + plan
   - `834671f` — T1 CardEntity 旁挂
   - `ac63224` — T2 home render split + host_cards entity 接入
-- 测试：aish-ui 268 / aish-app 147 全通过
+- 测试：issh-ui 268 / issh-app 147 全通过
 - 视觉效果：home host card mouse 移入 150ms bg lerp idle (card) →
   hover (secondary_hover) + mouse_down 0.7→1.0 opacity press feedback
 - 启示：home render split 模式（block scope phase A → drop borrow →
@@ -780,7 +780,7 @@ sidebar nav) 都有 hover transition + press feedback；home render split
   ring fade。M32 / M33 模式延续，sidebar_nav.rs render 内 borrow 简单
   未撞 M33 home host card 的 cx mut 冲突 — 直接替换不走旁挂
 - 关键 commit：`f18cbc0`
-- 测试：aish-ui 270 → **268**（净 -2，删 6 旧 stateless 单测 + 加 4 hover
+- 测试：issh-ui 270 → **268**（净 -2，删 6 旧 stateless 单测 + 加 4 hover
   状态机 pure fn）
 - 特殊处理：NavItem fire_hover 内 `if self.active { return }` 让 active
   selected 视觉保持稳态，不被 hover 覆盖（保留 stateless 时代 `if !active`
@@ -808,7 +808,7 @@ sidebar nav) 都有 hover transition + press feedback；home render split
   - `5169fc7` — spec + plan
   - `a32909f` — T1 Button hover transition + 8 pure fn 单测
   - `471155c` — T2 IconButton 对称（HoverState 升 pub(crate) 复用）
-- 测试：aish-ui 260 → **268**（+8 hover 状态机单测），aish-app 147 不变
+- 测试：issh-ui 260 → **268**（+8 hover 状态机单测），issh-app 147 不变
 - 已知边界：
   - Ghost variant lerp(transparent_black, secondary_active) 中间色是半透明
     灰 — 手测后视觉评估 R5，若不佳后续可加 Ghost fallback 走 instant
@@ -818,10 +818,10 @@ sidebar nav) 都有 hover transition + press feedback；home render split
 ### M31 — Button / IconButton stateful 重构 + press / focus 动画（2026-05-15）— ✅ 已完成
 - spec：[`specs/2026-05-15-aish-m31-button-stateful-design.md`](specs/2026-05-15-aish-m31-button-stateful-design.md)
 - plan：[`plans/2026-05-15-aish-m31-button-stateful.md`](plans/2026-05-15-aish-m31-button-stateful.md)
-- 范围：把 aish-ui 的 Button / IconButton 从 stateless `#[derive(IntoElement)]`
+- 范围：把 issh-ui 的 Button / IconButton 从 stateless `#[derive(IntoElement)]`
   升级为 stateful `Entity`（Render），落地 M30 defer 的 press feedback
   + focus ring fade-in
-  - **aish-ui 底层**：Button + IconButton 各加 pressing / focus_animated /
+  - **issh-ui 底层**：Button + IconButton 各加 pressing / focus_animated /
     was_focused_prev / press_count 字段；fire_press(80ms timer 幂等 check) +
     schedule_clear_focus_anim helper；render 内单 animate_or_skip 同时驱动
     press opacity 0.85→1.0 + ring alpha 0→0.4（spec L4 限制：div 不支持
@@ -841,13 +841,13 @@ sidebar nav) 都有 hover transition + press feedback；home render split
 - 关键 commits：
   - `f1d9bb2` — T1 ButtonEntity 旁挂 + 9 pure fn 单测
   - `98a380c` — T2 IconButtonEntity 旁挂
-  - `a171d0d` — T3 aish-ui 内 dialog/toast callsite
+  - `a171d0d` — T3 issh-ui 内 dialog/toast callsite
   - `4ff730d` — T4 5 view 单例 9 callsite
   - `76f899a` — T4 收尾 host_form 6 callsite
   - `91f1979` — T5 Vec/HashMap 渲染 8 callsite + retain helper
   - `4608899` — T6 删 stateless + rename Entity → 简洁名
-- 测试：aish-ui 262 → **260**（+9 M31 pure fn 单测 - 11 删 stateless 旧测），
-  aish-app 147 不变
+- 测试：issh-ui 262 → **260**（+9 M31 pure fn 单测 - 11 删 stateless 旧测），
+  issh-app 147 不变
 - 已知边界 / 留 M32+：
   - **hover transition** 仍 instant 切色（spec D-8 / M30 D-3）— 留 M32+
   - **focus fade-out** 不做（exit 直接消失，D-3 简化）
@@ -868,11 +868,11 @@ sidebar nav) 都有 hover transition + press feedback；home render split
   - **Settings**：Appearance section 加 \"减少动画\" Switch，写盘 + 启动回灌 Theme.reduced_motion；
     dark mode toggle 同步修：切主题时 preserve reduced_motion 偏好
 - 关键 commits：
-  - `857f456` — T2 Motion token + animate_or_skip + lerp helper（aish-ui +10）
-  - `b88b7bd` — T3 Dialog 4 态机器 + fade 动画（aish-ui +9）
+  - `857f456` — T2 Motion token + animate_or_skip + lerp helper（issh-ui +10）
+  - `b88b7bd` — T3 Dialog 4 态机器 + fade 动画（issh-ui +9）
   - `e696d29` — T4 Toast enter opacity 0→1
-  - `41807c4` — T7 reduced_motion toggle + 持久化（aish-app +2）
-- 测试：aish-ui 242 → **261**（+19），aish-app 145 → **147**（+2）
+  - `41807c4` — T7 reduced_motion toggle + 持久化（issh-app +2）
+- 测试：issh-ui 242 → **261**（+19），issh-app 145 → **147**（+2）
 - **Defer 状态**：
   - T5 — Button / IconButton press feedback ✅ **M31 落地**（commit
     `4608899` 之前一系列），Button 重构成 stateful Entity 后 80ms opacity
@@ -888,7 +888,7 @@ sidebar nav) 都有 hover transition + press feedback；home render split
 - spec：[`specs/2026-05-15-aish-m29-host-form-redesign-design.md`](specs/2026-05-15-aish-m29-host-form-redesign-design.md)
 - plan：[`plans/2026-05-15-aish-m29-host-form-redesign.md`](plans/2026-05-15-aish-m29-host-form-redesign.md)
 - 范围：把 HostForm Modal 从 M12 风格升级到 Linear/Stripe 商业级 form modal
-  - **aish-ui 底层**：TextInput.error(bool) + Dialog.initial_focus(handle) + Radio 组件
+  - **issh-ui 底层**：TextInput.error(bool) + Dialog.initial_focus(handle) + Radio 组件
   - **布局**：label 80px 左栅格 → label-on-top（label 显眼 + input 占满宽 + inline error 与 input 同列）
   - **auth 切换**：Tabs Entity → AuthKind enum + Radio 横排（更直观）
   - **Delete**：从共用 dialog 拆出独立 380 窄 dialog，Cancel button initial_focus + destructive 视觉
@@ -896,14 +896,14 @@ sidebar nav) 都有 hover transition + press feedback；home render split
   - **Focus**：add/edit dialog open → label_input；delete dialog open → Cancel（R10 防 Enter 误删）
   - **Dialog 宽度**：460 → 480（label-on-top + Radio 需要更宽）
 - 关键 commits：
-  - `ba96ea6` — T1 TextInput.error + Dialog.initial_focus（aish-ui 底层）
+  - `ba96ea6` — T1 TextInput.error + Dialog.initial_focus（issh-ui 底层）
   - `8ead8fe` — T2 Radio 组件
   - `4e9e59f` — T3 host_form auth_kind enum + Radio 接入
   - `6f57e8e` — T4 label-on-top + inline error
   - `abefb37` — T5 delete_dialog 拆独立
   - `383b477` — T6 footer 两端对齐 + Cancel 回归
   - `e90cd8b` — T7 dialog.initial_focus 接线
-- 测试：aish-ui 232 → **242**（+10：TextInput error/Dialog focus +5 / Radio +5），aish-app 145 不变
+- 测试：issh-ui 232 → **242**（+10：TextInput error/Dialog focus +5 / Radio +5），issh-app 145 不变
 - 已知边界：截图对比 spec 末尾仍待补，shimmer 动画留 M30
 
 ### M27 — Component Anatomy 规范（2026-05-15）— ✅ 已完成（T5/T6 推 M29）
@@ -921,7 +921,7 @@ sidebar nav) 都有 hover transition + press feedback；home render split
   - `37ca0c4` — T1 anatomy.rs + 6 sub-struct
   - `ef82d75` — T2 Card 内置 padding + T3+T4 caller opt-out
   - `de7960f` — anatomy.page 接 home/settings
-- 测试：aish-ui 222 → **232**（+8 anatomy +2 padding），aish-app 145 不变
+- 测试：issh-ui 222 → **232**（+8 anatomy +2 padding），issh-app 145 不变
 - 推迟到 M29：T5 session_picker dense list / T6 host_form form anatomy
   （与 host_form 重设计合并避免重叠）
 
@@ -943,7 +943,7 @@ sidebar nav) 都有 hover transition + press feedback；home render split
   - `b59105c` — T2 EmptyState/ErrorState + StatusView 4-slot
   - `f83e08b` — T3 Skeleton block/circle 原语
   - `283b07c` — T4-T7 home/empty_terminal/session_picker 接入 + hosts_load_error 字段
-- 测试：aish-ui 211 → **222**（+6 EmptyState +5 Skeleton），aish-app 144 → **145**（+1 hosts_load_error 默认）
+- 测试：issh-ui 211 → **222**（+6 EmptyState +5 Skeleton），issh-app 144 → **145**（+1 hosts_load_error 默认）
 - 已知边界：~~shimmer 实现是 v1 stub（无动画），M30 animation 落地后接入~~ ✅ 已落地 — commit `7197148`（M30 后）shimmer 接 pulsating_between sine 呼吸 1.2s 循环，reduced_motion 自动 fallback
 
 ### M26 — Typography × Information Hierarchy（2026-05-15）— ✅ 已完成
@@ -969,7 +969,7 @@ sidebar nav) 都有 hover transition + press feedback；home render split
   - `5c9a957` — T2 page title × 3 view
   - `ebde241` — T3 section header (settings + home)
   - `3892829` — T4+T5 host card + settings rows
-- 测试：aish-ui 204 → **211**（+7 typography 单测）
+- 测试：issh-ui 204 → **211**（+7 typography 单测）
 
 ### M25 — Typography 加密度 + Card Elevated shadow（2026-05-15）— ✅ 已完成
 - 范围：M24 推到 M25 的 D-8 typography 加密度初版
@@ -998,7 +998,7 @@ sidebar nav) 都有 hover transition + press feedback；home render split
   - `d6c3af1` — T2 light tokens + 跨主题 primary hue lemma
   - `69d9d0c` — T4 elevation_{1,2,3} + Dialog/Popover/ContextMenu/Toast 接入
   - `643204f` — T5 focus glow + T6 终端 selection 跨主题 indigo
-- 测试：aish-ui 204 (+1 跨主题 lemma) / aish-app 144 不变
+- 测试：issh-ui 204 (+1 跨主题 lemma) / issh-app 144 不变
 - 已知边界 / 留 M25：Typography 加密度 / 字体 / icon stroke / 动画
 
 ### M22 — InputBar per-connection draft 隔离（2026-05-15）— ✅ 已完成
@@ -1015,7 +1015,7 @@ sidebar nav) 都有 hover transition + press feedback；home render split
   - `403adb9` — T1 InputBarView 接 conn + RootView HashMap 化
   - `c15b8e7` — T2 Disconnected 时 Send 按钮 disabled
   - `b0dd3fc` — T3 retain_alive_entities helper + 4 个单测
-- 测试：aish-app 140 → **144**（+4：retain_alive_entities helper 全 case）
+- 测试：issh-app 140 → **144**（+4：retain_alive_entities helper 全 case）
 - 已知边界：
   - 多 conn 并存时 2N 个 spinner / drag polling timer 并存；每 timer 仅读 self.conn 互不干扰，CPU 微不足道
   - reopen_connection 复用同 ConnectionId 时草稿自动保留 —— feature，与"Disconnected 时草稿不丢"用户预期一致
@@ -1034,7 +1034,7 @@ sidebar nav) 都有 hover transition + press feedback；home render split
   - `0860a08` — T2 cursor_dirty_for_scroll + reset_blink 集中 set dirty + 4 单测
   - `e4f9a02` — T3 handle_wheel + on_scroll_wheel listener + 5 单测
   - `78888a9` — T4 scrollbar thumb 渲染（absolute overlay + opacity hover）
-- 测试：aish-ui 180 → **195**（+15：vertical drag 4 / dirty flag 4 / wheel 5 + 基线偏差 2）
+- 测试：issh-ui 180 → **195**（+15：vertical drag 4 / dirty flag 4 / wheel 5 + 基线偏差 2）
 - 已知边界 / 留 M22+：
   - scrollbar thumb 不可拖（M21 仅可视，drag thumb 留 backlog）
   - 无 auto-hide（thumb 常驻，可后续加 hover/focus 渐显逻辑）
@@ -1062,7 +1062,7 @@ sidebar nav) 都有 hover transition + press feedback；home render split
   - Braille spinner 10 帧 80ms / frame 动画接到 Send 按钮 label（a47d044）
   - 上传中锁定 TextInput + `+` 按钮 + 缩略图 × 按钮防误操作（e628aa9）
   - 阶段 2 — SFTP 单张 30s 超时 + 任一失败 abort batch + 已成功 drain 缩略图 + 剩余 images / text 保留 retry（3e1bf3c）
-- 测试：aish-ui / aish-app 测试集不变（全是 UI/UX 修复 + 状态机逻辑修复，不引入新单元逻辑）
+- 测试：issh-ui / issh-app 测试集不变（全是 UI/UX 修复 + 状态机逻辑修复，不引入新单元逻辑）
 - 关键 token 沉淀：
   - **GPUI 容器宽度撑满**：flex_col 内子元素需要显式 `.w_full()`，无法靠父 flex_1 间接撑满
   - **GPUI Pixels 算术**：`px * f32` OK，`px * px` 不允许，需 `line_h * cursor_vl as f32`
@@ -1072,7 +1072,7 @@ sidebar nav) 都有 hover transition + press feedback；home render split
 ### M19 — TextInput 多行 + word-wrap + auto-grow（2026-05-14）— ✅ 已完成
 - spec：[`specs/2026-05-14-aish-m19-textinput-multiline-design.md`](specs/2026-05-14-aish-m19-textinput-multiline-design.md)
 - plan：[`plans/2026-05-14-aish-m19-textinput-multiline.md`](plans/2026-05-14-aish-m19-textinput-multiline.md)
-- 范围：把 `aish_ui::TextInput` 从单行扩展到多行：
+- 范围：把 `issh_ui::TextInput` 从单行扩展到多行：
   - `.multiline(true)` + `.max_lines(n)` builder（默认 false，单行行为完全不变）
   - Enter 插 `\n` / Ctrl+Enter 触发 on_submit（VS Code / Claude Desktop 风），TextInput 内部 Ctrl+Enter 路由 fire_submit，caller 透明
   - auto-grow：min_h(line_h) + max_h(line_h * max_lines)，超出 overflow_hidden 裁切
@@ -1090,7 +1090,7 @@ sidebar nav) 都有 hover transition + press feedback；home render split
   - `2faff94` — T4 键盘 nav 跨行 + Enter / Ctrl+Enter 多行语义 + 4 单测
   - `640b7e7` — T5 mouse 跨行 click + drag select 用 2D 路径
   - `98f7d44` — T6 InputBar 接 multiline
-- 测试：aish-ui 158 → **180**（+22：visual_lines / 双向转换 / cursor_up/down_visual / approx_char_width）
+- 测试：issh-ui 158 → **180**（+22：visual_lines / 双向转换 / cursor_up/down_visual / approx_char_width）
 - 已知边界 / 留 M20+：
   - vertical drag-to-edge auto-scroll（多行 drag 到上下边沿持续滚）—— 单行水平版本 OK，多行垂直版本留 M20
   - 多行 vertical scrollbar UI 未画（超出 max_lines 内容内部 overflow_hidden 裁切，cursor 在屏外靠键盘 ↑↓ 自动 nav 间接定位）
@@ -1107,13 +1107,13 @@ sidebar nav) 都有 hover transition + press feedback；home render split
 - 主题 6：Dialog Tab focus trap + SessionPicker ↑/↓/Enter 键盘导航（`b3d284d` `51c16f1` `d63c0dd`）
 - 主题 7：Disabled 视觉精细化（cursor not-allowed + opacity 0.6）（`c10c3fc`）
 - 主题 8：Light theme 落地（21 ColorTokens + dark/light 阶梯反向 + 终端 palette + 选区色 + 持久化 toggle）（`4cf341f` `7099d5b` `5fed112`）
-- 测试：aish-ui 143 → **158**（+15 多个 polish + Light palette 阶梯断言）；aish-app 119 → **126**（+7 session-picker / tabs / state helpers）
+- 测试：issh-ui 143 → **158**（+15 多个 polish + Light palette 阶梯断言）；issh-app 119 → **126**（+7 session-picker / tabs / state helpers）
 - 关键 token 沉淀：secondary_strongest（Ghost active）+ light palette 反向阶梯断言模式（dark hover>active>strongest 阶梯递增 / light 递减）
 
 ### M17-polish — UI / TextInput / 终端 / SSH 连续迭代（2026-05-12 ~ 2026-05-13）— ✅ 已完成
 - 性质：不走 spec/plan 的用户反馈驱动 polish pass。35 commits 跨 9 个主题，每条独立 commit，本节做汇总索引便于回看。
 - 主题 1：Tab inline rename 从无到有重做（10 commits，`d9ea7be` ~ `11d6f9a`）
-  - 用 `aish_ui::TextInput` Entity 替代手糊 div+key handler（自动获得 IME / 中文 / 选区 / 复制粘贴）
+  - 用 `issh_ui::TextInput` Entity 替代手糊 div+key handler（自动获得 IME / 中文 / 选区 / 复制粘贴）
   - 双击进入编辑 + select_all、Esc 取消、失焦自动 commit（与浏览器 inline rename 体感一致）
   - editing 时跳过 TabItem 单独渲染 240px 宽 inline editor（TabItem max_w(200)+overflow_hidden 会裁掉 input cursor）
   - TabItem mouse_down 抢 input 点击的根因：TextInput mouse_down 加 `cx.stop_propagation()` + handle_tab_click editing 同 id 入口 return 防御性兜底
@@ -1142,7 +1142,7 @@ sidebar nav) 都有 hover transition + press feedback；home render split
   - logo 换项目真品牌 SVG（取代 Nerd Font `>_` 字符），用 PNG + img() 保留多色（svg() monochrome 渲染丢色）
   - host-form 删 footer Cancel（Dialog 顶部 X 已经有）
   - ring / titlebar / settings 细化（`412c33a`）
-- 测试：未新增（这一轮全是 UI/UX/integration 修复，不引入新单元逻辑）；aish-ui 143 / aish-app 101 不变
+- 测试：未新增（这一轮全是 UI/UX/integration 修复，不引入新单元逻辑）；issh-ui 143 / issh-app 101 不变
 - 关键技术 lessons（沉淀供未来 milestone 参考）：
   - **GPUI flex `min_w(0)` pitfall** 这轮出现 3+ 次（TabItem title ellipsis / tab_bar scroll 容器 / root main flex_1）：flex item 默认 `min-width: auto` 拒绝 shrink，必须显式 `min_w(px(0.0))`
   - **GPUI svg() 是 monochrome** 必须自己 `.text_color()` 设；父 div text_color 不会 inherit
@@ -1150,7 +1150,7 @@ sidebar nav) 都有 hover transition + press feedback；home render split
   - **GPUI mouse_up 不全局**：element 内 `on_mouse_up` 鼠标拖出去松开收不到，需要 `window.on_mouse_event::<MouseUpEvent>` 兜底
   - **borderless input 视觉规则**：当 input 嵌在带 bg/border 的卡片里时用 borderless（让父卡片当外壳），否则用默认 bg/border 让"是个 input"明确
 
-### M17 — aish-ui Card / NavItem / TabItem hover 改造 + accent_active token（2026-05-12）— ✅ 已完成
+### M17 — issh-ui Card / NavItem / TabItem hover 改造 + accent_active token（2026-05-12）— ✅ 已完成
 - 父 spec：[`specs/2026-05-09-aish-ui-architecture-design.md`](specs/2026-05-09-aish-ui-architecture-design.md)
 - spec：[`specs/2026-05-12-aish-m17-card-nav-tab-hover-design.md`](specs/2026-05-12-aish-m17-card-nav-tab-hover-design.md)
 - plan：[`plans/2026-05-12-aish-m17-card-nav-tab-hover.md`](plans/2026-05-12-aish-m17-card-nav-tab-hover.md)
@@ -1167,7 +1167,7 @@ sidebar nav) 都有 hover transition + press feedback；home render split
   - `9e80471` — T2 Card on_click 加 .active(accent_active)
   - `b556d2c` — T3 NavItem hover 补 bg + .active() + hover_only_when_inactive 测试
   - `eb9ff47` — T4 TabItem .active() + hover_only_when_inactive 测试
-- 测试：aish-ui 121 → **124**（净 +3：dark.rs +1 / nav_item.rs +1 / tab_item.rs +1）；aish-app 101 不变
+- 测试：issh-ui 121 → **124**（净 +3：dark.rs +1 / nav_item.rs +1 / tab_item.rs +1）；issh-app 101 不变
 - 命名 namespace 澄清：token 层 `_active` = "pressed"（GPUI `.active()` modifier）；组件 API 层 `.active(bool)` = "selected"。两个 namespace 在代码中不交叉
 - 已知边界：
   - Button / IconButton Ghost variant **未同步**接 accent_active，仍走 hover=accent / active=accent（无区别）。M17 不动，留 M18+ 兑现
@@ -1175,7 +1175,7 @@ sidebar nav) 都有 hover transition + press feedback；home render split
   - selected NavItem / TabItem hover/按下时无视觉变化（D-5 决策内在 trade-off）
   - Light theme 7 个新 token 仍占位，真正色值留下个 light theme milestone
 
-### M16 — aish-ui TextInput mask + cursor_at_pixel + drag select（2026-05-12）— ✅ 已完成
+### M16 — issh-ui TextInput mask + cursor_at_pixel + drag select（2026-05-12）— ✅ 已完成
 - 父 spec：[`specs/2026-05-09-aish-ui-architecture-design.md`](specs/2026-05-09-aish-ui-architecture-design.md)
 - spec：[`specs/2026-05-11-aish-m16-textinput-mask-cursor-design.md`](specs/2026-05-11-aish-m16-textinput-mask-cursor-design.md)
 - plan：[`plans/2026-05-11-aish-m16-textinput-mask-cursor.md`](plans/2026-05-11-aish-m16-textinput-mask-cursor.md)
@@ -1195,13 +1195,13 @@ sidebar nav) 都有 hover transition + press feedback；home render split
   - `ac9b8b0` — T2 cursor_at_pixel：bounds_map + byte_offset_at_x + render 重写为逐字 wrap（amend 含时序注释 + width==0 注释）
   - `bfce36f` — T3 drag select + glyph_div helper 抽取（amend 含 anchor 注释 + mouse_up cx.notify）
   - `520ab3d` — T4 HostForm password 字段 .mask_char('•')
-- 测试：aish-ui 110 → **121**（净 +11：mask +4 / byte_offset_at_x +4 / drag state +3）；aish-app 101 不变
+- 测试：issh-ui 110 → **121**（净 +11：mask +4 / byte_offset_at_x +4 / drag state +3）；issh-app 101 不变
 - 后续修复（2026-05-12 下午一次性合入 main，cherry-pick 后 SHA 重写，下列原 SHA 见 reflog）：
   - `70885dc` 补 Ctrl+V 键盘粘贴 —— M16 漏掉、fallback `!ctrl && !alt` 守卫把 Ctrl+V 也吞了。加 paste() + compute_paste_payload（多行截到首行）+ 7 个单测；masked 状态允许 paste（密码框惯例）。
   - `aa6da68` 修字符双输入 —— M16 render 改逐字 wrap div 后，IME canvas (prepaint 注册 InputHandler) 稳定触发 WM_CHAR → replace_text_in_range，而 handle_key default 分支也 insert_str，两侧都插入导致每字符变两个。删 KeyDown 普通字符路径，唯一交给 IME path（与 terminal_view.rs:214-223 同样模式）。
   - `74fe9f5` 修 mask 模式鼠标点击 + backspace panic —— bounds_map 写入的 byte 来自 displayed_text 空间（`•`=3B），mouse_down 直接当 self.cursor 用导致 cursor 超出 self.text.len()，下次按 backspace 时 `self.text[..self.cursor]` slice 越界。加 cursor_from_click 做 displayed→source 映射（与 cursor_for_display 反向，对称）+ 5 个单测。HostForm password 字段是最典型触发点。
-  - `217fd01` SSH 登录/连接失败弹 toast —— `app.rs` 收到 `SshEvent::Error` 原本只 `tracing::error!` + drop_session，UI 无任何反馈。按 SshErrorKind 分四类（连接/登录/IO/协议）调 `aish_ui::toast_error`，文案含 connection label。`SshEvent::Disconnected` 区分 reason：UserRequested/RemoteExited 静默，NetworkError 弹 toast。利用现有 ToastHandle global（无新组件）。
-  - `ede5315` selection_anchor invariant 全面修复 —— 上面 4 个 fix 上线后仍残留 panic：mouse_down 在 anchor==cursor 状态下设 anchor + IME insert_str 在 anchor==cursor 时 delete_selection 走 false 分支不清 anchor，cursor 推进后 anchor 残留旧位置；之后 backspace remove 字符（也不清 anchor）让 text 变短到 anchor 之外，再按 Backspace 时 selection_range 返回越界 range → drain panic。修：所有 self.text mutating 方法（set_text / clear / backspace / delete_forward / insert_str）显式 anchor=None；selection_range() 内 clamp anchor/cursor 到 text.len() 兜底（defense-in-depth）。+6 单测覆盖 clamp 与 anchor 清除路径。aish-ui 137 → **143**。
+  - `217fd01` SSH 登录/连接失败弹 toast —— `app.rs` 收到 `SshEvent::Error` 原本只 `tracing::error!` + drop_session，UI 无任何反馈。按 SshErrorKind 分四类（连接/登录/IO/协议）调 `issh_ui::toast_error`，文案含 connection label。`SshEvent::Disconnected` 区分 reason：UserRequested/RemoteExited 静默，NetworkError 弹 toast。利用现有 ToastHandle global（无新组件）。
+  - `ede5315` selection_anchor invariant 全面修复 —— 上面 4 个 fix 上线后仍残留 panic：mouse_down 在 anchor==cursor 状态下设 anchor + IME insert_str 在 anchor==cursor 时 delete_selection 走 false 分支不清 anchor，cursor 推进后 anchor 残留旧位置；之后 backspace remove 字符（也不清 anchor）让 text 变短到 anchor 之外，再按 Backspace 时 selection_range 返回越界 range → drain panic。修：所有 self.text mutating 方法（set_text / clear / backspace / delete_forward / insert_str）显式 anchor=None；selection_range() 内 clamp anchor/cursor 到 text.len() 兜底（defense-in-depth）。+6 单测覆盖 clamp 与 anchor 清除路径。issh-ui 137 → **143**。
 - 已知边界：
   - "眼睛"图标切换 mask 显示未做（HostForm 原来也没有）
   - shift+click 扩展 selection 未做
@@ -1211,7 +1211,7 @@ sidebar nav) 都有 hover transition + press feedback；home render split
   - bounds_map 第一帧空 → mouse_down 返回 0（首帧 click 极少发生，可接受）
   - cursor_for_display + displayed_selection 转换调用 char_indices().nth() 是 O(n)，password / 单行短文本无影响，多行扩展时可优化为一次遍历
 
-### M15 — aish-ui Button + IconButton 精细化（2026-05-11）— ✅ 已完成
+### M15 — issh-ui Button + IconButton 精细化（2026-05-11）— ✅ 已完成
 - 父 spec：[`specs/2026-05-09-aish-ui-architecture-design.md`](specs/2026-05-09-aish-ui-architecture-design.md)
 - spec：[`specs/2026-05-11-aish-m15-button-polish-design.md`](specs/2026-05-11-aish-m15-button-polish-design.md)
 - plan：[`plans/2026-05-11-aish-m15-button-polish.md`](plans/2026-05-11-aish-m15-button-polish.md)
@@ -1226,7 +1226,7 @@ sidebar nav) 都有 hover transition + press feedback；home render split
   - `32e3506` — T1 ColorTokens +6 + Dark 填值 + Light 占位 + 6 个单调 lightness 断言测试
   - `34ca591` — T2 Button hover/active per variant + focus_handle（amend 含 disabled 三写占位 + Ghost active 同色决策注释）
   - `6f38227` — T3 IconButton 同步处理（amend 含 BoxShadow/point/FocusHandle import 一致性 + 注释对齐）
-- 测试：aish-ui 100 → **110**（净 +10：dark.rs +6 / button.rs +2 / icon_button.rs +2）
+- 测试：issh-ui 100 → **110**（净 +10：dark.rs +6 / button.rs +2 / icon_button.rs +2）
 - 已知边界：
   - Ghost variant hover/active 未拆 token（用 accent 单色）
   - Disabled 状态视觉不精细化（保持 muted）
@@ -1234,7 +1234,7 @@ sidebar nav) 都有 hover transition + press feedback；home render split
   - focus ring 不区分键鼠 focus 路径（focus-visible 留 backlog）
   - 现有 Button / IconButton callsite 不传 focus_handle，向后兼容；具体接入由后续 milestone 在需要的场景按需做
 
-### M14 — aish-ui Popover / DropdownMenu + Select 改造 + Toast 关闭（2026-05-11）— ✅ 已完成
+### M14 — issh-ui Popover / DropdownMenu + Select 改造 + Toast 关闭（2026-05-11）— ✅ 已完成
 - 父 spec：[`specs/2026-05-09-aish-ui-architecture-design.md`](specs/2026-05-09-aish-ui-architecture-design.md)
 - spec：[`specs/2026-05-11-aish-m14-popover-design.md`](specs/2026-05-11-aish-m14-popover-design.md)
 - plan：[`plans/2026-05-11-aish-m14-popover.md`](plans/2026-05-11-aish-m14-popover.md)
@@ -1248,13 +1248,13 @@ sidebar nav) 都有 hover transition + press feedback；home render split
   - `5d1e8e9` — T2 MenuItem + DropdownMenu
   - `d791baa` — T3 Select 改 Popover（amend 修 if popover_open guard + 删冗余 popover_handle）
   - `f2faf42` — T4 Toast X 关闭按钮（amend 删冗余测试 + 注释 usize 转换假设）
-- 测试：aish-ui 90 → **100**（净 +10：Popover 5 / MenuItem 3 / DropdownMenu 3 / Select 6→5 / Toast 不变）；aish-app 101 不变
+- 测试：issh-ui 90 → **100**（净 +10：Popover 5 / MenuItem 3 / DropdownMenu 3 / Select 6→5 / Toast 不变）；issh-app 101 不变
 - 已知边界：
   - DropdownMenu 不接键盘导航（M14 简化版，M15+ 升级为 stateful Entity）
   - ContextMenu（右键触发）未做，留 M15+
   - `fit_mode` builder 已删除：gpui `anchored()` API 不允许 runtime 切换 fit mode，默认 SwitchAnchor 已包含
 
-### M13 — aish-ui Card / NavItem / TabItem + 全 view 切组件（2026-05-11）— ✅ 已完成
+### M13 — issh-ui Card / NavItem / TabItem + 全 view 切组件（2026-05-11）— ✅ 已完成
 - 父 spec：[`specs/2026-05-09-aish-ui-architecture-design.md`](specs/2026-05-09-aish-ui-architecture-design.md)
 - spec：[`specs/2026-05-11-aish-m13-cards-nav-design.md`](specs/2026-05-11-aish-m13-cards-nav-design.md)
 - plan：[`plans/2026-05-11-aish-m13-cards-nav.md`](plans/2026-05-11-aish-m13-cards-nav.md)
@@ -1272,10 +1272,10 @@ sidebar nav) 都有 hover transition + press feedback；home render split
   - `2431e00` — T4 home host 卡片切 Card（Card 内部加 .relative()）
   - `417d487` — T5 sidebar_nav 切 NavItem
   - `4290846` — T6 tab_bar 切 TabItem
-- 测试：aish-ui 77 → **90**（+13：Card 4 / NavItem 5 / TabItem 4）；aish-app 101 不变
-- 收尾：aish-app 内复合 view 元素全部组件化（仅 terminal_view 本体 + 已废弃 tmux_sidebar 保留手糊）
+- 测试：issh-ui 77 → **90**（+13：Card 4 / NavItem 5 / TabItem 4）；issh-app 101 不变
+- 收尾：issh-app 内复合 view 元素全部组件化（仅 terminal_view 本体 + 已废弃 tmux_sidebar 保留手糊）
 
-### M12 — aish-ui 表单与导航 + HostForm/SessionPicker 迁移（2026-05-11）— ✅ 已完成
+### M12 — issh-ui 表单与导航 + HostForm/SessionPicker 迁移（2026-05-11）— ✅ 已完成
 - 父 spec：[`specs/2026-05-09-aish-ui-architecture-design.md`](specs/2026-05-09-aish-ui-architecture-design.md)
 - spec：[`specs/2026-05-09-aish-m12-forms-nav-design.md`](specs/2026-05-09-aish-m12-forms-nav-design.md)
 - plan：[`plans/2026-05-09-aish-m12-forms-nav.md`](plans/2026-05-09-aish-m12-forms-nav.md)
@@ -1290,14 +1290,14 @@ sidebar nav) 都有 hover transition + press feedback；home render split
   - `f52719d` — T7 HostFormModal 重写（删 FocusField/cycle_focus，引入 SyncedKey + 6 TextInput）
   - `9c617c0` — T8 SessionPickerView 外壳迁 Dialog
   - `8247f82` — T9 SettingsView Appearance section + Dark mode Switch
-- 测试：aish-ui 51 → **77**（+26：Checkbox 5 / Switch 4 / Tabs 5 / Dialog 6 / Select 6）；aish-app 101 不变
+- 测试：issh-ui 51 → **77**（+26：Checkbox 5 / Switch 4 / Tabs 5 / Dialog 6 / Select 6）；issh-app 101 不变
 - 已知边界：Dialog Tab 循环 focus trap 留 M13；Select 弹层只向下；Light theme 仍 unimplemented! stub；HostForm 的 password mask toggle 不再支持（M11 TextInput 暂无 mask 模式）；Edit 模式下"Tab 切字段"键盘流不接（依赖 Dialog focus trap）
 
-### M11 — aish-ui 起步套件（2026-05-09）— ✅ 已完成
+### M11 — issh-ui 起步套件（2026-05-09）— ✅ 已完成
 - 父 spec：[`specs/2026-05-09-aish-ui-architecture-design.md`](specs/2026-05-09-aish-ui-architecture-design.md)
 - spec：[`specs/2026-05-09-aish-m11-ui-starter-design.md`](specs/2026-05-09-aish-m11-ui-starter-design.md)
 - plan：[`plans/2026-05-09-aish-m11-ui-starter.md`](plans/2026-05-09-aish-m11-ui-starter.md)
-- 范围：新建 aish-ui 独立 crate（依赖仅 gpui）+ Theme/Token 系统（21 ColorTokens + Radius/Spacing/FontSize scale + Theme::dark）+ 15 个 Lucide SVG icon + AssetSource 实现 + 7 个组件（Button/IconButton/Badge/Separator/Tooltip/TextInput/Toast）+ aish-app 接入：注册 Theme global / ToastHandle global / AssetSource，InputBarView 文本部分迁到 TextInput
+- 范围：新建 issh-ui 独立 crate（依赖仅 gpui）+ Theme/Token 系统（21 ColorTokens + Radius/Spacing/FontSize scale + Theme::dark）+ 15 个 Lucide SVG icon + AssetSource 实现 + 7 个组件（Button/IconButton/Badge/Separator/Tooltip/TextInput/Toast）+ issh-app 接入：注册 Theme global / ToastHandle global / AssetSource，InputBarView 文本部分迁到 TextInput
 - 关键 commits：
   - `4f025cc` — T1 crate 骨架 + workspace 注册
   - `90de327` — T2 Theme/Token + dark + light stub（amend 修 hex_a 死代码）
@@ -1312,9 +1312,9 @@ sidebar nav) 都有 hover transition + press feedback；home render split
   - `cad165a` — T11 TextInput selection（amend 修 selection_range 空 range bug）
   - `ea5ee69` — T12 TextInput 复制粘贴（amend 修 IME on_change + compute_copy_payload 抽取）
   - `8ea5322` — T13 Toast 三层（amend 修 Warning fg_color）
-  - `fd4a57c` — T14 aish-app 接入 Theme/ToastHandle/AssetSource
-  - `7b84e8d` — T15 InputBarView 文本部分切到 aish_ui::TextInput
-- 测试：aish-ui crate 51 tests + aish-app 101 tests + 其他 crate 不变（合计 268 全过）
+  - `fd4a57c` — T14 issh-app 接入 Theme/ToastHandle/AssetSource
+  - `7b84e8d` — T15 InputBarView 文本部分切到 issh_ui::TextInput
+- 测试：issh-ui crate 51 tests + issh-app 101 tests + 其他 crate 不变（合计 268 全过）
 - 已知边界：M11 简化版 mouse click 不解析 x 坐标（点击 = 末尾），cursor_at_pixel 留 M12+
 
 ### M10 — App 图标（跨平台 SVG→PNG/ICO/ICNS + Build 集成）（2026-05-09）— ✅ 已完成
@@ -1323,7 +1323,7 @@ sidebar nav) 都有 hover transition + press feedback；home render split
 - 实现状态：代码已完成并通过质量门禁 (fmt / clippy / test)，文档已补充
 - 范围：SVG 单一真相源（终端像素风 `>_` 设计）→ 8 级 PNG 套装 + Windows ICO (6 尺寸) + macOS ICNS (7 尺寸)；Node.js 生成脚本 (@resvg/resvg-js + png-to-ico + @fiahfy/icns)；Windows build.rs 编译期集成；macOS Info.plist 配置；Linux .desktop 文件
 - 关键任务：
-  - T1：SVG 主设计源（已完成，assets/icons/aish.svg）
+  - T1：SVG 主设计源（已完成，assets/icons/issh.svg）
   - T2：Bun 生成脚本（已完成，scripts/gen-icons.js）
   - T3：运行脚本生成 PNG/ICO/ICNS（✅）
   - T4：Windows build.rs 集成（✅）
@@ -1331,12 +1331,12 @@ sidebar nav) 都有 hover transition + press feedback；home render split
   - T6：Linux desktop 文件（✅）
   - T7：INDEX.md 更新（✅）
 - 产出文件：
-  - `assets/icons/aish-{16,32,48,64,128,256,512,1024}.png`
-  - `assets/aish.ico`
-  - `assets/aish.icns`
-  - `crates/aish-app/build.rs`
+  - `assets/icons/issh-{16,32,48,64,128,256,512,1024}.png`
+  - `assets/issh.ico`
+  - `assets/issh.icns`
+  - `crates/issh-app/build.rs`
   - `packaging/macos/Info.plist`
-  - `packaging/linux/aish.desktop`
+  - `packaging/linux/issh.desktop`
 
 ### M9 — Agent 输入栏（图片多选 + 文字 + SFTP 批量上传）（2026-05-08）— ✅ 已完成
 - spec：[`specs/2026-05-08-aish-m9-input-bar-design.md`](specs/2026-05-08-aish-m9-input-bar-design.md)
@@ -1422,7 +1422,7 @@ sidebar nav) 都有 hover transition + press feedback；home render split
 ### M3a — Tmux control mode 协议层（2026-05-07）— ⚠️ M3-archived
 - spec：[`specs/2026-05-07-aish-m3a-tmux-protocol-design.md`](specs/2026-05-07-aish-m3a-tmux-protocol-design.md)
 - plan：[`plans/2026-05-07-aish-m3a-tmux-protocol.md`](plans/2026-05-07-aish-m3a-tmux-protocol.md)
-- 状态：`aish-tmux` crate 内 controller / protocol / events / SessionTree 标 `#[allow(dead_code)]`，主路径不调用，保留待未来重启
+- 状态：`issh-tmux` crate 内 controller / protocol / events / SessionTree 标 `#[allow(dead_code)]`，主路径不调用，保留待未来重启
 
 ### M2d — Auth Keyring（2026-05-07）— ✅
 - spec：[`specs/2026-05-07-aish-m2d-auth-keyring-design.md`](specs/2026-05-07-aish-m2d-auth-keyring-design.md)

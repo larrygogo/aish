@@ -1,6 +1,6 @@
-# aish 设计原则
+# issh 设计原则
 
-> 这份文档是 aish 视觉与交互设计的**北极星**。所有 PR review、design decision、
+> 这份文档是 issh 视觉与交互设计的**北极星**。所有 PR review、design decision、
 > 新组件设计、color/spacing token 取舍都应回到这三条原则来判断。
 >
 > 立于 M35（2026-05-15），从 M22-M34 design system 累积经验沉淀。
@@ -9,7 +9,7 @@
 
 ## 定位一句话
 
-**aish 是给开发者用的、有审美的 SSH 客户端 — 不是终端，是工作站。**
+**issh 是给开发者用的、有审美的 SSH 客户端 — 不是终端，是工作站。**
 
 | 我们不是 | 我们是 |
 |---|---|
