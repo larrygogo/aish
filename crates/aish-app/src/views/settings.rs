@@ -23,9 +23,9 @@ pub struct SettingsView {
     /// M31：About section 两个 secondary button entity（press feedback 80ms）。
     open_config_btn: Entity<Button>,
     open_github_btn: Entity<Button>,
-    /// M38 paseo borrowing G UI: 深色变体选择器（"默认" / "Midnight"）。
-    /// 仅在 dark mode = on 时显示。on_change 直接切 Theme global + 写盘。
-    theme_variant_select: Entity<Select>,
+    /// M39: 统一主题 select — 单 4 选项替代 M38 的 dark switch + variant
+    /// select 二段式 UX。选项: 默认 / Midnight / Warp Aurora / 浅色。
+    theme_select: Entity<Select>,
 }
 
 impl SettingsView {
@@ -54,23 +54,25 @@ impl SettingsView {
             b
         });
 
-        // M38/M39 深色变体选择器
-        // initial 状态读 app_state.toml — 3 选项: 默认 / Midnight / Warp Aurora
-        let initial_variant_idx = match crate::app_state_file::load_app_state().theme.as_deref() {
+        // M39: 统一主题 select — 单 4 选项（默认 / Midnight / Warp Aurora /
+        // 浅色），替代 M38 的 dark switch + variant select 二段式 UX。
+        // 参考 paseo Theme select 单 dropdown 模式。
+        let initial_theme_idx = match crate::app_state_file::load_app_state().theme.as_deref() {
             Some("midnight") => 1,
             Some("warp") => 2,
-            _ => 0,
+            Some("light") => 3,
+            _ => 0, // dark (默认)
         };
-        let theme_variant_select = cx.new(|cx| {
-            let mut s = Select::new(vec!["默认", "Midnight", "Warp Aurora"], cx);
-            s.set_selected(initial_variant_idx, cx);
+        let theme_select = cx.new(|cx| {
+            let mut s = Select::new(vec!["默认", "Midnight", "Warp Aurora", "浅色"], cx);
+            s.set_selected(initial_theme_idx, cx);
             s.on_change(|idx, _w, cx| {
-                // idx: 0 = dark default, 1 = midnight, 2 = warp
-                // 切深色变体时 dark mode 必然 on（select 只在 dark family 显示）
+                // 0 = dark default, 1 = midnight, 2 = warp, 3 = light
                 let cur_reduced = aish_ui::theme(cx).reduced_motion;
                 let (mut new_theme, theme_key): (Theme, &str) = match *idx {
                     1 => (Theme::dark_midnight(), "midnight"),
                     2 => (Theme::dark_warp(), "warp"),
+                    3 => (Theme::light(), "light"),
                     _ => (Theme::dark(), "dark"),
                 };
                 new_theme.reduced_motion = cur_reduced;
@@ -87,7 +89,7 @@ impl SettingsView {
             scrollbar: aish_ui::ScrollbarHandle::new(),
             open_config_btn,
             open_github_btn,
-            theme_variant_select,
+            theme_select,
         }
     }
 }
@@ -202,13 +204,6 @@ impl Render for SettingsView {
         };
         let t = theme(cx);
         let colors = t.colors;
-        // 当前主题种类从 global Theme 读 —— 切换后 set_global + refresh_windows
-        // 让所有 view 重新 render 拿新 theme。Switch 的 checked 状态直接反映
-        // global 真值，不再用 self.dark_mode 镜像（之前 镜像 + disabled 是因为
-        // Light 未实现的占位）。
-        // M38 paseo borrowing G: midnight 也算 dark family，让 Settings 切换
-        // 在 midnight 状态下仍显示 dark mode = on（用户没显式切 light）
-        let dark = t.kind.is_dark();
         // M30：reduced_motion 偏好直接从 global Theme 读，Switch 反映真值。
         let reduced_motion = t.reduced_motion;
 
@@ -222,38 +217,11 @@ impl Render for SettingsView {
             .child("设置");
 
         // ───── Appearance ─────
-        // M18-light 启用：toggle 真切 Theme global + 持久化到 app_state.toml
-        // 让重启保留选择。
-        let dark_switch = Switch::new("settings-dark-mode")
-            .checked(dark)
-            .on_change(cx.listener(|this, new_value: &bool, _w, cx| {
-                let dark_now = *new_value;
-                // 切主题时**保留** reduced_motion 偏好（dark/light Theme
-                // constructor 初始化为 false，会丢用户选择）
-                let cur_reduced = theme(cx).reduced_motion;
-                // M38/M39: 切到 dark 时根据深色变体 select 当前值选 variant
-                let (new_theme, theme_key): (Theme, &str) = if dark_now {
-                    let variant_idx = this.theme_variant_select.read(cx).selected_index();
-                    match variant_idx {
-                        1 => (Theme::dark_midnight(), "midnight"),
-                        2 => (Theme::dark_warp(), "warp"),
-                        _ => (Theme::dark(), "dark"),
-                    }
-                } else {
-                    (Theme::light(), "light")
-                };
-                let mut new_theme = new_theme;
-                new_theme.reduced_motion = cur_reduced;
-                cx.set_global(new_theme);
-                // refresh_windows 让所有 view 重 render 拿新 theme global。
-                // 不用 cx.notify(this) —— 该 view 自身只是众多受影响 view 之一。
-                cx.refresh_windows();
-                // 持久化：load 当前 state、改 theme 字段、save。
-                let mut snapshot = crate::app_state_file::load_app_state();
-                snapshot.theme = Some(theme_key.to_string());
-                crate::app_state_file::save_app_state(&snapshot);
-            }))
-            .into_any_element();
+        // M39: 合并 dark switch + variant select 为单 theme select（参考 paseo
+        // Theme 单 dropdown 模式）。删除 dark_switch + variant_select_row 二段
+        // UX，用 self.theme_select 一个控件提供 4 选项: 默认 / Midnight /
+        // Warp Aurora / 浅色。Select 默认 BottomEnd placement 右对齐 trigger
+        // 防右上角下拉溢出。
 
         // M30：reduced motion Switch — 切换"减少动画"偏好，写盘 + 更新 Theme
         let motion_switch = Switch::new("settings-reduced-motion")
@@ -277,18 +245,6 @@ impl Render for SettingsView {
             }))
             .into_any_element();
 
-        // M38 paseo borrowing G UI: 深色变体 select 行（仅 dark family 时显示）
-        let variant_select_row = if dark {
-            Some(control_row(
-                "深色变体",
-                Some("默认 indigo / Midnight 深紫蓝 + 加亮 accent"),
-                self.theme_variant_select.clone().into_any_element(),
-                t,
-            ))
-        } else {
-            None
-        };
-
         let appearance_card = Card::new("settings-appearance")
             .outlined()
             .no_padding() // M27: section_header + row helpers 都自带 px_4，opt-out 防双重
@@ -297,17 +253,12 @@ impl Render for SettingsView {
                 div()
                     .flex()
                     .flex_col()
-                    // M35 T17: Dark mode 加 helper 提示 Light theme 是实验性
-                    // — INDEX 历史记录 M15/M17 有 7 个 light token 仍 dark
-                    // fallback 未完整调优，用户切到 light 后部分色彩可能不
-                    // 协调。明示「实验性」让用户预期对齐。
                     .child(control_row(
-                        "深色模式",
-                        Some("关闭后切到浅色主题（实验性，部分色彩未完整调优）"),
-                        dark_switch,
+                        "主题",
+                        Some("默认 / Midnight 深紫蓝 / Warp Aurora 暖紫 / 浅色（实验）"),
+                        self.theme_select.clone().into_any_element(),
                         t,
                     ))
-                    .when_some(variant_select_row, |body, row| body.child(row))
                     .child(control_row(
                         "减少动画",
                         Some("关闭 dialog 入场 / toast 出现等动画"),

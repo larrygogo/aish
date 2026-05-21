@@ -27,7 +27,10 @@ type CloseHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PopoverPlacement {
+    /// 下方，左对齐 trigger 左边
     Bottom,
+    /// 下方，右对齐 trigger 右边（M39: 防 trigger 靠右时 dropdown 向右溢出）
+    BottomEnd,
     Top,
     Left,
     Right,
@@ -150,6 +153,14 @@ impl Render for Popover {
                 Anchor::TopLeft,
                 point(
                     trigger_bounds.origin.x,
+                    trigger_bounds.origin.y + trigger_bounds.size.height + gap,
+                ),
+            ),
+            PopoverPlacement::BottomEnd => (
+                // 右对齐 trigger 右边: dropdown 的 TopRight 锚到 trigger 右下角
+                Anchor::TopRight,
+                point(
+                    trigger_bounds.origin.x + trigger_bounds.size.width,
                     trigger_bounds.origin.y + trigger_bounds.size.height + gap,
                 ),
             ),

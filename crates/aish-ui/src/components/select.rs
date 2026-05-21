@@ -28,7 +28,9 @@ impl Select {
     pub fn new<S: Into<SharedString>>(options: Vec<S>, cx: &mut Context<Self>) -> Self {
         let popover = cx.new(|cx| {
             let mut p = Popover::new(cx);
-            p.placement(PopoverPlacement::Bottom);
+            // M39: 默认右对齐 trigger 右边 — 防 Settings 等右侧 trigger
+            // 下拉时 dropdown 向右溢出窗口
+            p.placement(PopoverPlacement::BottomEnd);
             p
         });
         Self {
